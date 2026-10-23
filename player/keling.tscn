@@ -1,0 +1,105 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://player/keling_controller.gd" id="1_ctrl"]
+[ext_resource type="PackedScene" path="res://assets/characters/keling/keling.glb" id="2_model"]
+[ext_resource type="Script" path="res://player/keling_animator.gd" id="3_anim"]
+[ext_resource type="AnimationLibrary" path="res://assets/characters/keling/keling_animations.res" id="4_lib"]
+[ext_resource type="Script" path="res://camera/orbit_camera.gd" id="5_cam"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.3
+height = 1.2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_leaf"]
+vertex_color_use_as_albedo = true
+albedo_color = Color(1, 1, 1, 1)
+roughness = 0.8
+billboard_mode = 3
+billboard_keep_scale = true
+particles_anim_h_frames = 1
+particles_anim_v_frames = 1
+cull_mode = 2
+transparency = 1
+
+[sub_resource type="QuadMesh" id="QuadMesh_leaf"]
+material = SubResource("StandardMaterial3D_leaf")
+size = Vector2(0.06, 0.035)
+
+[sub_resource type="Gradient" id="Gradient_leafcolors"]
+offsets = PackedFloat32Array(0, 0.5, 1)
+colors = PackedColorArray(0.36, 0.62, 0.22, 1, 0.55, 0.72, 0.25, 1, 0.78, 0.74, 0.32, 1)
+
+[sub_resource type="Gradient" id="Gradient_leaffade"]
+offsets = PackedFloat32Array(0, 0.7, 1)
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0.85, 1, 1, 1, 0)
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_arm"]
+radius = 0.18
+
+[node name="Keling" type="CharacterBody3D"]
+collision_layer = 2
+floor_constant_speed = true
+floor_max_angle = 0.872665
+floor_snap_length = 0.3
+safe_margin = 0.01
+script = ExtResource("1_ctrl")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="Model" parent="Visual" instance=ExtResource("2_model")]
+
+[node name="AnimationTree" type="AnimationTree" parent="Visual"]
+root_node = NodePath("../Model")
+libraries = {
+&"": ExtResource("4_lib")
+}
+script = ExtResource("3_anim")
+
+[node name="LeafPuff" type="CPUParticles3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+emitting = false
+amount = 16
+lifetime = 1.1
+one_shot = true
+explosiveness = 0.92
+randomness = 0.4
+local_coords = false
+mesh = SubResource("QuadMesh_leaf")
+emission_shape = 6
+emission_ring_axis = Vector3(0, 1, 0)
+emission_ring_height = 0.02
+emission_ring_radius = 0.3
+emission_ring_inner_radius = 0.12
+direction = Vector3(0, 1, 0)
+spread = 65.0
+gravity = Vector3(0, -3.2, 0)
+initial_velocity_min = 0.9
+initial_velocity_max = 2.2
+angular_velocity_min = -360.0
+angular_velocity_max = 360.0
+damping_min = 1.5
+damping_max = 3.0
+angle_min = -180.0
+angle_max = 180.0
+scale_amount_min = 0.6
+scale_amount_max = 1.4
+color_ramp = SubResource("Gradient_leaffade")
+color_initial_ramp = SubResource("Gradient_leafcolors")
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("5_cam")
+target_path = NodePath("..")
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraRig"]
+shape = SubResource("SphereShape3D_arm")
+spring_length = 3.4
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig/SpringArm3D"]
+current = true
+fov = 60.0
+near = 0.05
+far = 500.0

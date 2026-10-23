@@ -1,0 +1,14 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/test_grounds.gd" id="1_grounds"]
+[ext_resource type="PackedScene" path="res://player/keling.tscn" id="2_keling"]
+[ext_resource type="Script" path="res://ui/hud.gd" id="3_hud"]
+
+[node name="TestGrounds" type="Node3D"]
+script = ExtResource("1_grounds")
+
+[node name="Keling" parent="." instance=ExtResource("2_keling")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("3_hud")
