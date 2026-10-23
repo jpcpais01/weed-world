@@ -11,7 +11,7 @@ extends Node3D
 signal built
 
 @export var build_in_editor := true
-@export_range(0.0, 2.0) var wind_strength := 0.45:
+@export_range(0.0, 2.0) var wind_strength := 0.6:
 	set(v):
 		wind_strength = v
 		if kit:
@@ -27,8 +27,11 @@ var scatter: ForestScatter
 var water: ForestWater
 var atmosphere: ForestAtmosphere
 var fx: ForestFX
+var life: ForestLife
+var sound: ForestSound
 var _generated: Node3D
 var _interactors: Array[Vector3] = []
+var _wind_timer := 0.0
 
 
 func _ready() -> void:
@@ -79,13 +82,22 @@ func build() -> void:
 
 	atmosphere = ForestAtmosphere.new()
 	atmosphere.build(_generated)
+	atmosphere.build_distant_ranges(_generated)
 
 	fx = ForestFX.new(layout, terrain, kit, scatter, water)
 	fx.build(_generated)
 
+	life = ForestLife.new(layout, terrain, kit)
+	life.build(_generated)
+
+	if not Engine.is_editor_hint():
+		sound = ForestSound.new()
+		_generated.add_child(sound)
+		sound.setup(self)
+
 	kit.set_wind(wind_direction, wind_strength)
 	_place_spawn()
-	print("Forest grown in %d ms (%s)" % [Time.get_ticks_msec() - t0, ", ".join(laps)])
+	print("Forest grown in %d ms (%s) instances %s" % [Time.get_ticks_msec() - t0, ", ".join(laps), scatter.counts])
 	built.emit()
 
 
@@ -114,7 +126,7 @@ func ground_height(x: float, z: float) -> float:
 	return terrain.height_at(x, z) if terrain else 0.0
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if Engine.is_editor_hint() or kit == null:
 		return
 	_interactors.clear()
@@ -122,8 +134,16 @@ func _process(_delta: float) -> void:
 		if n is Node3D and _interactors.size() < 4:
 			_interactors.append((n as Node3D).global_position)
 	kit.set_interactors(_interactors)
+	var t := Time.get_ticks_msec() / 1000.0
 	if fx:
-		fx.flicker(Time.get_ticks_msec() / 1000.0)
+		fx.flicker(t)
+	# The breeze breathes: a slow swell and lull on top of the gusts the
+	# shaders roll across the valley.
+	_wind_timer -= delta
+	if _wind_timer <= 0.0:
+		_wind_timer = 0.2
+		var swell := 0.85 + 0.3 * sin(t * 0.13) * sin(t * 0.071 + 1.0)
+		kit.set_wind(wind_direction, wind_strength * swell)
 
 
 func _spawn_preview_camera() -> void:

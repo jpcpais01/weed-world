@@ -19,6 +19,7 @@ var heights := PackedFloat32Array()
 var path_dist := PackedFloat32Array()
 var water_dist := PackedFloat32Array()
 var shade := PackedFloat32Array()      # canopy occlusion, painted by the scatter pass
+var water_level := PackedFloat32Array() # surface height of the water over each cell, or -INF
 var normals := PackedVector3Array()
 
 var pond_level := 0.0
@@ -26,6 +27,7 @@ var creek_points := PackedVector2Array()
 var creek_surface := PackedFloat32Array()
 var stream_points := PackedVector2Array()
 var stream_surface := PackedFloat32Array()
+var falls: Array[Dictionary] = []      # {index, lip: Vector3, dir: Vector2, drop: float}
 var path_points: Array[PackedVector2Array] = []
 
 
@@ -39,6 +41,8 @@ func build() -> void:
 	path_dist.resize(count)
 	water_dist.resize(count)
 	shade.resize(count)
+	water_level.resize(count)
+	water_level.fill(-1.0e6)
 	path_dist.fill(1.0e6)
 	water_dist.fill(1.0e6)
 	shade.fill(0.0)
@@ -198,6 +202,8 @@ func _carve_pond() -> void:
 				h = lerpf(pond_level - 0.1, maxf(h, pond_level + 0.28), s)
 			heights[i] = h
 			water_dist[i] = minf(water_dist[i], d - r)
+			if d < r + 1.2:
+				water_level[i] = pond_level
 
 
 func _carve_creek() -> void:
@@ -209,10 +215,38 @@ func _carve_creek() -> void:
 		var to_pond := creek_points[k].distance_to(ForestLayout.POND) - ForestLayout.POND_RADIUS
 		if to_pond < 4.0:
 			bed[k] = minf(bed[k], lerpf(pond_level - CREEK_DEPTH - 0.05, bed[k], clampf(to_pond / 4.0, 0.0, 1.0)))
+	# Terrace the bed into a staircase of pools so the creek tumbles down the
+	# ridge in little waterfalls instead of sliding down a ramp. Walk upstream
+	# from the pond holding each pool level until the natural bed has climbed a
+	# full step above it.
+	var level := bed[n - 1]
+	var last := n - 1
+	var step := 0.75
+	var stepped := PackedFloat32Array()
+	stepped.resize(n)
+	for k in range(n - 1, -1, -1):
+		var to_pond := creek_points[k].distance_to(ForestLayout.POND) - ForestLayout.POND_RADIUS
+		var pool := 2.0 + 2.6 * fposmod(sin(float(last) * 12.9898) * 43758.5453, 1.0)
+		if bed[k] >= level + step and (last - k) * 0.5 >= pool and to_pond > 1.0:
+			level = bed[k]
+			last = k
+		stepped[k] = minf(level, bed[k])
 	creek_surface.resize(n)
 	for k in n:
-		creek_surface[k] = bed[k] + CREEK_DEPTH
-	_carve_channel(creek_points, bed, creek_surface, 0.55, 2.3)
+		creek_surface[k] = stepped[k] + CREEK_DEPTH
+	# Each drop gets a plunge pool scoured out below it.
+	falls.clear()
+	var dug := stepped.duplicate()
+	for k in n - 1:
+		var drop := creek_surface[k] - creek_surface[k + 1]
+		if drop < 0.2:
+			continue
+		var dir := (creek_points[k + 1] - creek_points[k]).normalized()
+		falls.append({"index": k, "lip": Vector3(creek_points[k].x, creek_surface[k], creek_points[k].y), "dir": dir, "drop": drop})
+		for j in range(k + 1, mini(k + 6, n)):
+			var f := float(j - k - 1) / 5.0
+			dug[j] -= (0.18 + minf(drop, 2.0) * 0.12) * (1.0 - f * f)
+	_carve_channel(creek_points, dug, creek_surface, 0.55, 2.3)
 
 
 func _carve_stream() -> void:
@@ -258,11 +292,18 @@ func _carve_channel(pts: PackedVector2Array, bed: PackedFloat32Array, surface: P
 		var d := d_field[i]
 		if d > reach:
 			continue
+		# Leave the pond basin alone where a channel runs into or out of it.
+		var gx := i % N
+		var gz := i / N
+		if is_in_pond(_gx(gx), _gx(gz), 0.6):
+			continue
 		var h := heights[i]
 		var levee := maxf(h, lerpf(s_field[i] + 0.14, h, ForestLayout.sstep(w_bank, reach, d)))
 		var dip := (1.0 - clampf(d / w_bed, 0.0, 1.0)) * 0.08
 		heights[i] = lerpf(b_field[i] - dip, levee, ForestLayout.sstep(w_bed * 0.6, w_bank, d))
 		water_dist[i] = minf(water_dist[i], d - w_bed)
+		if d < w_bank:
+			water_level[i] = maxf(water_level[i], s_field[i])
 
 
 ## Writes distance-to-polyline into `out_d`, and for each cell the value of the
@@ -354,9 +395,11 @@ func _chunk_mesh(x0: int, z0: int, cells: int) -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
 	var cols := PackedColorArray()
+	var uvs := PackedVector2Array()
 	verts.resize(w * w)
 	norms.resize(w * w)
 	cols.resize(w * w)
+	uvs.resize(w * w)
 	for lz in w:
 		for lx in w:
 			var gx := x0 + lx
@@ -370,6 +413,7 @@ func _chunk_mesh(x0: int, z0: int, cells: int) -> ArrayMesh:
 			var rock := ForestLayout.sstep(0.80, 0.62, n.y)
 			var wet := 1.0 - ForestLayout.sstep(-0.2, 2.2, water_dist[i])
 			cols[k] = Color(path, rock, wet, shade[i])
+			uvs[k] = Vector2(maxf(water_level[i] - heights[i], 0.0), 0.0)
 	var idx := PackedInt32Array()
 	idx.resize(cells * cells * 6)
 	var t := 0
@@ -388,6 +432,7 @@ func _chunk_mesh(x0: int, z0: int, cells: int) -> ArrayMesh:
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = norms
 	arrays[Mesh.ARRAY_COLOR] = cols
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

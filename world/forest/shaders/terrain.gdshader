@@ -12,6 +12,8 @@ uniform vec3 dirt_b : source_color = vec3(0.62, 0.50, 0.33);
 uniform vec3 pebble : source_color = vec3(0.70, 0.66, 0.58);
 uniform vec3 litter : source_color = vec3(0.36, 0.26, 0.14);
 uniform vec3 mud : source_color = vec3(0.20, 0.16, 0.11);
+uniform vec3 sand : source_color = vec3(0.62, 0.55, 0.40);
+uniform vec3 algae : source_color = vec3(0.22, 0.34, 0.12);
 uniform vec3 rock_tint : source_color = vec3(1.0);
 uniform float rock_scale = 0.16;
 
@@ -49,6 +51,17 @@ void fragment() {
 	// dark wet mud along water
 	float mudm = smoothstep(0.55, 0.95, wet + (n.g - 0.5) * 0.4);
 	c = mix(c, mud * (0.8 + 0.4 * nf.b), mudm * 0.85);
+
+	// Under water: pale sand and pebbles in the shallows, weed-green deeper.
+	float under = smoothstep(0.03, 0.18, UV.x);
+	if (under > 0.0) {
+		float pebs = smoothstep(0.55, 0.8, nf.a) * (0.7 + 0.3 * n.r);
+		vec3 bed = mix(sand * (0.85 + 0.25 * nf.r), pebble * (0.6 + 0.5 * nf.b), pebs * 0.8);
+		float weed = smoothstep(0.25, 0.9, UV.x * 0.8 + (n.g - 0.5) * 0.8);
+		bed = mix(bed, algae * (0.7 + 0.6 * nf.g), weed * 0.75);
+		c = mix(c, bed, under);
+		mudm *= 1.0 - under;
+	}
 
 	// rock on steep ground
 	float rm = smoothstep(0.3, 0.7, COLOR.g + (n.r - 0.5) * 0.5);

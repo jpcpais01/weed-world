@@ -30,6 +30,7 @@ F3 shows a debug readout, F11 toggles fullscreen.
 - `ui/`: HUD and touch controls
 - `world/forest/`: the Whispering Glade, a 100 × 100 m magical forest grown at load time from a fixed seed (terrain, procedural trees, scatter, water, golden-hour lighting, magic FX). `forest_level.tscn` is the main scene; `forest.tscn` runs standalone with a fly camera.
 - `assets/nature/`: Quaternius Stylized Nature MegaKit (CC0), re-dressed in the forest's own shaders
+- `assets/audio/forest/`: the forest soundscape, synthesised from scratch by `tools/synth_forest_audio.py` (original, no third-party audio)
 - `scenes/`: test grounds and the pickable herb
 - `assets/characters/keling/`: rigged model and retargeted animation library
 - `tools/`: offline pipeline (rigging, animation retargeting) and headless tests
@@ -50,6 +51,12 @@ godot --headless --path . -s res://tools/smoke_test.gd      # scripted run throu
 godot --headless --path . -s res://tools/foot_slip_test.gd  # planted-foot sliding per gait
 godot --headless --path . -s res://tools/grab_test.gd       # grab reach: hand-to-herb distance at grip
 godot --headless --path . -s res://tools/forest_check.gd    # grow the forest, walk the Keling across it
+```
+
+### Regenerating the forest sounds
+
+```sh
+python3 tools/synth_forest_audio.py   # needs numpy, scipy and ffmpeg with libvorbis
 ```
 
 ## Releases and signing
