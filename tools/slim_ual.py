@@ -13,7 +13,7 @@ import json, struct, sys
 UAL1_CLIPS = [
     "Idle_Loop", "Idle_LookAround_Loop", "Walk_Loop", "Jog_Fwd_Loop",
     "Jog_Fwd_LeanL_Loop", "Jog_Fwd_LeanR_Loop", "Sprint_Loop", "Sprint_Exit",
-    "Jump_Start", "Jump_Loop", "Jump_Land", "Roll",
+    "Jump_Start", "Jump_Loop", "Jump_Land",
     "Dance_Loop", "Celebration", "GroundSit_Enter", "GroundSit_Idle_Loop",
     "GroundSit_Exit",
 ]

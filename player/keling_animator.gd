@@ -6,7 +6,8 @@ extends AnimationTree
 ##   Move ........ idle (+ random fidgets) blended into a phase-synced gait
 ##                 blend space (walk / jog / sprint) whose cadence follows the
 ##                 real ground speed, so feet don't slide.
-##   JumpStart, Fall, Land, Roll, SprintStop, Turn90/180 L/R, emotes.
+##   JumpStart, Fall, Land, SprintStop, Turn90/180 L/R, emotes.
+## (Grabbing is procedural on top of Move, see KelingGrab.)
 ## Every transition is a short crossfade; "play to end" behaviour is handled
 ## here in code so any state can still be interrupted instantly.
 
@@ -25,13 +26,13 @@ const GAIT := {
 ## Play length (s) for clips that should run faster than authored.
 const STRETCH := {
 	&"Turn90L": 1.25, &"Turn90R": 1.25, &"Turn180L": 1.2, &"Turn180R": 1.2,
-	&"Land": 0.95, &"Roll": 1.05, &"SprintStop": 1.15, &"JumpStart": 1.15,
+	&"Land": 0.95, &"SprintStop": 1.15, &"JumpStart": 1.15,
 	&"SitDown": 1.7, &"SitUp": 1.5,
 }
 
 ## Crossfade time into each state.
 const XFADE := {
-	&"Move": 0.22, &"JumpStart": 0.07, &"Fall": 0.3, &"Land": 0.06, &"Roll": 0.08,
+	&"Move": 0.22, &"JumpStart": 0.07, &"Fall": 0.3, &"Land": 0.06,
 	&"SprintStop": 0.14, &"Turn90L": 0.16, &"Turn90R": 0.16, &"Turn180L": 0.16, &"Turn180R": 0.16,
 	&"Dance": 0.35, &"Cheer": 0.3, &"SitDown": 0.3, &"SitIdle": 0.25, &"SitUp": 0.2,
 	&"Nod": 0.3, &"Surprise": 0.2,
@@ -39,7 +40,7 @@ const XFADE := {
 
 ## States that hand over to another state when they finish.
 const NEXT := {
-	&"JumpStart": &"Fall", &"Land": &"Move", &"Roll": &"Move", &"SprintStop": &"Move",
+	&"JumpStart": &"Fall", &"Land": &"Move", &"SprintStop": &"Move",
 	&"Turn90L": &"Move", &"Turn90R": &"Move", &"Turn180L": &"Move", &"Turn180R": &"Move",
 	&"Cheer": &"Move", &"Nod": &"Move", &"Surprise": &"Move", &"SitDown": &"SitIdle", &"SitUp": &"Move",
 }
@@ -213,7 +214,7 @@ func _build_tree() -> AnimationNodeStateMachine:
 
 	var sm := AnimationNodeStateMachine.new()
 	sm.add_node(&"Move", move, Vector2(0, 0))
-	var states := [&"JumpStart", &"Fall", &"Land", &"Roll", &"SprintStop", &"Turn90L", &"Turn90R",
+	var states := [&"JumpStart", &"Fall", &"Land", &"SprintStop", &"Turn90L", &"Turn90R",
 		&"Turn180L", &"Turn180R", &"Dance", &"Cheer", &"SitDown", &"SitIdle", &"SitUp", &"Nod", &"Surprise"]
 	var angle := 0.0
 	for s in states:

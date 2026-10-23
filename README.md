@@ -17,6 +17,7 @@ Every merge to `main` publishes a [release](../../releases/latest) with:
 | Move | Left joystick (push gently to walk) | WASD (C toggles walk) | Left stick |
 | Sprint | Push past the ring, or the sprint button | Shift | B / L3 / LT |
 | Jump | Jump button (hold for higher) | Space | A |
+| Grab | Hand button | E or F | X |
 | Camera | Drag on the right, pinch to zoom | Click to capture, mouse, wheel | Right stick, LB/RB |
 | Emotes | Smiley button | 1 dance, 2 cheer, 3 sit, 4 nod | D-pad |
 
@@ -24,10 +25,10 @@ F3 shows a debug readout, F11 toggles fullscreen.
 
 ## Project layout
 
-- `player/`: the Keling (controller, animation graph, procedural layer: breathing, lean, foot IK, spring bones)
+- `player/`: the Keling (controller, animation graph, procedural layer: breathing, lean, foot IK, spring bones; procedural grab with arm IK and finger curls)
 - `camera/`: third-person orbit camera
 - `ui/`: HUD and touch controls
-- `scenes/`: test grounds
+- `scenes/`: test grounds and the pickable herb
 - `assets/characters/keling/`: rigged model and retargeted animation library
 - `tools/`: offline pipeline (rigging, animation retargeting) and headless tests
 - `art_source/`: source assets for the tools (ignored by Godot)
@@ -45,6 +46,7 @@ godot --headless --path . -s res://tools/retarget_animations.gd
 ```sh
 godot --headless --path . -s res://tools/smoke_test.gd      # scripted run through every move
 godot --headless --path . -s res://tools/foot_slip_test.gd  # planted-foot sliding per gait
+godot --headless --path . -s res://tools/grab_test.gd       # grab reach: hand-to-herb distance at grip
 ```
 
 ## Releases and signing

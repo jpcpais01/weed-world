@@ -24,6 +24,8 @@ const SCRIPT := [
 	[16.1, "emote_sit", false, 0.0],
 	[19.0, "move_left", true, 1.0],
 	[21.0, "move_left", false, 0.0],
+	[21.6, "grab", true, 1.0],
+	[21.7, "grab", false, 0.0],
 ]
 
 var _t := 0.0
@@ -65,7 +67,7 @@ func _physics_process(delta: float) -> bool:
 	if not _shots.is_empty() and _t >= _shots[0]:
 		var t: float = _shots.pop_front()
 		_capture.call_deferred(t)
-	if _t > 23.0:
+	if _t > 24.5:
 		print("states visited: ", _states.keys())
 		return true
 	return false
