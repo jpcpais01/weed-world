@@ -57,13 +57,15 @@ func build(parent: Node3D) -> void:
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_128
-	sky.process_mode = Sky.PROCESS_MODE_QUALITY
+	sky.process_mode = Sky.PROCESS_MODE_AUTOMATIC
 
 	environment = Environment.new()
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_sky_contribution = 1.0
+	# Mostly sky light, plus a constant cool floor so shade never goes inky.
+	environment.ambient_light_color = Color(0.52, 0.6, 0.72)
+	environment.ambient_light_sky_contribution = 0.8
 	environment.ambient_light_energy = 0.85
 	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 

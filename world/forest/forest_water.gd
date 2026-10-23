@@ -53,13 +53,13 @@ func _pond() -> MeshInstance3D:
 			uvs.append(Vector2(x, z) * 0.1)
 			norms.append(Vector3.UP)
 	for s in seg:
-		idx.append_array([0, 1 + (s + 1) % seg, 1 + s])
+		idx.append_array([0, 1 + s, 1 + (s + 1) % seg])
 	for r in range(1, rings):
 		var a0 := 1 + (r - 1) * seg
 		var a1 := 1 + r * seg
 		for s in seg:
 			var s1 := (s + 1) % seg
-			idx.append_array([a0 + s, a0 + s1, a1 + s, a1 + s, a0 + s1, a1 + s1])
+			idx.append_array([a0 + s, a1 + s, a0 + s1, a1 + s, a1 + s1, a0 + s1])
 	var mi := _mesh_instance("Pond", verts, norms, cols, uvs, idx, kit.water_material(false))
 	return mi
 
@@ -243,19 +243,14 @@ func _pad_mesh() -> ArrayMesh:
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var mat := ShaderMaterial.new()
-	mat.shader = NatureKit.SH_PLANT
-	mat.set_shader_parameter("use_alpha", false)
-	mat.set_shader_parameter("albedo_tex", kit.texture("Grass"))
-	mat.set_shader_parameter("tint", Color(1.0, 1.0, 1.0))
-	mat.set_shader_parameter("ground_tint", true)
-	mat.set_shader_parameter("tip_mix", 0.0)
-	mat.set_shader_parameter("grass_a", Color(0.16, 0.36, 0.14))
-	mat.set_shader_parameter("grass_b", Color(0.28, 0.48, 0.16))
-	mat.set_shader_parameter("grass_dry", Color(0.36, 0.5, 0.2))
-	mat.set_shader_parameter("ground_noise", NatureKit.NOISE)
-	mat.set_shader_parameter("up_normal", 0.0)
-	mat.set_shader_parameter("fade_start", 80.0)
-	mat.set_shader_parameter("fade_end", 90.0)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.2, 0.42, 0.14)
+	mat.roughness = 0.45
+	mat.metallic_specular = 0.6
+	mat.rim_enabled = true
+	mat.rim = 0.4
+	mat.backlight_enabled = true
+	mat.backlight = Color(0.25, 0.4, 0.1)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.surface_set_material(0, mat)
 	return m

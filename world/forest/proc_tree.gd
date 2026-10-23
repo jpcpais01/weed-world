@@ -65,9 +65,9 @@ func _config() -> Dictionary:
 		_:
 			return {
 				"height": rng.randf_range(7.0, 10.0), "trunk_r": rng.randf_range(0.28, 0.4),
-				"depth": 2, "children": [4, 3], "spread": [36.0, 40.0],
-				"ratio": [0.6, 0.6], "tropism": [0.12, 0.1], "wiggle": 0.15,
-				"sides": [5, 4, 3], "seg": 1.2, "leaf": 2.2, "leaves": 5, "split_at": 0.55,
+				"depth": 2, "children": [4, 3], "spread": [34.0, 38.0],
+				"ratio": [0.5, 0.5], "tropism": [0.14, 0.12], "wiggle": 0.12,
+				"sides": [5, 4, 3], "seg": 1.2, "leaf": 2.6, "leaves": 7, "split_at": 0.6,
 				"weep": false, "trunk_lean": 0.1,
 			}
 

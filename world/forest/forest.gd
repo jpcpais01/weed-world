@@ -51,11 +51,13 @@ func build() -> void:
 	terrain = ForestTerrain.new(layout)
 	terrain.build()
 	kit = NatureKit.new()
+	var laps := ["terrain %d" % (Time.get_ticks_msec() - t0)]
 
 	# Trees first: they paint canopy shade into the terrain, which the ground
 	# colour, the grass tint and the undergrowth all read.
 	scatter = ForestScatter.new(layout, terrain, kit)
 	scatter.plan()
+	laps.append("trees %d" % (Time.get_ticks_msec() - t0))
 
 	var ground := Node3D.new()
 	ground.name = "Terrain"
@@ -66,8 +68,11 @@ func build() -> void:
 	ground.add_child(terrain.build_outer_mesh(tmat))
 	ground.add_child(terrain.build_collision())
 
+	laps.append("ground %d" % (Time.get_ticks_msec() - t0))
 	scatter.populate()
+	laps.append("undergrowth %d" % (Time.get_ticks_msec() - t0))
 	scatter.build(_generated)
+	laps.append("batches %d" % (Time.get_ticks_msec() - t0))
 
 	water = ForestWater.new(layout, terrain, kit)
 	water.build(_generated)
@@ -80,7 +85,7 @@ func build() -> void:
 
 	kit.set_wind(wind_direction, wind_strength)
 	_place_spawn()
-	print("Forest grown in %d ms" % (Time.get_ticks_msec() - t0))
+	print("Forest grown in %d ms (%s)" % [Time.get_ticks_msec() - t0, ", ".join(laps)])
 	built.emit()
 
 

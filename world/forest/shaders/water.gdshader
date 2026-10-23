@@ -2,7 +2,7 @@
 // terrain (no depth-buffer reads, so it stays cheap on phones): R = water
 // depth in metres, G = turbulence, B = flow speed. UV.y runs downstream.
 shader_type spatial;
-render_mode blend_mix, depth_draw_always, cull_back, specular_schlick_ggx;
+render_mode blend_mix, depth_draw_always, cull_disabled, specular_schlick_ggx;
 
 uniform sampler2D water_noise : filter_linear_mipmap, repeat_enable;
 uniform vec3 shallow : source_color = vec3(0.30, 0.62, 0.55);

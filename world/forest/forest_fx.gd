@@ -199,7 +199,7 @@ func _fireflies(root: Node3D) -> void:
 func _pollen(root: Node3D) -> void:
 	# Warm dust motes hanging in the sunlit air of the glade and the pond.
 	for c in [ForestLayout.GLADE, ForestLayout.POND, ForestLayout.OVERLOOK]:
-		var p := _emitter("Pollen", _ground(c, 2.4), Vector3(11, 2.2, 11), 70, 12.0, Color(1.0, 0.85, 0.6), 1.3, 0.035)
+		var p := _emitter("Pollen", _ground(c, 2.4), Vector3(11, 2.2, 11), 60, 12.0, Color(1.0, 0.85, 0.6), 0.55, 0.025)
 		var pm: ParticleProcessMaterial = p.process_material
 		pm.turbulence_noise_strength = 0.6
 		pm.initial_velocity_max = 0.12
@@ -288,8 +288,6 @@ func _wisps(root: Node3D) -> void:
 	mmi.name = "ElderWisps"
 	mmi.multimesh = mm
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mmi.custom_aabb = AABB(Vector3(-12, -12, -12), Vector3(24, 24, 24))
-	mmi.position = Vector3.ZERO
 	root.add_child(mmi)
 	mmi.custom_aabb = AABB(crown - Vector3(14, 16, 14), Vector3(28, 26, 28))
 
@@ -321,7 +319,7 @@ func _lights(root: Node3D) -> void:
 
 
 func _campfire(root: Node3D) -> void:
-	var o := ForestLayout.OVERLOOK + Vector2(0.0, 1.2)
+	var o := ForestLayout.OVERLOOK + ForestLayout.vista_dir() * 0.5
 	var base := _ground(o)
 	var fire := Node3D.new()
 	fire.name = "Campfire"

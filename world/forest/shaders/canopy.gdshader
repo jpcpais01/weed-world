@@ -53,8 +53,6 @@ void fragment() {
 	vec4 tex = texture(leaf_tex, UV);
 	ALPHA = tex.a;
 	ALPHA_SCISSOR_THRESHOLD = alpha_cut;
-	ALPHA_ANTIALIASING_EDGE = 0.25;
-	ALPHA_TEXTURE_COORDINATE = UV * vec2(textureSize(leaf_tex, 0));
 	float magic = v_custom.a;
 	vec3 lo = mix(color_low, alt_low, magic);
 	vec3 hi = mix(color_high, alt_high, magic);

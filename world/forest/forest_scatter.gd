@@ -21,6 +21,7 @@ var trees: Array[Dictionary] = []          # {pos: Vector2, r: float (spacing), 
 var colliders: Array[Dictionary] = []      # {shape: Shape3D, xform: Transform3D}
 var hero := {}                             # named landmark data for FX (elder canopy etc.)
 var _batches := {}
+var _lookup := {}                          # mesh -> {chunk cell -> instance data}
 var _proc_pool := {}
 var _patch := FastNoiseLite.new()
 var _hash := {}                            # 8 m buckets of tree indices
@@ -100,12 +101,18 @@ func build(parent: Node3D) -> void:
 
 func add(mesh: Mesh, xform: Transform3D, custom: Color, group: String) -> void:
 	var size: float = CHUNK[group]
-	var cx := int(floor((xform.origin.x + 200.0) / size))
-	var cz := int(floor((xform.origin.z + 200.0) / size))
-	var key := "%s_%s_%d_%d" % [group, mesh.resource_name if mesh.resource_name != "" else str(mesh.get_instance_id()), cx, cz]
-	if not _batches.has(key):
-		_batches[key] = {"mesh": mesh, "group": group, "data": PackedFloat32Array()}
-	var d: PackedFloat32Array = _batches[key].data
+	var cell := Vector2i(int(floor((xform.origin.x + 200.0) / size)), int(floor((xform.origin.z + 200.0) / size)))
+	var per_mesh: Dictionary = _lookup.get(mesh, {})
+	if per_mesh.is_empty():
+		_lookup[mesh] = per_mesh
+	var d: PackedFloat32Array
+	if per_mesh.has(cell):
+		d = per_mesh[cell]
+	else:
+		var key := "%s_%s_%d_%d" % [group, mesh.resource_name if mesh.resource_name != "" else str(mesh.get_instance_id()), cell.x, cell.y]
+		d = PackedFloat32Array()
+		_batches[key] = {"mesh": mesh, "group": group, "data": d}
+		per_mesh[cell] = d
 	var b := xform.basis
 	var o := xform.origin
 	d.append_array([b.x.x, b.y.x, b.z.x, o.x, b.x.y, b.y.y, b.z.y, o.y, b.x.z, b.y.z, b.z.z, o.z,
@@ -281,8 +288,7 @@ func _in_vista(p: Vector2) -> bool:
 	var v := p - ForestLayout.OVERLOOK
 	if v.length() > 46.0 or v.length() < 0.5:
 		return false
-	var sun := Vector2(ForestAtmosphere.SUN_TOWARDS.x, ForestAtmosphere.SUN_TOWARDS.z).normalized()
-	return v.normalized().dot(sun.lerp(Vector2(0.0, 1.0), 0.35).normalized()) > 0.78
+	return v.normalized().dot(ForestLayout.vista_dir()) > 0.78
 
 
 func _place_forest() -> void:
@@ -455,7 +461,7 @@ var _convex_cache := {}
 
 func _convex(mesh: ArrayMesh) -> Shape3D:
 	if not _convex_cache.has(mesh):
-		_convex_cache[mesh] = mesh.create_convex_shape(true, true)
+		_convex_cache[mesh] = mesh.create_convex_shape(true, false)
 	return _convex_cache[mesh]
 
 
@@ -536,8 +542,11 @@ func _place_rocks() -> void:
 func _place_logs() -> void:
 	# Fallen trunks to sit on at the overlook, and an old mossy log in the hollow.
 	var o := ForestLayout.OVERLOOK
-	_log(o + Vector2(-2.2, 1.6), deg_to_rad(65.0), 3.2, 0.32)
-	_log(o + Vector2(2.4, 1.2), deg_to_rad(-60.0), 2.8, 0.3)
+	var v := ForestLayout.vista_dir()
+	var perp := Vector2(-v.y, v.x)
+	# A back bench and a side bench, both facing the fire and the sunset.
+	_log(o - v * 1.5, perp.angle(), 3.0, 0.3)
+	_log(o + perp * 2.0 + v * 0.3, v.angle(), 2.6, 0.28)
 	_log(ForestLayout.HOLLOW + Vector2(-3.0, 4.0), deg_to_rad(20.0), 6.5, 0.5)
 	_log(ForestLayout.GROVE + Vector2(5.0, 5.0), deg_to_rad(-35.0), 4.5, 0.38)
 	_log(Vector2(-24.0, -14.0), deg_to_rad(80.0), 5.0, 0.42)
@@ -781,34 +790,45 @@ func _place_grass() -> void:
 		var m := kit.grass_tuft(ForestLayout.SEED + v * 13, 9 + v, 0.55, 0.22)
 		m.resource_name = "GrassTuft_%d" % v
 		tufts.append(m)
-	var tall := [_named("Grass_Wispy_Tall"), _named("Grass_Common_Tall"), _named("Grass_Wispy_Short")]
+	var tall: Array[ArrayMesh] = []
+	for v in 3:
+		var m := kit.grass_tuft(ForestLayout.SEED + 500 + v * 7, 7 + v * 2, 1.05, 0.3, "tall")
+		m.resource_name = "TallGrass_%d" % v
+		tall.append(m)
 	var step := 0.42
 	var lim := ForestLayout.HALF + 6.0
 	var n := int(lim * 2.0 / step)
+	var N := ForestTerrain.N
+	var ext := ForestTerrain.EXTENT
+	var inv := 1.0 / ForestTerrain.STEP
 	for iz in n:
 		for ix in n:
 			var x := -lim + (ix + rng.randf()) * step
 			var z := -lim + (iz + rng.randf()) * step
-			var water := terrain.water_distance(x, z)
+			# Nearest-sample lookups: this loop runs ~70k times.
+			var gi := clampi(int((z + ext) * inv + 0.5), 0, N - 1) * N + clampi(int((x + ext) * inv + 0.5), 0, N - 1)
+			var water := terrain.water_dist[gi]
 			if water < 0.25:
 				continue
-			var path := terrain.path_distance(x, z)
-			var shade := terrain.shade_at(x, z)
+			var path := terrain.path_dist[gi]
+			var shade := terrain.shade[gi]
 			var density := (1.0 - shade * 0.72)
 			density *= ForestLayout.sstep(0.55, 1.6, path)
-			density *= 1.0 - ForestLayout.sstep(26.0, 40.0, terrain.slope_at(x, z))
-			if Vector2(x, z).distance_to(ForestLayout.OVERLOOK) < 3.4:
-				density *= 0.25
+			density *= ForestLayout.sstep(0.77, 0.9, terrain.normals[gi].y)
+			if density <= 0.0:
+				continue
+			if Vector2(x, z).distance_squared_to(ForestLayout.OVERLOOK) < 30.0:
+				density *= 0.12
 			var p := _patch.get_noise_2d(x * 0.7, z * 0.7)
 			density *= 0.7 + 0.5 * clampf(p + 0.4, 0.0, 1.0)
 			if rng.randf() > density:
 				continue
-			var custom := _plant_custom(x, z)
-			var wet := custom.g
+			var wet := 1.0 - ForestLayout.sstep(-0.2, 2.2, water)
+			var custom := Color(shade, wet, rng.randf(), 0.0)
 			# Tall wispy grass along the water and in sunny meadow patches.
 			if (wet > 0.35 and rng.randf() < 0.18) or (p > 0.35 and shade < 0.3 and rng.randf() < 0.05):
 				var m: ArrayMesh = tall[rng.randi() % tall.size()]
-				add(m, _ground_xform(x, z, rng.randf_range(0.35, 0.55), rng.randf() * TAU, 0.0, 0.7), custom, "grass")
+				add(m, _ground_xform(x, z, rng.randf_range(0.75, 1.15), rng.randf() * TAU, 0.0, 0.7), custom, "grass")
 				continue
 			var s := rng.randf_range(0.75, 1.25) * lerpf(1.0, 0.7, shade)
 			add(tufts[rng.randi() % tufts.size()], _ground_xform(x, z, s, rng.randf() * TAU, 0.0, 0.8), custom, "grass")

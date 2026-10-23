@@ -74,6 +74,12 @@ func _init() -> void:
 	_noise_crag.fractal_octaves = 2
 
 
+## Direction the overlook looks out over the valley towards the sunset.
+static func vista_dir() -> Vector2:
+	var sun := Vector2(ForestAtmosphere.SUN_TOWARDS.x, ForestAtmosphere.SUN_TOWARDS.z).normalized()
+	return sun.lerp(Vector2(0.0, 1.0), 0.35).normalized()
+
+
 static func sstep(e0: float, e1: float, x: float) -> float:
 	var t := clampf((x - e0) / (e1 - e0), 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)

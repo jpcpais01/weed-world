@@ -28,6 +28,8 @@ F3 shows a debug readout, F11 toggles fullscreen.
 - `player/`: the Keling (controller, animation graph, procedural layer: breathing, lean, foot IK, spring bones; procedural grab with arm IK and finger curls)
 - `camera/`: third-person orbit camera
 - `ui/`: HUD and touch controls
+- `world/forest/`: the Whispering Glade, a 100 × 100 m magical forest grown at load time from a fixed seed (terrain, procedural trees, scatter, water, golden-hour lighting, magic FX). `forest_level.tscn` is the main scene; `forest.tscn` runs standalone with a fly camera.
+- `assets/nature/`: Quaternius Stylized Nature MegaKit (CC0), re-dressed in the forest's own shaders
 - `scenes/`: test grounds and the pickable herb
 - `assets/characters/keling/`: rigged model and retargeted animation library
 - `tools/`: offline pipeline (rigging, animation retargeting) and headless tests
@@ -47,6 +49,7 @@ godot --headless --path . -s res://tools/retarget_animations.gd
 godot --headless --path . -s res://tools/smoke_test.gd      # scripted run through every move
 godot --headless --path . -s res://tools/foot_slip_test.gd  # planted-foot sliding per gait
 godot --headless --path . -s res://tools/grab_test.gd       # grab reach: hand-to-herb distance at grip
+godot --headless --path . -s res://tools/forest_check.gd    # grow the forest, walk the Keling across it
 ```
 
 ## Releases and signing

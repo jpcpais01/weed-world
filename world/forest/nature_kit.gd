@@ -306,7 +306,7 @@ func set_interactors(points: Array[Vector3]) -> void:
 
 ## A tuft of curved, tapering blades. COLOR.r carries 0 at the root to 1 at the
 ## tip; the shader uses it for colour, wind and parting.
-func grass_tuft(seed: int, blades: int, height: float, spread: float) -> ArrayMesh:
+func grass_tuft(seed: int, blades: int, height: float, spread: float, kind: String = "tuft") -> ArrayMesh:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var verts := PackedVector3Array()
@@ -356,5 +356,5 @@ func grass_tuft(seed: int, blades: int, height: float, spread: float) -> ArrayMe
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	m.surface_set_material(0, grass_material("tuft", height, true))
+	m.surface_set_material(0, grass_material(kind, height, true))
 	return m

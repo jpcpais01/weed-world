@@ -109,7 +109,16 @@ func shade_at(x: float, z: float) -> float:
 	return _field(shade, x, z, 0.0)
 
 
+## Nearest grid normal: cheap enough to call tens of thousands of times.
+func grid_normal(x: float, z: float) -> Vector3:
+	var ix := clampi(int(round((x + EXTENT) / STEP)), 0, N - 1)
+	var iz := clampi(int(round((z + EXTENT) / STEP)), 0, N - 1)
+	return normals[iz * N + ix]
+
+
 func normal_at(x: float, z: float) -> Vector3:
+	if absf(x) < EXTENT - 1.0 and absf(z) < EXTENT - 1.0:
+		return grid_normal(x, z)
 	var e := 0.35
 	var dx := height_at(x + e, z) - height_at(x - e, z)
 	var dz := height_at(x, z + e) - height_at(x, z - e)
@@ -398,9 +407,10 @@ func build_outer_mesh(material: Material) -> MeshInstance3D:
 			var x := -OUTER_EXTENT + lx * OUTER_STEP
 			var z := -OUTER_EXTENT + lz * OUTER_STEP
 			var h := layout.landform(x, z)
-			var inside := maxf(absf(x), absf(z)) < EXTENT - 1.0
-			if inside:
-				h -= 0.6
+			# Sink it well below the detailed grid (carved pond, creek beds) but
+			# keep the border ring so both meshes meet at the seam.
+			if maxf(absf(x), absf(z)) < EXTENT - 0.5:
+				h -= 12.0
 			verts[lz * w + lx] = Vector3(x, h, z)
 			# Distant hills sit under dense canopy: give them shade.
 			var far := ForestLayout.sstep(EXTENT, EXTENT + 20.0, maxf(absf(x), absf(z)))

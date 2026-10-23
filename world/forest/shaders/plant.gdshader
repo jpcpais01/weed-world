@@ -80,8 +80,6 @@ void fragment() {
 	if (use_alpha) {
 		ALPHA = tex.a;
 		ALPHA_SCISSOR_THRESHOLD = 0.5;
-		ALPHA_ANTIALIASING_EDGE = 0.25;
-		ALPHA_TEXTURE_COORDINATE = UV * vec2(textureSize(albedo_tex, 0));
 	}
 	vec3 col;
 	if (ground_tint) {
