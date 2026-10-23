@@ -33,6 +33,7 @@ func _enter_tree() -> void:
 	_add("look_up", [], [], [[JOY_AXIS_RIGHT_Y, -1.0]])
 	_add("look_down", [], [], [[JOY_AXIS_RIGHT_Y, 1.0]])
 	_add("jump", [KEY_SPACE], [JOY_BUTTON_A], [])
+	_add("grab", [KEY_E, KEY_F], [JOY_BUTTON_X], [])
 	_add("sprint", [KEY_SHIFT], [JOY_BUTTON_LEFT_STICK, JOY_BUTTON_B], [[JOY_AXIS_TRIGGER_LEFT, 1.0]])
 	_add("walk_toggle", [KEY_C, KEY_CTRL], [JOY_BUTTON_RIGHT_STICK], [])
 	_add("emote_dance", [KEY_1], [JOY_BUTTON_DPAD_UP], [])

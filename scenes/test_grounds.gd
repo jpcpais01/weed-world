@@ -113,7 +113,7 @@ func _build_course() -> void:
 		var h: float = heights[i]
 		_block(Vector3(1.6, h, 1.6), Vector3(7.0 + i * 2.4, h * 0.5, 6.0), warm)
 
-	# Ramps up to two platforms, and a tower to drop (and roll) from.
+	# Ramps up to two platforms, and a tower to drop from.
 	_ramp(Vector3(-8.0, 0, 3.0), 6.0, 1.2, 2.4, stone)  # ~11 deg
 	_block(Vector3(3.0, 1.2, 3.0), Vector3(-8.0, 0.6, 10.5), stone)
 	_ramp(Vector3(-13.0, 0, 3.5), 5.0, 2.4, 2.4, stone)  # ~26 deg
@@ -154,6 +154,33 @@ func _build_course() -> void:
 	_block(Vector3(6.0, 0.9, 0.5), Vector3(16.0, 0.45, 14.0), stone)
 	_block(Vector3(6.0, 0.9, 0.5), Vector3(24.0, 0.45, 14.0), stone)
 	_block(Vector3(0.35, 0.35, 10.0), Vector3(0.0, 0.175, -18.0), warm)
+
+	# Herb patch to practise grabbing: low tufts, a ledge, and a hanging vine.
+	for p in [Vector3(2.4, 0, 2.6), Vector3(3.1, 0, 3.4), Vector3(2.2, 0, 3.9)]:
+		var herb := Herb.new()
+		herb.position = p
+		add_child(herb)
+	_block(Vector3(1.2, 0.3, 0.8), Vector3(4.6, 0.15, 2.4), stone)
+	for x in [4.3, 4.9]:
+		var herb := Herb.new()
+		herb.height = 0.3
+		herb.position = Vector3(x, 0.3, 2.1)
+		add_child(herb)
+	var post := CylinderMesh.new()
+	post.top_radius = 0.06
+	post.bottom_radius = 0.08
+	post.height = 1.6
+	var post_mi := MeshInstance3D.new()
+	post_mi.mesh = post
+	post_mi.material_override = warm
+	post_mi.position = Vector3(6.2, 0.8, 3.6)
+	add_child(post_mi)
+	_block(Vector3(0.7, 0.08, 0.08), Vector3(5.95, 1.55, 3.6), warm)
+	var vine := Herb.new()
+	vine.hanging = true
+	vine.height = 0.5
+	vine.position = Vector3(5.75, 1.51, 3.6)
+	add_child(vine)
 
 	# Distance markers every 5 m along the open run.
 	for i in range(1, 9):

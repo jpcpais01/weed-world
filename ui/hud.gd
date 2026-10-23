@@ -136,9 +136,9 @@ func _refresh() -> void:
 		GameInput.Method.TOUCH:
 			_hints.text = ""
 		GameInput.Method.GAMEPAD:
-			_hints.text = "Left stick  move (push gently to walk)\nRight stick  camera   ·   LB/RB  zoom\nA  jump (hold for higher)   ·   B / L3  sprint\nD-pad  dance · cheer · sit · nod"
+			_hints.text = "Left stick  move (push gently to walk)\nRight stick  camera   ·   LB/RB  zoom\nA  jump (hold for higher)   ·   X  grab   ·   B / L3  sprint\nD-pad  dance · cheer · sit · nod"
 		_:
-			_hints.text = "WASD  move   ·   Shift  sprint   ·   C  walk toggle\nSpace  jump (hold for higher)\nClick  capture mouse to look   ·   Wheel  zoom   ·   Esc  release\n1 dance   2 cheer   3 sit   4 nod   ·   F3 debug   ·   F11 fullscreen"
+			_hints.text = "WASD  move   ·   Shift  sprint   ·   C  walk toggle\nSpace  jump (hold for higher)   ·   E  grab\nClick  capture mouse to look   ·   Wheel  zoom   ·   Esc  release\n1 dance   2 cheer   3 sit   4 nod   ·   F3 debug   ·   F11 fullscreen"
 	_hints.modulate.a = 1.0
 	_hint_timer = 14.0
 

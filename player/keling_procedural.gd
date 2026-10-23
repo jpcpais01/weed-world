@@ -13,6 +13,7 @@ var exertion := 0.0  ## 0 rested .. 1 out of breath
 var look_yaw := 0.0  ## radians, head target relative to body facing
 var look_pitch := 0.0
 var land_compression := 0.0  ## metres the hips sink
+var crouch := 0.0  ## metres the hips dip for a low grab (feet stay planted)
 var ik_enabled := true
 var ik_weight := 1.0
 var space_state: PhysicsDirectSpaceState3D
@@ -105,7 +106,7 @@ func _solve_feet(skel: Skeleton3D, delta: float) -> void:
 	# Sink the hips so the lower foot can still reach; add landing compression.
 	_pelvis_offset = lerpf(_pelvis_offset, lowest, 1.0 - exp(-14.0 * delta))
 	var hips: int = _bones["Hips"]
-	var drop := _pelvis_offset - land_compression
+	var drop := _pelvis_offset - land_compression - crouch
 	if absf(drop) > 0.0005:
 		skel.set_bone_pose_position(hips, skel.get_bone_pose_position(hips) + Vector3(0, drop, 0))
 	for i in 2:

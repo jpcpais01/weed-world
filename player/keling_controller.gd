@@ -6,13 +6,15 @@ extends CharacterBody3D
 ## jogs, sprint runs. The body turns with a speed-dependent turn rate and runs
 ## where it faces, so it carves arcs and banks into them at speed. Standing
 ## turns use real turn-in-place steps (root motion), reversing at full tilt
-## skids, and landings pick between a soft absorb, a crouch land and a roll
-## depending on impact speed.
+## skids, and landings pick between a soft absorb and a crouch land
+## depending on impact speed. The grab action reaches out for the nearest
+## herb (or just in front) with arm IK and a full finger grip.
 
 signal jumped
 signal landed(impact_speed: float, kind: StringName)
+signal grabbed(target: Node)
 
-enum Mode { GROUND, AIR, LAND, ROLL, SKID, TURN, EMOTE }
+enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE }
 
 @export_group("Speeds")
 @export var walk_speed := 0.45
@@ -40,7 +42,7 @@ enum Mode { GROUND, AIR, LAND, ROLL, SKID, TURN, EMOTE }
 @export var coyote_time := 0.12
 @export var jump_buffer_time := 0.15
 @export var max_fall_speed := 20.0
-## Impact speeds (m/s) that trigger a crouch landing / roll.
+## Impact speed (m/s) that triggers a crouch landing.
 @export var hard_land_speed := 10.0
 
 @onready var visual: Node3D = $Visual
@@ -52,6 +54,7 @@ enum Mode { GROUND, AIR, LAND, ROLL, SKID, TURN, EMOTE }
 var mode: int = Mode.GROUND
 var facing := 0.0  ## yaw of the body (0 = +Z)
 var procedural: KelingProcedural
+var grab: KelingGrab
 var springs: SpringBoneSimulator3D
 
 var _skeleton: Skeleton3D
@@ -76,6 +79,10 @@ var _compression_vel := 0.0
 var _emote: StringName = &""
 var _input_dir := Vector3.ZERO
 var _input_strength := 0.0
+var _grab_target: Node3D
+var _grab_point := Vector3.ZERO
+var _grab_right := true
+var _sprig: Node3D
 
 
 func _ready() -> void:
@@ -91,21 +98,45 @@ func _ready() -> void:
 
 
 func _setup_rig() -> void:
+	# The procedural layer (breathing, look, crouch, foot IK) runs first and the
+	# grab arm IK after it, so the hand lands on the target in the final pose.
 	procedural = KelingProcedural.new()
 	procedural.name = "Procedural"
 	_skeleton.add_child(procedural)
 	procedural.ray_exclude = [get_rid()]
+	grab = KelingGrab.new()
+	grab.name = "Grab"
+	_skeleton.add_child(grab)
+	grab.gripped.connect(_on_gripped)
+	grab.modification_processed.connect(_update_sprig)
 
-	# Secondary motion: leafy crown and dandelion stalks bounce, the basket sways.
+	# Secondary motion: the leafy crown and its flower stalks bounce.
 	springs = SpringBoneSimulator3D.new()
 	springs.name = "Springs"
 	var chains := ["Crown_FrontR", "Crown_FrontC", "Crown_FrontL", "Crown_Top", "Crown_BackL", "Crown_SideR"]
-	springs.setting_count = chains.size() + 1
+	springs.setting_count = chains.size()
 	for i in chains.size():
 		var tip_len := 0.16 if chains[i] != "Crown_Top" else 0.23
 		_spring(i, chains[i] + "_1", chains[i] + "_2", tip_len, 1.1 if chains[i] == "Crown_Top" else 1.5, 0.28, 0.04, 0.035)
-	_spring(chains.size(), "Basket", "Basket", 0.43, 2.6, 0.45, 0.1, 0.08)
 	_skeleton.add_child(springs)
+
+	# The flowers carry their colour in the vertices.
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		for si in mi.mesh.get_surface_count():
+			var m: Material = mi.mesh.surface_get_material(si)
+			if m and m.resource_name == "Flower":
+				var fm := StandardMaterial3D.new()
+				fm.vertex_color_use_as_albedo = true
+				fm.roughness = 0.45
+				fm.cull_mode = BaseMaterial3D.CULL_DISABLED
+				fm.backlight_enabled = true
+				fm.backlight = Color(0.55, 0.42, 0.05)
+				mi.set_surface_override_material(si, fm)
+
+	# A sprig that appears in whichever hand just picked something.
+	_sprig = Herb.build(0.16)
+	_sprig.visible = false
+	add_child(_sprig)
 
 
 func _spring(i: int, root: String, end: String, tip: float, stiffness: float, drag: float, grav: float, radius: float) -> void:
@@ -128,6 +159,8 @@ func _physics_process(delta: float) -> void:
 		_jump_buffer = jump_buffer_time
 	_jump_held = Input.is_action_pressed("jump")
 	_check_emote_input()
+	if Input.is_action_just_pressed("grab"):
+		try_grab()
 
 	var on_floor := is_on_floor()
 	_coyote = coyote_time if on_floor else maxf(_coyote - delta, 0.0)
@@ -139,8 +172,8 @@ func _physics_process(delta: float) -> void:
 			_air(delta)
 		Mode.LAND:
 			_land(delta)
-		Mode.ROLL:
-			_roll(delta)
+		Mode.GRAB:
+			_grab_mode(delta)
 		Mode.SKID:
 			_skid(delta)
 		Mode.TURN:
@@ -275,15 +308,72 @@ func _land(delta: float) -> void:
 		_back_to_ground()
 
 
-func _roll(delta: float) -> void:
+## Reaches for the nearest herb in front (or just in front of the Keling).
+func try_grab() -> void:
+	if mode not in [Mode.GROUND, Mode.EMOTE] or not is_on_floor() or grab == null or grab.grabbing:
+		return
 	var heading := Vector3(sin(facing), 0.0, cos(facing))
-	var speed := _flat_velocity().length()
-	var target := lerpf(maxf(speed, 1.2), 0.6, animator.state_progress())
-	_approach_velocity(heading * target, 5.0, delta)
-	if _input_dir != Vector3.ZERO:
-		_turn_towards(atan2(_input_dir.x, _input_dir.z), 0.8, delta)
-	if animator.state_progress() > 0.72 and _desired_speed() > 0.0:
+	var best: Node3D = null
+	var best_d := 1.4
+	for n in get_tree().get_nodes_in_group("grabbable"):
+		var node := n as Node3D
+		if node == null or (node.has_method("can_grab") and not node.can_grab()):
+			continue
+		var p: Vector3 = node.grab_point() if node.has_method("grab_point") else node.global_position
+		var to := p - global_position
+		var flat := Vector3(to.x, 0.0, to.z)
+		if flat.length() > best_d or to.y < 0.2 or to.y > 1.2:
+			continue
+		if flat.length() > 0.2 and flat.normalized().dot(heading) < -0.3:
+			continue
+		best = node
+		best_d = flat.length()
+	_grab_target = best
+	if best:
+		_grab_point = best.grab_point() if best.has_method("grab_point") else best.global_position
+	else:
+		_grab_point = global_position + heading * 0.36 + Vector3(0, 0.55, 0)
+	_grab_right = not _grab_right
+	mode = Mode.GRAB
+	_emote = &""
+	animator.travel(&"Move")
+	animator.cancel_fidget()
+	var to := _grab_point - global_position
+	var local_x := to.dot(Vector3(cos(facing), 0.0, -sin(facing)))
+	if absf(local_x) > 0.08:
+		_grab_right = local_x < 0.0
+	grab.start(_grab_point, "Right" if _grab_right else "Left")
+
+
+func _grab_mode(delta: float) -> void:
+	# Step up to arm's length and face the target while winding up.
+	var to := _grab_point - global_position
+	var flat := Vector3(to.x, 0.0, to.z)
+	var hand_offset := 0.2 * (1.0 if _grab_right else -1.0)  # turn so the target sits ahead of the reaching shoulder
+	if flat.length() > 0.05:
+		var yaw := atan2(flat.x, flat.z) + asin(clampf(hand_offset / maxf(flat.length(), 0.25), -0.9, 0.9))
+		_turn_towards(yaw, 0.0, delta)
+	var standoff := 0.44 if _grab_point.y - global_position.y < 0.85 else 0.27  # step under things overhead
+	var vel := Vector3.ZERO
+	if grab.time < 0.5 and flat.length() > standoff + 0.04:
+		vel = flat.normalized() * minf((flat.length() - standoff) * 6.0, 1.2)
+	_approach_velocity(vel, 12.0, delta)
+	animator.update_locomotion(_flat_velocity().length(), vel != Vector3.ZERO, delta)
+	if _jump_buffer > 0.0 or (_desired_speed() > 0.0 and grab.time > 1.3):
+		grab.cancel()
 		_back_to_ground()
+		return
+	if not grab.grabbing:
+		_back_to_ground()
+
+
+func _on_gripped() -> void:
+	if _grab_target and is_instance_valid(_grab_target):
+		if _grab_target.has_method("on_grabbed"):
+			_grab_target.on_grabbed()
+		grabbed.emit(_grab_target)
+		_sprig.visible = true
+	Input.vibrate_handheld(15)
 
 
 func _skid(delta: float) -> void:
@@ -382,11 +472,7 @@ func _on_landed(impact: float) -> void:
 	_air_time = 0.0
 	var speed := _flat_velocity().length()
 	var kind: StringName
-	if impact > hard_land_speed and speed > jog_speed * 0.7:
-		kind = &"roll"
-		mode = Mode.ROLL
-		animator.travel(&"Roll")
-	elif impact > hard_land_speed or (speed < 0.5 and impact > 3.0):
+	if impact > hard_land_speed or (speed < 0.5 and impact > 3.0):
 		kind = &"hard" if impact > hard_land_speed else &"stand"
 		mode = Mode.LAND
 		animator.travel(&"Land")
@@ -397,14 +483,14 @@ func _on_landed(impact: float) -> void:
 	_kick_compression(0.035 + 0.05 * strength)
 	_kick_squash(-0.08 * strength)
 	_puff(strength)
-	if kind == &"hard" or kind == &"roll":
+	if kind == &"hard":
 		camera_rig.shake(0.25 * strength)
 	landed.emit(impact, kind)
 
 
 func _on_state_finished(state: StringName) -> void:
 	match state:
-		&"Land", &"Roll", &"SprintStop", &"Turn90L", &"Turn90R", &"Turn180L", &"Turn180R":
+		&"Land", &"SprintStop", &"Turn90L", &"Turn90R", &"Turn180L", &"Turn180R":
 			if mode != Mode.AIR:
 				mode = Mode.GROUND
 		&"Cheer", &"Nod", &"Surprise", &"SitUp":
@@ -482,7 +568,7 @@ func _update_visuals(delta: float) -> void:
 
 	# Bank into turns (pivoting at the feet), more at speed.
 	var bank_target := 0.0
-	if mode in [Mode.GROUND, Mode.AIR, Mode.ROLL]:
+	if mode in [Mode.GROUND, Mode.AIR]:
 		bank_target = clampf(-_yaw_rate * speed * 0.05, -max_bank, max_bank)
 	_bank = lerpf(_bank, bank_target, 1.0 - exp(-6.0 * delta))
 
@@ -516,17 +602,44 @@ func _update_visuals(delta: float) -> void:
 		procedural.exertion = _exertion
 		procedural.land_compression = maxf(_compression, 0.0)
 		procedural.space_state = get_world_3d().direct_space_state
-		procedural.ik_enabled = mode in [Mode.GROUND, Mode.LAND, Mode.TURN, Mode.SKID, Mode.EMOTE] and is_on_floor()
+		procedural.ik_enabled = mode in [Mode.GROUND, Mode.LAND, Mode.TURN, Mode.SKID, Mode.EMOTE, Mode.GRAB] and is_on_floor()
 		procedural.ik_weight = 1.0 - clampf(inverse_lerp(jog_speed, sprint_speed, speed), 0.0, 0.7)
+		procedural.crouch = grab.crouch_amount() * 0.1 if grab else 0.0
 		_update_look()
+
+
+## Places the picked sprig in the closed fist: stem through the fingers, bud up.
+## Runs when the grab modifier has finished, so it follows the IK'd hand.
+func _update_sprig() -> void:
+	if _sprig == null:
+		return
+	if grab == null or not grab.holding:
+		_sprig.visible = false
+		return
+	var s := "Right" if _grab_right else "Left"
+	var xf := _skeleton.global_transform
+	var hand := xf * _skeleton.get_bone_global_pose(_skeleton.find_bone(s + "Hand")).origin
+	var knuckle := xf * _skeleton.get_bone_global_pose(_skeleton.find_bone(s + "MiddleProximal")).origin
+	var fingers := (knuckle - hand).normalized()
+	var up := (Vector3.UP - fingers * Vector3.UP.dot(fingers)).normalized()
+	if up.length_squared() < 0.01:
+		up = Vector3.UP
+	var rot := Basis(fingers.cross(up).normalized(), up, fingers).orthonormalized()
+	var fist := knuckle.lerp(hand, 0.25) + fingers * 0.01
+	_sprig.global_transform = Transform3D(rot, fist - up * 0.07)
 
 
 func _update_look() -> void:
 	# Look where the player steers before the body gets there; when idle,
-	# glance towards where the camera is looking.
+	# glance towards where the camera is looking. The head has no neck to
+	# speak of, so it only turns a little.
 	var target_yaw := 0.0
 	var target_pitch := 0.0
-	if _input_dir != Vector3.ZERO and mode in [Mode.GROUND, Mode.TURN]:
+	if mode == Mode.GRAB:
+		var to := _grab_point - (global_position + Vector3(0, 1.1, 0))
+		target_yaw = wrapf(atan2(to.x, to.z) - facing, -PI, PI)
+		target_pitch = clampf(-atan2(to.y, Vector2(to.x, to.z).length()) * 0.5, -0.15, 0.25)
+	elif _input_dir != Vector3.ZERO and mode in [Mode.GROUND, Mode.TURN]:
 		target_yaw = wrapf(atan2(_input_dir.x, _input_dir.z) - facing, -PI, PI)
 	elif mode == Mode.GROUND and _flat_velocity().length() < 0.05:
 		var cam_fwd := -camera_rig.get_flat_basis().z
@@ -534,8 +647,8 @@ func _update_look() -> void:
 		if absf(rel) < deg_to_rad(110.0):
 			target_yaw = rel * 0.6
 		target_pitch = clampf(-camera_rig.pitch * 0.35, -0.2, 0.25)
-	procedural.look_yaw = clampf(target_yaw, -deg_to_rad(55.0), deg_to_rad(55.0))
-	procedural.look_pitch = target_pitch
+	procedural.look_yaw = clampf(target_yaw, -deg_to_rad(15.0), deg_to_rad(15.0))
+	procedural.look_pitch = clampf(target_pitch, -0.12, 0.2)
 
 
 ## For HUD/debug.

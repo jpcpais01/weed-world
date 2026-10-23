@@ -2,7 +2,7 @@ class_name TouchControls
 extends Control
 ## Multi-touch controls drawn in one Control:
 ##  - floating analog joystick on the left (push past the ring to sprint)
-##  - jump, sprint toggle and emote buttons on the right
+##  - jump, grab, sprint toggle and emote buttons on the right
 ##  - drag anywhere else on the right to orbit the camera, pinch to zoom
 ## Movement and jump are fed into the regular input actions, so the
 ## controller does not care where input comes from.
@@ -42,6 +42,7 @@ func _buttons() -> Dictionary:
 		"jump": [jump_c, 74.0],
 		"sprint": [jump_c + Vector2(-150.0, 40.0), 50.0],
 		"emote": [jump_c + Vector2(20.0, -150.0), 40.0],
+		"grab": [jump_c + Vector2(-125.0, -115.0), 48.0],
 	}
 	if _emote_open:
 		for i in EMOTES.size():
@@ -127,6 +128,11 @@ func _press_button(finger: int, id: String) -> void:
 			Input.vibrate_handheld(10)
 		"emote":
 			_emote_open = not _emote_open
+		"grab":
+			var player := get_tree().get_first_node_in_group("player")
+			if player and player.has_method("try_grab"):
+				player.try_grab()
+			Input.vibrate_handheld(10)
 		_:
 			if id.begins_with("emote_"):
 				var i := int(id.get_slice("_", 1))
@@ -243,6 +249,14 @@ func _draw_icon(id: String, c: Vector2, r: float, col: Color) -> void:
 			for k in 2:
 				var o := Vector2(-s * 0.55 + k * s * 0.85, 0)
 				draw_polyline(PackedVector2Array([c + o + Vector2(-s * 0.4, -s * 0.8), c + o + Vector2(s * 0.4, 0), c + o + Vector2(-s * 0.4, s * 0.8)]), col, w, true)
+		"grab":
+			# An open hand: palm and four fingers.
+			var s := r * 0.4
+			draw_circle(c + Vector2(0, s * 0.35), s * 0.42, col)
+			for k in 4:
+				var fx := (k - 1.5) * s * 0.3
+				draw_line(c + Vector2(fx, s * 0.1), c + Vector2(fx * 1.25, -s * 0.75 + absf(k - 1.5) * s * 0.18), col, w * 1.3, true)
+			draw_line(c + Vector2(-s * 0.35, s * 0.4), c + Vector2(-s * 0.85, s * 0.0), col, w * 1.3, true)
 		"emote":
 			var s := r * 0.42
 			draw_arc(c, s, 0, TAU, 32, col, w * 0.8, true)

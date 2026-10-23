@@ -5,7 +5,7 @@ extends SceneTree
 ##   godot --headless --path . -s res://tools/retarget_animations.gd
 ##
 ## Godot's import-time retargeting rewrites rest poses, which breaks the extra
-## spring bones we add to the Keling (crown, stalks, basket). Instead this tool
+## spring bones we add to the Keling (crown and flower stalks). Instead this tool
 ## does a world-space retarget: every frame, each source bone's rotation
 ## relative to its rest is applied on top of the matching Keling bone's rest,
 ## after aligning limbs from the Keling's A-pose to the library's T-pose.
@@ -27,6 +27,24 @@ const ARM_ABDUCTION_DEG := 24.0
 const GAIT_BONES := ["thigh_l", "thigh_r", "calf_l", "calf_r", "foot_l", "foot_r"]
 const SWING_BONES := ["upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r"]
 
+## The Keling has a huge head and no neck, so it can't nod and swing its head
+## like the mannequin. Its head stays level and only follows a fraction of the
+## library's head motion (more for emotes that are all about the head).
+const HEAD_FOLLOW := 0.35
+const HEAD_FOLLOW_CLIP := {"Nod": 1.0, "Dance": 0.6, "Cheer": 0.6, "Surprise": 0.5}
+## The library's head hangs ~12 degrees forward in most clips; level it out.
+const HEAD_PITCH_BIAS_DEG := 12.0
+const HEAD_LIMIT_DEG := Vector3(14.0, 16.0, 8.0)  # pitch (down +), yaw, roll
+
+## The round trunk can't fold like a human spine: forward/back lean of the
+## hips and spine is damped (runs no longer topple forward), sway and twist
+## mostly kept.
+const TORSO_BONES := ["Hips", "Spine", "Chest", "UpperChest"]
+const TORSO_FOLLOW := Vector3(0.45, 0.85, 0.7)  # pitch, yaw, roll
+## Short arms on a big head: raising the upper arm above this just shears the
+## shoulder, so elevation is capped (the forearm still reaches up).
+const ARM_MAX_ELEVATION_DEG := 35.0
+
 ## source clip -> [output name, loop, extract root motion, (gait amplify, arm amplify)]
 const CLIPS := {
 	"Idle_Loop": ["Idle", true, false],
@@ -41,7 +59,6 @@ const CLIPS := {
 	"Jump_Start": ["JumpStart", false, false],
 	"Jump_Loop": ["Fall", true, false],
 	"Jump_Land": ["Land", false, false],
-	"Roll": ["Roll", false, false],
 	"Turn90_L": ["Turn90L", false, true],
 	"Turn90_R": ["Turn90R", false, true],
 	"Turn180_L": ["Turn180L", false, true],
@@ -154,7 +171,7 @@ func _init() -> void:
 	for clip in CLIPS:
 		var cfg: Array = CLIPS[clip]
 		var amp := Vector2(cfg[3], cfg[4]) if cfg.size() > 3 else Vector2.ONE
-		var anim := _bake(player.get_animation(clip), skel_path, cfg[1], cfg[2], amp)
+		var anim := _bake(player.get_animation(clip), skel_path, cfg[1], cfg[2], amp, HEAD_FOLLOW_CLIP.get(cfg[0], HEAD_FOLLOW))
 		lib.add_animation(StringName(cfg[0]), anim)
 		print("baked %-22s -> %-15s %.2fs" % [clip, cfg[0], anim.length])
 	var err := ResourceSaver.save(lib, OUTPUT, ResourceSaver.FLAG_COMPRESS)
@@ -185,7 +202,17 @@ func _yaw_of(q: Quaternion) -> float:
 	return atan2(f.x, f.z)
 
 
-func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp: Vector2) -> Animation:
+## Level, damped and clamped head rotation (model space) from the source head.
+func _stable_head(src_delta: Quaternion, follow: float) -> Quaternion:
+	var e := src_delta.get_euler()  # YXZ: x pitch, y yaw, z roll
+	var lim := HEAD_LIMIT_DEG * (PI / 180.0)
+	var pitch := clampf((e.x - deg_to_rad(HEAD_PITCH_BIAS_DEG)) * follow, -lim.x * 0.7, lim.x)
+	var yaw := clampf(e.y * follow, -lim.y, lim.y)
+	var roll := clampf(e.z * follow, -lim.z, lim.z)
+	return Quaternion.from_euler(Vector3(pitch, yaw, roll))
+
+
+func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp: Vector2, head_follow: float) -> Animation:
 	var amplify := {}
 	for b in GAIT_BONES:
 		amplify[src_skel.find_bone(b)] = amp.x
@@ -226,6 +253,13 @@ func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp
 	var src_root := src_skel.find_bone("root")
 	var src_pelvis := src_skel.find_bone("pelvis")
 	var upper_chest := tgt_skel.find_bone("UpperChest")
+	var neck := tgt_skel.find_bone("Neck")
+	var head := tgt_skel.find_bone("Head")
+	var src_head := src_skel.find_bone("Head")
+	var torso := {}
+	for n in TORSO_BONES:
+		torso[tgt_skel.find_bone(n)] = true
+	var upper_arms := [tgt_skel.find_bone("LeftUpperArm"), tgt_skel.find_bone("RightUpperArm")]
 	var prev_yaw := 0.0
 	var frames := int(round(src.length * FPS))
 	for f in frames + 1:
@@ -267,10 +301,24 @@ func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp
 				var sq: Quaternion = g[si].basis.get_rotation_quaternion()
 				var srest: Quaternion = src_rest_global[si].basis.get_rotation_quaternion()
 				var q: Quaternion = (sq * srest.inverse()) * align[ti] * rest_q
+				if ti == neck or ti == head:
+					# Head held level; the neck takes half of the bend from the chest.
+					var src_hd: Quaternion = g[src_head].basis.get_rotation_quaternion() * src_rest_global[src_head].basis.get_rotation_quaternion().inverse()
+					var head_delta := _stable_head(src_hd, head_follow)
+					q = (head_delta if ti == head else chest_delta.slerp(head_delta, 0.5)) * rest_q
+				if torso.has(ti):
+					var e := (q * rest_q.inverse()).get_euler()
+					q = Quaternion.from_euler(e * TORSO_FOLLOW) * rest_q
 				if arm_side.has(ti):
 					# Swing the whole arm outwards, in the chest's frame.
 					var abd := Quaternion(Vector3.BACK, deg_to_rad(ARM_ABDUCTION_DEG) * arm_side[ti])
 					q = (chest_delta * abd * chest_delta.inverse()) * q
+				if ti in upper_arms:
+					var d := Basis(q).y.normalized()
+					var over := asin(clampf(d.y, -1.0, 1.0)) - deg_to_rad(ARM_MAX_ELEVATION_DEG)
+					if over > 0.0:
+						var axis := d.cross(Vector3.UP).normalized()
+						q = Quaternion(axis, -over) * q
 				tg[ti] = q.normalized()
 				out.rotation_track_insert_key(out_rot[ti], t, (parent_q.inverse() * tg[ti]).normalized())
 			else:
