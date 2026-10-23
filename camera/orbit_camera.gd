@@ -1,0 +1,149 @@
+class_name OrbitCamera
+extends Node3D
+## Third-person orbit camera with smoothed follow, collision (SpringArm3D),
+## mouse / touch / gamepad look, pinch and wheel zoom, gentle auto-recentre
+## behind a moving character, sprint FOV kick and impact shake.
+
+@export var target_path: NodePath
+@export var target_height := 0.95
+@export var distance := 3.4
+@export var min_distance := 1.6
+@export var max_distance := 7.0
+@export var min_pitch := deg_to_rad(-70.0)
+@export var max_pitch := deg_to_rad(35.0)
+@export var mouse_sensitivity := 0.0032
+@export var touch_sensitivity := 0.0055
+@export var gamepad_speed := 2.8
+@export var follow_lag := 12.0
+@export var recentre_delay := 1.6
+@export var base_fov := 60.0
+
+@onready var arm: SpringArm3D = $SpringArm3D
+@onready var camera: Camera3D = $SpringArm3D/Camera3D
+
+var yaw := 0.0
+var pitch := deg_to_rad(-16.0)
+var _target: Node3D
+var _focus := Vector3.ZERO
+var _zoom := 3.4
+var _since_manual := 99.0
+var _shake := 0.0
+var _shake_t := 0.0
+
+
+func _ready() -> void:
+	top_level = true
+	# Moved every rendered frame from interpolated targets, so no physics interpolation.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	add_to_group("orbit_camera")
+	_target = get_node_or_null(target_path)
+	if _target == null:
+		_target = get_parent() as Node3D
+	_zoom = distance
+	arm.spring_length = distance
+	arm.margin = 0.15
+	if _target is CollisionObject3D:
+		arm.add_excluded_object((_target as CollisionObject3D).get_rid())
+	camera.fov = base_fov
+	_focus = _target.global_position + Vector3.UP * target_height
+	global_position = _focus
+
+
+func set_yaw(value: float) -> void:
+	yaw = value
+
+
+## Yaw-only basis used to make movement camera relative.
+func get_flat_basis() -> Basis:
+	return Basis(Vector3.UP, yaw)
+
+
+func add_look_input(delta_radians: Vector2) -> void:
+	yaw -= delta_radians.x
+	pitch = clampf(pitch - delta_radians.y, min_pitch, max_pitch)
+	_since_manual = 0.0
+
+
+## Touch drag in pixels (from the touch controls).
+func add_touch_look(drag: Vector2) -> void:
+	add_look_input(drag * touch_sensitivity)
+
+
+func zoom_by(factor: float) -> void:
+	_zoom = clampf(_zoom * factor, min_distance, max_distance)
+
+
+func shake(amount: float) -> void:
+	_shake = maxf(_shake, amount)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		add_look_input(event.relative * mouse_sensitivity)
+	elif event is InputEventMouseButton and event.pressed:
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				zoom_by(0.9)
+			MOUSE_BUTTON_WHEEL_DOWN:
+				zoom_by(1.1)
+			MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT:
+				if GameInput.method == GameInput.Method.KEYBOARD_MOUSE and not OS.has_feature("mobile"):
+					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	elif event.is_action_pressed("toggle_mouse"):
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
+
+
+func _process(delta: float) -> void:
+	if _target == null:
+		return
+	delta = minf(delta, 0.1)
+	_since_manual += delta
+
+	var pad := Input.get_vector("look_left", "look_right", "look_up", "look_down")
+	if pad != Vector2.ZERO:
+		add_look_input(pad * gamepad_speed * delta)
+	if Input.is_action_pressed("zoom_in"):
+		zoom_by(1.0 - delta)
+	if Input.is_action_pressed("zoom_out"):
+		zoom_by(1.0 + delta)
+
+	var target_pos := _target.get_global_transform_interpolated().origin
+	var vel := Vector3.ZERO
+	if _target is CharacterBody3D:
+		vel = (_target as CharacterBody3D).velocity
+	var flat_speed := Vector2(vel.x, vel.z).length()
+
+	# Drift behind the character once the player stops steering the camera.
+	var facing = _target.get("facing")
+	if _since_manual > recentre_delay and flat_speed > 0.4 and facing != null:
+		var behind: float = facing + PI
+		# Only when running away or across: running towards the camera must not
+		# swing it around (that would steer the run into a circle).
+		var off := absf(wrapf(behind - yaw, -PI, PI))
+		var t := clampf(flat_speed / 3.0, 0.0, 1.0) * 1.1 * delta * smoothstep(deg_to_rad(115.0), deg_to_rad(60.0), off)
+		yaw = lerp_angle(yaw, behind, t)
+		pitch = lerpf(pitch, deg_to_rad(-14.0), t * 0.5)
+
+	# Smooth follow: stiffer vertically when falling so we don't lose the player.
+	var focus_target := target_pos + Vector3.UP * target_height
+	var k := 1.0 - exp(-follow_lag * delta)
+	var ky := 1.0 - exp(-(follow_lag * (2.0 if vel.y < -6.0 else 0.6)) * delta)
+	_focus.x = lerpf(_focus.x, focus_target.x, k)
+	_focus.z = lerpf(_focus.z, focus_target.z, k)
+	_focus.y = lerpf(_focus.y, focus_target.y, ky)
+
+	arm.spring_length = lerpf(arm.spring_length, _zoom, 1.0 - exp(-8.0 * delta))
+	global_position = _focus
+	rotation = Vector3(pitch, yaw, 0.0)
+
+	var sprinting := flat_speed > 2.0
+	camera.fov = lerpf(camera.fov, base_fov + (6.0 if sprinting else 0.0), 1.0 - exp(-3.0 * delta))
+
+	if _shake > 0.001:
+		_shake_t += delta * 40.0
+		camera.h_offset = sin(_shake_t * 1.3) * _shake * 0.08
+		camera.v_offset = cos(_shake_t) * _shake * 0.1
+		_shake = lerpf(_shake, 0.0, 1.0 - exp(-7.0 * delta))
+	else:
+		camera.h_offset = 0.0
+		camera.v_offset = 0.0

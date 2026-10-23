@@ -1,0 +1,172 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot and export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-v1
+
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable"
+          tpl="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p ~/godot "$tpl"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/godot.zip" "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d ~/godot
+          mv ~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot/godot
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/templates.tpz" "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -j -q "$RUNNER_TEMP/templates.tpz" \
+            templates/version.txt templates/android_release.apk templates/android_debug.apk \
+            templates/windows_release_x86_64.exe -d "$tpl"
+          rm "$RUNNER_TEMP/templates.tpz" "$RUNNER_TEMP/godot.zip"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configure editor for Android export
+        run: |
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres <<EOT
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOT
+          cat ~/.config/godot/editor_settings-*.tres
+
+      - name: Set version
+        id: version
+        run: |
+          base=$(grep -oP '^config/version="\K[^"]+' project.godot)
+          name="${base%.*}.${{ github.run_number }}"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          sed -i "s|^version/code=.*|version/code=${{ github.run_number }}|; s|^version/name=.*|version/name=\"$name\"|" export_presets.cfg
+          sed -i "s|^config/version=.*|config/version=\"$name\"|" project.godot
+          echo "Version $name (code ${{ github.run_number }})"
+
+      - name: Import project
+        run: timeout 600 ~/godot/godot --headless --path . --import
+
+      - name: Smoke test
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s res://tools/smoke_test.gd 2>&1 | tee "$RUNNER_TEMP/smoke.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/smoke.log"; then exit 1; fi
+          grep -q "states visited" "$RUNNER_TEMP/smoke.log"
+
+      - name: Restore release keystore
+        if: env.PUBLISH == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.android-release
+          key: android-release-keystore-v1
+
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Using the release keystore from repository secrets."
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            ks="$RUNNER_TEMP/release.keystore"; alias="$KEYSTORE_ALIAS"; pass="$KEYSTORE_PASSWORD"
+          else
+            if [ "$PUBLISH" = "true" ]; then dir="$HOME/.android-release"; else dir="$RUNNER_TEMP/throwaway"; fi
+            mkdir -p "$dir"
+            ks="$dir/release.keystore"; alias="weedworld"
+            if [ ! -f "$dir/password" ]; then openssl rand -hex 24 > "$dir/password"; fi
+            pass=$(cat "$dir/password")
+            if [ ! -f "$ks" ]; then
+              echo "Generating a new keystore."
+              keytool -genkeypair -v -keystore "$ks" -alias "$alias" -keyalg RSA -keysize 2048 \
+                -validity 10000 -storepass "$pass" -keypass "$pass" -dname "CN=Weed World, O=Weed World"
+            fi
+          fi
+          echo "::add-mask::$pass"
+          {
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$ks"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$alias"
+            echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$pass"
+          } >> "$GITHUB_ENV"
+
+      - name: Export Android APK
+        run: |
+          mkdir -p build/android
+          apk="build/android/WeedWorld-${{ steps.version.outputs.name }}.apk"
+          timeout 900 ~/godot/godot --headless --path . --export-release "Android" "$apk"
+          test -s "$apk"
+          ls -la build/android
+
+      - name: Export Windows build
+        run: |
+          mkdir -p build/windows
+          timeout 900 ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/WeedWorld.exe
+          test -s build/windows/WeedWorld.exe
+          cp README.md PATCH_NOTES.md build/windows/
+          (cd build/windows && zip -9 -q "../WeedWorld-${{ steps.version.outputs.name }}-windows.zip" WeedWorld.exe README.md PATCH_NOTES.md)
+          ls -la build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeedWorld-${{ steps.version.outputs.name }}
+          path: |
+            build/android/*.apk
+            build/*.zip
+          retention-days: 14
+
+      - name: Release notes
+        if: env.PUBLISH == 'true'
+        run: |
+          # Newest hour group from PATCH_NOTES.md.
+          awk '/^## /{n++} n==1' PATCH_NOTES.md > "$RUNNER_TEMP/notes.md"
+          {
+            echo
+            echo "**Downloads:** \`WeedWorld-${{ steps.version.outputs.name }}.apk\` for Android, \`WeedWorld-${{ steps.version.outputs.name }}-windows.zip\` for Windows (unzip and run WeedWorld.exe)."
+          } >> "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Publish release
+        if: env.PUBLISH == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.name }}
+          name: Weed World ${{ steps.version.outputs.name }}
+          body_path: ${{ runner.temp }}/notes.md
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: |
+            build/android/WeedWorld-${{ steps.version.outputs.name }}.apk
+            build/WeedWorld-${{ steps.version.outputs.name }}-windows.zip
