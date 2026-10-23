@@ -14,6 +14,8 @@ const SH_ROCK := preload("res://world/forest/shaders/rock.gdshader")
 const SH_MUSHROOM := preload("res://world/forest/shaders/mushroom.gdshader")
 const SH_TERRAIN := preload("res://world/forest/shaders/terrain.gdshader")
 const SH_WATER := preload("res://world/forest/shaders/water.gdshader")
+const SH_WATERFALL := preload("res://world/forest/shaders/waterfall.gdshader")
+const CAUSTICS := preload("res://world/forest/textures/caustics.png")
 const NOISE := preload("res://world/forest/textures/noise_rgba.png")
 const WATER_NOISE := preload("res://world/forest/textures/noise_water.png")
 
@@ -25,9 +27,12 @@ const PALETTES := {
 	"pine": [Color(0.03, 0.14, 0.11), Color(0.22, 0.46, 0.24), Color(0.05, 0.20, 0.24), Color(0.40, 0.80, 0.78)],
 	"bush": [Color(0.06, 0.22, 0.09), Color(0.42, 0.70, 0.20), Color(0.40, 0.12, 0.30), Color(0.95, 0.55, 0.72)],
 	"blossom": [Color(0.42, 0.12, 0.30), Color(1.0, 0.66, 0.82), Color(0.30, 0.10, 0.42), Color(0.86, 0.68, 1.0)],
-	"willow": [Color(0.06, 0.24, 0.20), Color(0.52, 0.84, 0.56), Color(0.10, 0.28, 0.36), Color(0.62, 0.95, 0.92)],
+	"willow": [Color(0.06, 0.24, 0.20), Color(0.52, 0.84, 0.56), Color(0.12, 0.26, 0.24), Color(0.66, 0.86, 0.72)],
 	"sentinel": [Color(0.10, 0.25, 0.08), Color(0.72, 0.80, 0.25), Color(0.40, 0.22, 0.05), Color(1.0, 0.72, 0.30)],
 	"far": [Color(0.04, 0.16, 0.10), Color(0.26, 0.48, 0.22), Color(0.20, 0.10, 0.25), Color(0.62, 0.45, 0.70)],
+	"oak": [Color(0.05, 0.19, 0.07), Color(0.44, 0.66, 0.18), Color(0.30, 0.20, 0.05), Color(0.95, 0.70, 0.25)],
+	"birch": [Color(0.16, 0.30, 0.06), Color(0.86, 0.88, 0.32), Color(0.45, 0.30, 0.04), Color(1.0, 0.82, 0.30)],
+	"sapling": [Color(0.08, 0.26, 0.08), Color(0.56, 0.82, 0.26), Color(0.42, 0.14, 0.32), Color(1.0, 0.64, 0.80)],
 }
 
 const BARK := {
@@ -35,6 +40,7 @@ const BARK := {
 	"Bark_TwistedTree": ["Bark_TwistedTree", "Bark_TwistedTree_Normal", Color(0.85, 0.82, 0.86), 0.6],
 	"Bark_DeadTree": ["Bark_DeadTree", "Bark_DeadTree_Normal", Color(1.25, 1.22, 1.2), 0.2],
 	"Bark_Pale": ["Bark_NormalTree", "Bark_NormalTree_Normal", Color(1.45, 1.38, 1.3), 0.35],
+	"Bark_Birch": ["Bark_NormalTree", "Bark_NormalTree_Normal", Color(1.3, 1.3, 1.3), 0.15],
 }
 
 var wind_materials: Array[ShaderMaterial] = []
@@ -67,6 +73,84 @@ func mesh(model: String, variant: String = "") -> ArrayMesh:
 		var mat := src.surface_get_material(s)
 		var mat_name := mat.resource_name if mat else ""
 		m.surface_set_material(s, _material_for(model, variant, mat_name, m, s))
+	_meshes[key] = m
+	return m
+
+
+## A reshaped copy of a kit model: stretched, leaning, twisted, its crown
+## puffed out or thinned, its limbs warped. A handful of source models grow
+## into a forest of distinct silhouettes. LODs are rebuilt for the new shape.
+## opts: scale (Vector3), bend (fraction of height the top drifts sideways),
+## bend_dir (Vector2), twist (radians at the top), crown (scale of foliage
+## about the crown centre), warp (metres of noise displacement), variant.
+func reshaped(model: String, tag: String, opts: Dictionary) -> ArrayMesh:
+	var key := model + "#" + tag
+	if _meshes.has(key):
+		return _meshes[key]
+	var src := mesh(model, opts.get("variant", ""))
+	var h := maxf(src.get_aabb().end.y, 0.01)
+	var scale: Vector3 = opts.get("scale", Vector3.ONE)
+	var bend: float = opts.get("bend", 0.0)
+	var bdir: Vector2 = opts.get("bend_dir", Vector2.RIGHT)
+	var twist: float = opts.get("twist", 0.0)
+	var crown: float = opts.get("crown", 1.0)
+	var warp: float = opts.get("warp", 0.0)
+	var noise := FastNoiseLite.new()
+	noise.seed = hash(key)
+	noise.frequency = 0.3
+	var im := ImporterMesh.new()
+	for s in src.get_surface_count():
+		var arrays := src.surface_get_arrays(s)
+		var mat := src.surface_get_material(s)
+		var leafy := mat is ShaderMaterial and (mat as ShaderMaterial).shader == SH_CANOPY
+		var center := Vector3.ZERO
+		if leafy:
+			center = (mat as ShaderMaterial).get_shader_parameter("canopy_center")
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var tans = arrays[Mesh.ARRAY_TANGENT]
+		var has_tan: bool = tans is PackedFloat32Array and (tans as PackedFloat32Array).size() == verts.size() * 4
+		for i in verts.size():
+			var v := verts[i]
+			var n := norms[i]
+			if leafy and crown != 1.0:
+				v = center + (v - center) * crown
+			v *= scale
+			n = (n / scale).normalized()
+			var f := clampf(v.y / (h * scale.y), 0.0, 1.0)
+			var a := twist * f
+			if a != 0.0:
+				v = v.rotated(Vector3.UP, a)
+				n = n.rotated(Vector3.UP, a)
+			if warp > 0.0:
+				v += Vector3(noise.get_noise_3dv(v), noise.get_noise_3dv(v + Vector3(31.0, 0.0, 0.0)) * 0.4, noise.get_noise_3dv(v + Vector3(0.0, 0.0, 57.0))) * warp * f
+			if bend != 0.0:
+				v += Vector3(bdir.x, 0.0, bdir.y) * bend * h * scale.y * f * f
+			verts[i] = v
+			norms[i] = n
+			if has_tan:
+				var tg := Vector3(tans[i * 4], tans[i * 4 + 1], tans[i * 4 + 2]) * scale
+				tg = tg.rotated(Vector3.UP, a).normalized() if a != 0.0 else tg.normalized()
+				tans[i * 4] = tg.x
+				tans[i * 4 + 1] = tg.y
+				tans[i * 4 + 2] = tg.z
+		arrays[Mesh.ARRAY_VERTEX] = verts
+		arrays[Mesh.ARRAY_NORMAL] = norms
+		if has_tan:
+			arrays[Mesh.ARRAY_TANGENT] = tans
+		var out_mat := mat
+		if leafy:
+			var cm := (mat as ShaderMaterial).duplicate() as ShaderMaterial
+			var c2 := center * scale
+			var cf := clampf(c2.y / (h * scale.y), 0.0, 1.0)
+			cm.set_shader_parameter("canopy_center", c2 + Vector3(bdir.x, 0.0, bdir.y) * bend * h * scale.y * cf * cf)
+			cm.set_shader_parameter("canopy_radius", float(cm.get_shader_parameter("canopy_radius")) * crown * maxf(scale.x, scale.y))
+			wind_materials.append(cm)
+			out_mat = cm
+		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, out_mat)
+	im.generate_lods(25.0, 60.0, [])
+	var m := im.get_mesh()
+	m.resource_name = key
 	_meshes[key] = m
 	return m
 
@@ -276,8 +360,53 @@ func water_material(flowing: bool) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = SH_WATER
 	mat.set_shader_parameter("water_noise", WATER_NOISE)
+	mat.set_shader_parameter("caustic_tex", CAUSTICS)
 	mat.set_shader_parameter("flowing", flowing)
+	mat.set_shader_parameter("ripples", not flowing)
+	mat.set_shader_parameter("light_dir", ForestAtmosphere.light_direction())
+	# Fewer reflection steps on phones; the march fades out gracefully.
+	mat.set_shader_parameter("ssr_steps", 6 if OS.has_feature("mobile") else 10)
+	if flowing:
+		mat.set_shader_parameter("absorption", Vector3(0.5, 0.2, 0.16))
+		mat.set_shader_parameter("scatter_color", Color(0.09, 0.26, 0.2))
+	interactive_materials.append(mat)
 	return mat
+
+
+func waterfall_material() -> ShaderMaterial:
+	if _plain.has("waterfall"):
+		return _plain["waterfall"]
+	var mat := ShaderMaterial.new()
+	mat.shader = SH_WATERFALL
+	mat.set_shader_parameter("water_noise", WATER_NOISE)
+	_plain["waterfall"] = mat
+	return mat
+
+
+## Soft white puffs for spray and mist.
+func mist_material() -> StandardMaterial3D:
+	if _plain.has("mist"):
+		return _plain["mist"]
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 32
+	tex.height = 32
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.vertex_color_use_as_albedo = true
+	m.albedo_texture = tex
+	m.albedo_color = Color(0.86, 0.9, 0.92, 0.7)
+	m.disable_receive_shadows = true
+	_plain["mist"] = m
+	return m
 
 
 func _apply_ground(mat: ShaderMaterial) -> void:

@@ -34,6 +34,8 @@ func build(parent: Node3D) -> void:
 	_fireflies(root)
 	_pollen(root)
 	_petals(root)
+	_seeds(root)
+	_mist(root)
 	_wisps(root)
 	_lights(root)
 	_campfire(root)
@@ -237,8 +239,7 @@ func _petals(root: Node3D) -> void:
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = glow_texture()
 	m.albedo_color = Color(1.0, 0.68, 0.84)
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	m.alpha_scissor_threshold = 0.35
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_DISABLED
 	m.backlight_enabled = true
@@ -248,6 +249,61 @@ func _petals(root: Node3D) -> void:
 	q.material = m
 	p.draw_pass_1 = q
 	root.add_child(p)
+
+
+## Dandelion and thistle down floating on the breeze across the meadow.
+func _seeds(root: Node3D) -> void:
+	for c in [ForestLayout.GLADE, ForestLayout.GLADE + Vector2(-10, 14), ForestLayout.OVERLOOK]:
+		var p := _emitter("Thistledown", _ground(c, 1.6), Vector3(10, 1.4, 10), 26, 16.0, Color(1.0, 0.97, 0.9), 0.9, 0.05)
+		var pm: ParticleProcessMaterial = p.process_material
+		pm.gravity = Vector3(0.12, 0.015, 0.07)
+		pm.turbulence_noise_strength = 0.9
+		pm.turbulence_influence_max = 0.08
+		var q: QuadMesh = p.draw_pass_1
+		var m: StandardMaterial3D = q.material
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
+		root.add_child(p)
+
+
+## Low banks of mist breathing over the pond, the stream and the hollow.
+func _mist(root: Node3D) -> void:
+	var spots := [
+		[_ground(ForestLayout.POND, 0.0) * Vector3(1, 0, 1) + Vector3(0, terrain.pond_level + 0.5, 0), Vector3(5, 0.25, 5), 9],
+		[_ground(ForestLayout.HOLLOW, 0.6), Vector3(9, 0.3, 9), 10],
+		[_ground(ForestLayout.STREAM_CROSSING + Vector2(4, 12), 0.5), Vector3(4, 0.2, 9), 7],
+	]
+	for sp in spots:
+		var p := GPUParticles3D.new()
+		p.name = "Mist"
+		p.position = sp[0]
+		p.amount = sp[2]
+		p.lifetime = 14.0
+		p.preprocess = 14.0
+		var e: Vector3 = sp[1]
+		p.visibility_aabb = AABB(-e - Vector3(4, 2, 4), e * 2.0 + Vector3(8, 5, 8))
+		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		p.sorting_offset = -2.0
+		var pm := ParticleProcessMaterial.new()
+		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+		pm.emission_box_extents = e
+		pm.gravity = Vector3(0.06, 0.0, 0.035)
+		pm.initial_velocity_min = 0.0
+		pm.initial_velocity_max = 0.08
+		pm.scale_min = 0.8
+		pm.scale_max = 1.4
+		var ramp := Gradient.new()
+		ramp.set_color(0, Color(1, 1, 1, 0))
+		ramp.set_color(1, Color(1, 1, 1, 0))
+		ramp.add_point(0.5, Color(1, 1, 1, 0.16))
+		var rt := GradientTexture1D.new()
+		rt.gradient = ramp
+		pm.color_ramp = rt
+		p.process_material = pm
+		var q := QuadMesh.new()
+		q.size = Vector2(3.2, 1.6)
+		q.material = kit.mist_material()
+		p.draw_pass_1 = q
+		root.add_child(p)
 
 
 func _wisps(root: Node3D) -> void:

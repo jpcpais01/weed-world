@@ -17,6 +17,8 @@ uniform float normal_sphere : hint_range(0.0, 1.0) = 0.8;
 uniform float alpha_cut : hint_range(0.0, 1.0) = 0.42;
 uniform float translucency : hint_range(0.0, 2.0) = 0.75;
 uniform float hue_variation : hint_range(0.0, 0.5) = 0.06;
+uniform vec3 autumn_low : source_color = vec3(0.34, 0.09, 0.03);
+uniform vec3 autumn_high : source_color = vec3(1.0, 0.58, 0.14);
 uniform float stiffness = 1.0;
 uniform float flutter = 0.05;
 
@@ -51,13 +53,17 @@ void vertex() {
 
 void fragment() {
 	vec4 tex = texture(leaf_tex, UV);
-	ALPHA = tex.a;
-	ALPHA_SCISSOR_THRESHOLD = alpha_cut;
-	float magic = v_custom.a;
-	vec3 lo = mix(color_low, alt_low, magic);
-	vec3 hi = mix(color_high, alt_high, magic);
+	if (tex.a < alpha_cut) {
+		discard;
+	}
+	// Instance alpha: positive blends towards the magic palette, negative
+	// turns the tree towards autumn.
+	float magic = clamp(v_custom.a, 0.0, 1.0);
+	float autumn = clamp(-v_custom.a, 0.0, 1.0);
+	vec3 lo = mix(mix(color_low, alt_low, magic), autumn_low, autumn);
+	vec3 hi = mix(mix(color_high, alt_high, magic), autumn_high, autumn);
 	vec3 col = mix(lo, hi, smoothstep(0.05, 0.95, v_shape));
-	col = hue_shift(col, (v_custom.r - 0.5) * hue_variation);
+	col = hue_shift(col, (v_custom.r - 0.5) * (hue_variation + autumn * 0.1));
 	col *= 0.86 + v_custom.g * 0.28;
 	ALBEDO = col;
 	ROUGHNESS = 0.82;

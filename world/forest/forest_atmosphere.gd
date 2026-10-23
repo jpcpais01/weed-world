@@ -6,6 +6,7 @@ extends RefCounted
 ## filmic tonemapping and bloom so glowing things really glow.
 
 const SH_SKY := preload("res://world/forest/shaders/sky.gdshader")
+const SH_DISTANT := preload("res://world/forest/shaders/distant.gdshader")
 
 ## Direction *towards* the sun: low in the west-south-west, so the glade gets
 ## raking side light and the overlook looks straight into the sunset.
@@ -104,3 +105,46 @@ func build(parent: Node3D) -> void:
 	we.name = "WorldEnvironment"
 	we.environment = environment
 	parent.add_child(we)
+
+
+## Two rings of far ridges so the horizon is never empty: rolling forested
+## hills, and taller blue ranges behind them seen through the western gap.
+func build_distant_ranges(parent: Node3D) -> void:
+	var noise := FastNoiseLite.new()
+	noise.seed = ForestLayout.SEED + 5
+	noise.frequency = 1.0
+	noise.fractal_octaves = 4
+	var verts := PackedVector3Array()
+	var idx := PackedInt32Array()
+	var seg := 220
+	for ring in 2:
+		var r0 := 175.0 if ring == 0 else 280.0
+		var depth := 40.0 if ring == 0 else 60.0
+		var base_h := 12.0 if ring == 0 else 30.0
+		var amp := 22.0 if ring == 0 else 55.0
+		var start := verts.size()
+		for s in seg + 1:
+			var a := TAU * s / seg
+			var dir := Vector3(cos(a), 0.0, sin(a))
+			var n := noise.get_noise_2d(cos(a) * (2.0 + ring * 1.3), sin(a) * (2.0 + ring * 1.3)) * 0.5 + 0.5
+			var peak := base_h + amp * pow(n, 1.6 - ring * 0.3)
+			verts.append(dir * r0 + Vector3.DOWN * 20.0)
+			verts.append(dir * (r0 + depth) + Vector3.UP * peak)
+		for s in seg:
+			var i := start + s * 2
+			idx.append_array([i, i + 1, i + 3, i, i + 3, i + 2])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mat := ShaderMaterial.new()
+	mat.shader = SH_DISTANT
+	mat.set_shader_parameter("sun_towards", SUN_TOWARDS)
+	mesh.surface_set_material(0, mat)
+	var mi := MeshInstance3D.new()
+	mi.name = "DistantRanges"
+	mi.mesh = mesh
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)

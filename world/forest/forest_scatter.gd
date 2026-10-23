@@ -9,9 +9,9 @@ extends RefCounted
 ##   plants/grass: r canopy shade, g wetness, b random, a unused
 ##   rocks:        r moss bias, g brightness
 
-const CHUNK := {"tree": 30.0, "far": 45.0, "rock": 30.0, "bush": 20.0, "plant": 12.0, "grass": 10.0, "small": 12.0}
-const VIS_END := {"tree": 0.0, "far": 0.0, "rock": 0.0, "bush": 70.0, "plant": 50.0, "grass": 36.0, "small": 34.0}
-const SHADOWS := {"tree": true, "far": false, "rock": true, "bush": true, "plant": false, "grass": false, "small": false}
+const CHUNK := {"tree": 40.0, "far": 60.0, "rock": 30.0, "bush": 24.0, "plant": 16.0, "grass": 14.0, "small": 16.0, "litter": 16.0}
+const VIS_END := {"tree": 0.0, "far": 0.0, "rock": 0.0, "bush": 70.0, "plant": 48.0, "grass": 38.0, "small": 34.0, "litter": 28.0}
+const SHADOWS := {"tree": true, "far": false, "rock": true, "bush": true, "plant": false, "grass": false, "small": false, "litter": false}
 
 var layout: ForestLayout
 var terrain: ForestTerrain
@@ -25,6 +25,8 @@ var _lookup := {}                          # mesh -> {chunk cell -> instance dat
 var _proc_pool := {}
 var _patch := FastNoiseLite.new()
 var _hash := {}                            # 8 m buckets of tree indices
+var flora: ForestFlora
+var counts := {}                           # instances per group, for the build log
 
 
 func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -> void:
@@ -35,6 +37,7 @@ func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -
 	_patch.seed = ForestLayout.SEED + 99
 	_patch.frequency = 0.09
 	_patch.fractal_octaves = 2
+	flora = ForestFlora.new(kit)
 
 
 # ----------------------------------------------------------------------------
@@ -43,6 +46,7 @@ func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -
 func plan() -> void:
 	_place_hero_trees()
 	_place_forest()
+	_place_understory()
 	_place_outer_belt()
 	for t in trees:
 		terrain.paint_shade(t.pos, t.canopy, t.get("shade", 0.55))
@@ -55,6 +59,7 @@ func populate() -> void:
 	_place_logs()
 	_place_path_stones()
 	_place_undergrowth()
+	_place_flora()
 	_place_grass()
 
 
@@ -113,6 +118,7 @@ func add(mesh: Mesh, xform: Transform3D, custom: Color, group: String) -> void:
 		d = PackedFloat32Array()
 		_batches[key] = {"mesh": mesh, "group": group, "data": d}
 		per_mesh[cell] = d
+	counts[group] = counts.get(group, 0) + 1
 	var b := xform.basis
 	var o := xform.origin
 	d.append_array([b.x.x, b.y.x, b.z.x, o.x, b.x.y, b.y.y, b.z.y, o.y, b.x.z, b.y.z, b.z.z, o.z,
@@ -156,22 +162,46 @@ func _proc_variant(style: ProcTree.Style, index: int) -> Dictionary:
 	var t := ProcTree.grow(style, ForestLayout.SEED * 1000 + style * 100 + index)
 	var mesh: ArrayMesh = t.mesh
 	mesh.resource_name = "Proc_%s_%d" % [ProcTree.Style.keys()[style], index]
-	var palette: String = ["blossom", "willow", "sentinel", "far"][style]
+	var palette: String = ["blossom", "willow", "sentinel", "far", "oak", "birch", "sapling"][style]
 	var bark := "Bark_TwistedTree"
-	if style == ProcTree.Style.SENTINEL:
-		bark = "Bark_Pale"
-	elif style == ProcTree.Style.FAR:
-		bark = "Bark_NormalTree"
+	match style:
+		ProcTree.Style.SENTINEL:
+			bark = "Bark_Pale"
+		ProcTree.Style.FAR, ProcTree.Style.SAPLING:
+			bark = "Bark_NormalTree"
+		ProcTree.Style.OAK:
+			bark = "Bark_TwistedTree"
+		ProcTree.Style.BIRCH:
+			bark = "Bark_Birch"
 	mesh.surface_set_material(0, kit.bark_material(bark))
 	var stiff := 0.8 if style == ProcTree.Style.WILLOW else 1.0
-	var tex := kit.texture("Leaves_NormalTree")
+	if style == ProcTree.Style.BIRCH:
+		stiff = 0.7
+	elif style == ProcTree.Style.OAK:
+		stiff = 1.6
+	elif style == ProcTree.Style.SAPLING:
+		stiff = 0.5
+	var tex := kit.texture("Leaves_TwistedTree_C" if style == ProcTree.Style.OAK else "Leaves_NormalTree")
 	mesh.surface_set_material(1, kit.canopy_material(palette, tex, t.canopy_center, t.canopy_radius, stiff))
 	_proc_pool[key] = t
 	return t
 
 
-func _tree_custom(magic: float) -> Color:
-	return Color(rng.randf(), rng.randf(), rng.randf(), clampf(magic, 0.0, 1.0))
+## Instance colour data. magic > 0 drifts the crown towards its magic
+## palette; autumn > 0 turns it amber and red (the shader reads a < 0).
+func _tree_custom(magic: float, autumn := 0.0) -> Color:
+	var a := clampf(magic, 0.0, 1.0)
+	if autumn > 0.0:
+		a = -clampf(autumn, 0.0, 1.0)
+	return Color(rng.randf(), rng.randf(), rng.randf(), a)
+
+
+## A sprinkle of early autumn: a few crowns already turning gold and red,
+## more of them up on the cooler ridge.
+func _autumn_at(p: Vector2) -> float:
+	var ridge := ForestLayout.sstep(-18.0, -36.0, p.y)
+	var chance := 0.07 + ridge * 0.12 + clampf(_patch.get_noise_2d(p.x * 0.25 + 40.0, p.y * 0.25) * 0.3, 0.0, 0.15)
+	return rng.randf_range(0.45, 1.0) if rng.randf() < chance else 0.0
 
 
 func _spot_free(p: Vector2, r: float) -> bool:
@@ -203,21 +233,55 @@ func _register(pos: Vector2, spacing: float, trunk: float, canopy: float, collid
 		colliders.append({"shape": shape, "xform": Transform3D(Basis(), Vector3(pos.x, y + 2.5, pos.y))})
 
 
-func plant_kit_tree(kind: String, model: String, pos: Vector2, scale: float, magic: float, yaw: float = NAN) -> void:
+## Reshaped editions of the kit trees, one per model, so the forest isn't
+## five clones of each species.
+const KIT_SHAPES := {
+	"common": [
+		{"scale": Vector3(0.88, 1.3, 0.88), "crown": 0.92},
+		{"scale": Vector3(1.22, 0.88, 1.22), "crown": 1.12, "warp": 0.25},
+		{"bend": 0.1, "twist": 0.5, "warp": 0.35},
+	],
+	"pine": [
+		{"scale": Vector3(0.82, 1.35, 0.82)},
+		{"scale": Vector3(1.18, 0.82, 1.18), "crown": 1.08},
+		{"bend": 0.07, "warp": 0.25, "twist": 0.3},
+	],
+	"twisted": [
+		{"warp": 0.6, "twist": 0.7, "crown": 1.08},
+	],
+}
+
+
+func _kit_tree_mesh(kind: String, model: String) -> ArrayMesh:
+	if rng.randf() < 0.45:
+		return _named(model)
+	var shapes: Array = KIT_SHAPES[kind]
+	var k := model.hash() % shapes.size()
+	var opts: Dictionary = shapes[k].duplicate()
+	if opts.has("bend"):
+		var a := float(model.hash() % 360) * PI / 180.0
+		opts["bend_dir"] = Vector2(cos(a), sin(a))
+	return kit.reshaped(model, "shape%d" % k, opts)
+
+
+func plant_kit_tree(kind: String, model: String, pos: Vector2, scale: float, magic: float, yaw: float = NAN, autumn := 0.0) -> void:
 	var dims: Array = KIT_DIMS[kind]
 	if is_nan(yaw):
 		yaw = rng.randf() * TAU
 	var xf := _ground_xform(pos.x, pos.y, scale, yaw, 0.05)
+	# Per-tree proportions: some stretch tall and slim, some sit broad.
+	var stretch := rng.randf_range(0.88, 1.15)
+	xf.basis = xf.basis * Basis.from_scale(Vector3(1.0 / sqrt(stretch), stretch, 1.0 / sqrt(stretch)))
 	# Gentle lean adds a lot of life to repeated models.
 	xf.basis = Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.06)) * xf.basis
-	add(_named(model), xf, _tree_custom(magic), "tree")
+	add(_kit_tree_mesh(kind, model), xf, _tree_custom(magic, autumn), "tree")
 	_register(pos, dims[2] * scale, dims[0] * scale, dims[1] * scale, true)
 
 
-func plant_proc_tree(style: ProcTree.Style, variant: int, pos: Vector2, scale: float, magic: float, group: String = "tree") -> Dictionary:
+func plant_proc_tree(style: ProcTree.Style, variant: int, pos: Vector2, scale: float, magic: float, group: String = "tree", autumn := 0.0) -> Dictionary:
 	var t := _proc_variant(style, variant)
 	var xf := _ground_xform(pos.x, pos.y, scale, rng.randf() * TAU, 0.0)
-	add(t.mesh, xf, _tree_custom(magic), group)
+	add(t.mesh, xf, _tree_custom(magic, autumn), group)
 	var canopy: float = t.canopy_radius * scale
 	_register(pos, canopy * 0.9, t.trunk_radius * scale * 1.2, canopy, group == "tree")
 	return t
@@ -253,6 +317,11 @@ func _place_hero_trees() -> void:
 	var dx := _ground_xform(d.x, d.y, 0.9, 0.7, 0.05)
 	add(_named("DeadTree_1", "pale"), dx, Color(0.5, 0.5, 0.5, 0.0), "tree")
 	_register(d, 4.5, 0.55, 2.0, true, 0.2)
+
+	# A second, taller snag on the eastern ridge above the creek.
+	var d2 := Vector2(31.0, -37.0)
+	add(_named("DeadTree_2", "pale"), _ground_xform(d2.x, d2.y, 0.75, 2.2, 0.05), Color(0.5, 0.5, 0.5, 0.0), "tree")
+	_register(d2, 4.0, 0.5, 2.0, true, 0.15)
 
 	# A grandmother tree for the hollow, crown tinged with teal.
 	plant_kit_tree("twisted", "TwistedTree_5", Vector2(38.0, -16.0), 1.15, 0.0, 1.0)
@@ -292,8 +361,7 @@ func _in_vista(p: Vector2) -> bool:
 
 
 func _place_forest() -> void:
-	var pts := _poisson(Rect2(-ForestLayout.HALF - 4.0, -ForestLayout.HALF - 4.0, ForestLayout.HALF * 2.0 + 8.0, ForestLayout.HALF * 2.0 + 8.0), 3.1)
-	var counters := {"blossom": 4, "willow": 3, "sentinel": 2}
+	var pts := _poisson(Rect2(-ForestLayout.HALF - 4.0, -ForestLayout.HALF - 4.0, ForestLayout.HALF * 2.0 + 8.0, ForestLayout.HALF * 2.0 + 8.0), 2.55)
 	for p in pts:
 		var clear := _clearance(p)
 		if clear <= 0.02:
@@ -302,60 +370,93 @@ func _place_forest() -> void:
 		var hollow := 1.0 - ForestLayout.sstep(9.0, 20.0, p.distance_to(ForestLayout.HOLLOW))
 		var grove := 1.0 - ForestLayout.sstep(8.0, 17.0, p.distance_to(ForestLayout.GROVE))
 		var pond := 1.0 - ForestLayout.sstep(9.0, 14.0, p.distance_to(ForestLayout.POND))
-		var edge := ForestLayout.sstep(36.0, 48.0, ForestLayout.square_dist(p.x, p.y))
-		# Density: airy in the middle of the valley, thick towards the rim.
-		var density := clear * lerpf(0.42, 0.95, maxf(edge, maxf(hollow * 0.9, ridge * 0.6)))
+		var edge := ForestLayout.sstep(34.0, 46.0, ForestLayout.square_dist(p.x, p.y))
+		var wet := 1.0 - ForestLayout.sstep(1.0, 7.0, terrain.water_distance(p.x, p.y))
+		# Density: open in the heart of the valley, thick towards the rim.
+		var density := clear * lerpf(0.5, 1.0, maxf(edge, maxf(hollow * 0.9, ridge * 0.7)))
 		density *= 0.7 + 0.6 * clampf(_patch.get_noise_2d(p.x * 0.4, p.y * 0.4) + 0.5, 0.0, 1.0)
 		if rng.randf() > density:
 			continue
-
+		# Birch stands and oak clusters follow their own soft patches.
+		var stand := _patch.get_noise_2d(p.x * 0.18 + 200.0, p.y * 0.18)
 		var w := {
-			"common": 0.5, "twisted": 0.1, "pine": 0.16, "sentinel": 0.06, "blossom": 0.06,
+			"common": 0.42, "twisted": 0.08, "pine": 0.14, "sentinel": 0.05, "blossom": 0.05,
+			"oak": 0.12 + clampf(-stand, 0.0, 0.5) * 0.5, "birch": 0.06 + clampf(stand, 0.0, 0.5) * 0.9,
 		}
 		w.pine += ridge * 0.6 + hollow * 0.7
 		w.sentinel += ridge * 0.4
 		w.common -= ridge * 0.25
+		w.oak -= ridge * 0.1
+		w.birch += wet * 0.25 + ridge * 0.15
 		w.blossom += grove * 1.4 + pond * 0.15
 		w.common += grove * 0.4
 		w.twisted += hollow * 0.2 + edge * 0.1
-		w["willow"] = pond * 0.8
+		w["willow"] = pond * 0.8 + wet * 0.12
 		var kind := _pick(w)
 		var vista := _in_vista(p)
 		if vista and p.distance_to(ForestLayout.OVERLOOK) < 24.0:
 			continue
-		if vista and kind in ["twisted", "sentinel", "pine", "willow"]:
+		if vista and kind in ["twisted", "sentinel", "pine", "willow", "birch", "oak"]:
 			kind = "common"
 
 		var magic := grove * rng.randf_range(0.7, 1.0)
+		var autumn := _autumn_at(p) if grove < 0.3 else 0.0
 		if kind == "pine":
 			magic = hollow * rng.randf_range(0.2, 0.7)
+			autumn = 0.0
 		elif kind == "twisted":
 			magic = rng.randf_range(0.0, 0.25) + hollow * 0.3
 		elif kind == "common":
 			magic = maxf(magic, rng.randf_range(-0.6, 0.35))
 
 		match kind:
-			"blossom", "willow", "sentinel":
-				var style: ProcTree.Style = {"blossom": ProcTree.Style.BLOSSOM, "willow": ProcTree.Style.WILLOW, "sentinel": ProcTree.Style.SENTINEL}[kind]
-				var pool: int = {"blossom": 8, "willow": 4, "sentinel": 5}[kind]
+			"blossom", "willow", "sentinel", "oak", "birch":
+				var style: ProcTree.Style = {"blossom": ProcTree.Style.BLOSSOM, "willow": ProcTree.Style.WILLOW, "sentinel": ProcTree.Style.SENTINEL,
+						"oak": ProcTree.Style.OAK, "birch": ProcTree.Style.BIRCH}[kind]
+				var pool: int = {"blossom": 8, "willow": 4, "sentinel": 5, "oak": 6, "birch": 6}[kind]
 				var idx := rng.randi() % pool
 				var t := _proc_variant(style, idx)
-				var s := rng.randf_range(0.85, 1.2)
-				if not _spot_free(p, t.canopy_radius * s * 0.9):
+				var sc := rng.randf_range(0.85, 1.2)
+				var spacing: float = t.canopy_radius * sc * (0.55 if kind == "birch" else 0.9)
+				if not _spot_free(p, spacing):
 					continue
-				plant_proc_tree(style, idx, p, s, magic if kind != "blossom" else rng.randf_range(0.0, 0.6))
+				if kind == "blossom":
+					magic = rng.randf_range(0.0, 0.6)
+					autumn = 0.0
+				elif kind == "birch":
+					magic = rng.randf_range(0.0, 0.3)
+					autumn = maxf(autumn, rng.randf_range(0.0, 0.5) if rng.randf() < 0.25 else 0.0)
+				plant_proc_tree(style, idx, p, sc, magic, "tree", autumn)
 			_:
 				var dims: Array = KIT_DIMS[kind]
-				var s := rng.randf_range(0.9, 1.35)
+				var sc := rng.randf_range(0.9, 1.35)
 				if kind == "twisted":
-					s = rng.randf_range(0.75, 1.05)
+					sc = rng.randf_range(0.75, 1.05)
 				if vista:
-					s *= 0.8
-				if not _spot_free(p, dims[2] * s):
+					sc *= 0.8
+				if not _spot_free(p, dims[2] * sc):
 					continue
 				var models: Array = KIT_TREES[kind]
-				plant_kit_tree(kind, models[rng.randi() % models.size()], p, s, magic)
-	counters.clear()
+				plant_kit_tree(kind, models[rng.randi() % models.size()], p, sc, magic, NAN, autumn)
+
+
+## The middle layer: saplings and young trees filling the gaps between the
+## big crowns, so the forest reads as deep from any angle.
+func _place_understory() -> void:
+	var pts := _poisson(Rect2(-ForestLayout.HALF - 2.0, -ForestLayout.HALF - 2.0, ForestLayout.HALF * 2.0 + 4.0, ForestLayout.HALF * 2.0 + 4.0), 1.9)
+	for p in pts:
+		var clear := _clearance(p)
+		if clear < 0.35 or _in_vista(p):
+			continue
+		if terrain.slope_at(p.x, p.y) > 30.0:
+			continue
+		var edge := ForestLayout.sstep(30.0, 46.0, ForestLayout.square_dist(p.x, p.y))
+		if rng.randf() > (0.18 + edge * 0.25) * clear:
+			continue
+		if not _spot_free(p, 0.9):
+			continue
+		var idx := rng.randi() % 6
+		plant_proc_tree(ProcTree.Style.SAPLING, idx, p, rng.randf_range(0.7, 1.3), rng.randf_range(0.0, 0.2), "tree", _autumn_at(p) * 0.8)
 
 
 func _place_outer_belt() -> void:
@@ -446,11 +547,25 @@ func _poisson(rect: Rect2, r: float) -> PackedVector2Array:
 # ----------------------------------------------------------------------------
 # Rocks and props
 
-func _rock(model: String, x: float, z: float, scale: float, sink: float, collide: bool, group: String = "rock") -> void:
+const ROCK_SHAPES := {
+	"slab": {"scale": Vector3(1.5, 0.45, 1.25), "warp": 0.12},
+	"tor": {"scale": Vector3(0.8, 1.55, 0.85), "twist": 0.4, "warp": 0.15},
+	"lump": {"scale": Vector3(1.15, 0.8, 1.0), "warp": 0.3},
+}
+
+
+func _rock_shape() -> String:
+	var r := rng.randf()
+	if r < 0.4:
+		return ""
+	return ["slab", "tor", "lump"][int((r - 0.4) / 0.6 * 3.0) % 3]
+
+
+func _rock(model: String, x: float, z: float, scale: float, sink: float, collide: bool, group: String = "rock", shape := "") -> void:
 	var yaw := rng.randf() * TAU
 	var xf := _ground_xform(x, z, scale, yaw, sink, 0.6)
 	xf.basis = Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.25)) * xf.basis
-	var mesh := _named(model)
+	var mesh := _named(model) if shape == "" else kit.reshaped(model, shape, ROCK_SHAPES[shape])
 	add(mesh, xf, Color(rng.randf(), rng.randf(), 0.0, 0.0), group)
 	if collide:
 		colliders.append({"shape": _convex(mesh), "xform": xf})
@@ -479,7 +594,7 @@ func _place_rocks() -> void:
 		if Vector2(x, z).distance_to(ForestLayout.OVERLOOK) < ForestLayout.OVERLOOK_RADIUS + 1.0:
 			continue
 		var s := rng.randf_range(0.8, 2.2) * (1.0 + (slope - 20.0) / 40.0)
-		_rock(big[rng.randi() % 3], x, z, s, 0.35, true)
+		_rock(big[rng.randi() % 3], x, z, s, 0.35, true, "rock", _rock_shape())
 	# The overlook: a crescent of boulders behind the viewpoint to lean on.
 	var o := ForestLayout.OVERLOOK
 	for k in 7:
@@ -497,12 +612,19 @@ func _place_rocks() -> void:
 		var side := 1.0 if rng.randf() < 0.5 else -1.0
 		var dir := (creek[mini(k + 1, creek.size() - 1)] - creek[maxi(k - 1, 0)]).normalized()
 		var perp := Vector2(-dir.y, dir.x) * side
-		if rng.randf() < 0.75:
-			var q := p + perp * rng.randf_range(1.0, 2.2)
-			_rock(big[rng.randi() % 3], q.x, q.y, rng.randf_range(0.45, 0.95), 0.35, true)
-		if rng.randf() < 0.3:
+		# Keep the view down onto each waterfall clear: big stones flank the
+		# lips, never the pools below them.
+		var below_fall := false
+		for f in terrain.falls:
+			var fi: int = f.index
+			if k > fi and k - fi < 6:
+				below_fall = true
+		if rng.randf() < (0.25 if below_fall else 0.55):
+			var q := p + perp * rng.randf_range(1.3, 2.4)
+			_rock(big[rng.randi() % 3], q.x, q.y, rng.randf_range(0.35, 0.7), 0.35, true, "rock", _rock_shape())
+		if rng.randf() < 0.3 and not below_fall:
 			var q := p + perp * rng.randf_range(0.0, 0.4)
-			_rock(big[rng.randi() % 3], q.x, q.y, rng.randf_range(0.22, 0.38), 0.3, false)
+			_rock(big[rng.randi() % 3], q.x, q.y, rng.randf_range(0.18, 0.32), 0.3, false)
 	# Stones along the stream banks.
 	var stream := terrain.stream_points
 	for k in range(0, stream.size(), 4):
@@ -531,12 +653,12 @@ func _place_rocks() -> void:
 	_rock("Rock_Medium_1", -33.0, 30.0, 1.1, 0.35, true)
 	_rock("Rock_Medium_2", 29.0, -18.0, 1.4, 0.35, true)
 	# Forest floor scatter.
-	for i in 140:
+	for i in 260:
 		var x := rng.randf_range(-48.0, 48.0)
 		var z := rng.randf_range(-48.0, 48.0)
 		if terrain.path_distance(x, z) < 1.8 or terrain.water_distance(x, z) < 0.5 or _clearance(Vector2(x, z)) < 0.3:
 			continue
-		_rock(big[rng.randi() % 3], x, z, rng.randf_range(0.25, 0.7), 0.4, rng.randf() < 0.5)
+		_rock(big[rng.randi() % 3], x, z, rng.randf_range(0.25, 0.7), 0.4, rng.randf() < 0.5, "rock", _rock_shape())
 
 
 func _place_logs() -> void:
@@ -651,7 +773,8 @@ func _place_path_stones() -> void:
 			# Pebbles kicked to the path verge.
 			if rng.randf() < 0.6:
 				var e := pts[j] + Vector2(rng.randf_range(-1.6, 1.6), rng.randf_range(-1.6, 1.6))
-				var peb := ["Pebble_Round_1", "Pebble_Round_2", "Pebble_Round_3", "Pebble_Square_1", "Pebble_Square_2"]
+				var peb := ["Pebble_Round_1", "Pebble_Round_2", "Pebble_Round_3", "Pebble_Round_4", "Pebble_Round_5",
+						"Pebble_Square_1", "Pebble_Square_2", "Pebble_Square_3", "Pebble_Square_4"]
 				add(_named(peb[rng.randi() % peb.size()]), _ground_xform(e.x, e.y, rng.randf_range(0.6, 1.3), rng.randf() * TAU, 0.02, 1.0), Color(rng.randf(), rng.randf(), 0, 0), "small")
 
 
@@ -721,6 +844,7 @@ func _place_undergrowth() -> void:
 				var pick := 0 if patch2 > 0.0 else 1
 				if rng.randf() < 0.22:
 					pick += 2
+				custom.a = _flower_hue(x, z)
 				add(_named(fl[pick]), _ground_xform(x, z, rng.randf_range(0.2, 0.32), rng.randf() * TAU, 0.0), custom, "plant")
 				continue
 			# Ferns love damp shade and the stream banks.
@@ -784,6 +908,110 @@ func _place_undergrowth() -> void:
 		hero["fairy_ring"].append(Vector3(q.x, terrain.height_at(q.x, q.y), q.y))
 
 
+## Flowers grow in drifts of one colour, the way wildflowers really spread:
+## a hue offset that changes slowly across the meadow.
+func _flower_hue(x: float, z: float) -> float:
+	var n := _patch.get_noise_2d(x * 0.35 + 500.0, z * 0.35)
+	var hues := [0.0, 0.0, 0.0, 0.07, -0.09, -0.16, 0.6]
+	return hues[clampi(int((n * 0.5 + 0.5) * hues.size()), 0, hues.size() - 1)] + rng.randf_range(-0.02, 0.02)
+
+
+func _place_flora() -> void:
+	var S := ForestLayout.SEED
+	var ferns: Array[ArrayMesh] = []
+	for v in 3:
+		ferns.append(flora.fern(S + v * 17, "lady"))
+	for v in 2:
+		ferns.append(flora.fern(S + 300 + v * 17, "bracken"))
+	var reeds: Array[ArrayMesh] = [flora.reeds(S + 1, true), flora.reeds(S + 2, false), flora.reeds(S + 3, true)]
+	var spikes: Array[ArrayMesh] = [flora.flower_spike(S + 5, "bells"), flora.flower_spike(S + 6, "florets"), flora.flower_spike(S + 7, "bells")]
+	var bluebells: Array[ArrayMesh] = [flora.bluebells(S + 8), flora.bluebells(S + 9)]
+	var litter: Array[ArrayMesh] = [flora.leaf_litter(S + 10), flora.leaf_litter(S + 11), flora.leaf_litter(S + 12)]
+	var twigs: Array[ArrayMesh] = [flora.twig(S + 13), flora.twig(S + 14), flora.twig(S + 15)]
+	var mosses: Array[ArrayMesh] = [flora.moss(S + 16), flora.moss(S + 17)]
+	var petals := ["Petal_1", "Petal_4", "Petal_5"]
+
+	var step := 0.8
+	var lim := ForestLayout.HALF + 2.0
+	var n := int(lim * 2.0 / step)
+	for iz in n:
+		for ix in n:
+			var x := -lim + (ix + rng.randf()) * step
+			var z := -lim + (iz + rng.randf()) * step
+			var water := terrain.water_distance(x, z)
+			var path := terrain.path_distance(x, z)
+			if path < 0.9:
+				continue
+			var slope := terrain.slope_at(x, z)
+			if slope > 36.0:
+				continue
+			var p := Vector2(x, z)
+			var shade := terrain.shade_at(x, z)
+			var patch := _patch.get_noise_2d(x * 0.6 + 70.0, z * 0.6)
+			var custom := _plant_custom(x, z)
+			var r := rng.randf()
+			# Reeds and cattails crowd the water's edge, some standing in it.
+			if water > -0.35 and water < 0.7 and slope < 28.0 and not terrain.is_in_pond(x, z, -1.4):
+				if r < 0.45 and _near_tree(p, 0.2).is_empty():
+					add(reeds[rng.randi() % reeds.size()], _ground_xform(x, z, rng.randf_range(0.75, 1.2), rng.randf() * TAU, 0.05), custom, "plant")
+				continue
+			if water < 0.4:
+				continue
+			if not _near_tree(p, 0.25).is_empty():
+				continue
+			# Bluebell carpets in the dappled shade.
+			if shade > 0.35 and shade < 0.85 and patch > 0.18:
+				if r < 0.55:
+					add(bluebells[rng.randi() % 2], _ground_xform(x, z, rng.randf_range(0.8, 1.3), rng.randf() * TAU, 0.0, 0.6), custom, "plant")
+					continue
+			# Lush ferns in damp shade and along the creek.
+			var wet := 1.0 - ForestLayout.sstep(0.0, 4.0, water)
+			if (shade > 0.4 or wet > 0.35) and patch < 0.1 and r < 0.1 + wet * 0.15:
+				add(ferns[rng.randi() % ferns.size()], _ground_xform(x, z, rng.randf_range(0.7, 1.25), rng.randf() * TAU, 0.0, 0.6), custom, "plant")
+				continue
+			# Foxgloves and lupins along sunny woodland edges.
+			if shade > 0.12 and shade < 0.55 and patch > -0.2 and r < 0.035:
+				custom.a = [0.0, 0.07, -0.12, 0.0][rng.randi() % 4]
+				add(spikes[rng.randi() % spikes.size()], _ground_xform(x, z, rng.randf_range(0.8, 1.25), rng.randf() * TAU, 0.0), custom, "plant")
+				continue
+			# Tiny star flowers sprinkled through the meadow.
+			if shade < 0.4 and r < 0.07:
+				custom.a = _flower_hue(x + 30.0, z)
+				add(_named(petals[rng.randi() % 3]), _ground_xform(x, z, rng.randf_range(0.7, 1.2), rng.randf() * TAU, 0.0, 1.0), custom, "plant")
+				continue
+			# Fallen leaves gather under the trees.
+			if shade > 0.3 and r < 0.12 + shade * 0.3:
+				custom.a = rng.randf_range(-0.06, 0.06)
+				add(litter[rng.randi() % litter.size()], _ground_xform(x, z, rng.randf_range(0.8, 1.3), rng.randf() * TAU, 0.0, 1.0), custom, "litter")
+			if shade > 0.3 and rng.randf() < 0.025:
+				add(twigs[rng.randi() % twigs.size()], _ground_xform(x, z, rng.randf_range(0.7, 1.2), rng.randf() * TAU, 0.0, 1.0), custom, "small")
+			# Moss cushions on shady slopes and banks.
+			if (shade > 0.45 or slope > 18.0) and rng.randf() < 0.035:
+				add(mosses[rng.randi() % 2], _ground_xform(x, z, rng.randf_range(0.6, 1.4), rng.randf() * TAU, 0.04, 1.0), custom, "small")
+
+	# Old stumps here and there, mossy and fungus-ringed.
+	var stumps: Array[ArrayMesh] = [flora.stump(S + 18), flora.stump(S + 19), flora.stump(S + 20)]
+	var placed := 0
+	for i in 400:
+		if placed >= 30:
+			break
+		var p := Vector2(rng.randf_range(-46.0, 46.0), rng.randf_range(-46.0, 46.0))
+		if _clearance(p) < 0.4 or terrain.shade_at(p.x, p.y) < 0.25 or not _near_tree(p, 0.6).is_empty():
+			continue
+		var sc := rng.randf_range(0.7, 1.4)
+		var xf := _ground_xform(p.x, p.y, sc, rng.randf() * TAU, 0.0, 0.5)
+		add(stumps[placed % 3], xf, Color(rng.randf(), rng.randf(), rng.randf(), 0.0), "rock")
+		var shape := CylinderShape3D.new()
+		shape.radius = 0.36 * sc
+		shape.height = 0.8 * sc
+		colliders.append({"shape": shape, "xform": Transform3D(Basis(), xf.origin + Vector3.UP * 0.25 * sc)})
+		for k in rng.randi_range(1, 3):
+			var a := rng.randf() * TAU
+			var q := p + Vector2(cos(a), sin(a)) * 0.45 * sc
+			add(_named("Mushroom_Laetiporus"), _ground_xform(q.x, q.y, rng.randf_range(0.35, 0.6), a, 0.0), Color(rng.randf(), rng.randf(), rng.randf(), 0.0), "small")
+		placed += 1
+
+
 func _place_grass() -> void:
 	var tufts: Array[ArrayMesh] = []
 	for v in 4:
@@ -795,7 +1023,7 @@ func _place_grass() -> void:
 		var m := kit.grass_tuft(ForestLayout.SEED + 500 + v * 7, 7 + v * 2, 1.05, 0.3, "tall")
 		m.resource_name = "TallGrass_%d" % v
 		tall.append(m)
-	var step := 0.42
+	var step := 0.36
 	var lim := ForestLayout.HALF + 6.0
 	var n := int(lim * 2.0 / step)
 	var N := ForestTerrain.N

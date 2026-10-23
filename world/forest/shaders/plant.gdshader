@@ -30,6 +30,7 @@ uniform vec3 glow_color : source_color = vec3(1.0, 0.8, 0.4);
 varying vec3 v_ground;
 varying float v_w;
 varying vec4 v_custom;
+varying float v_gust;
 
 vec3 hue_shift(vec3 c, float h) {
 	const vec3 k = vec3(0.57735);
@@ -54,6 +55,7 @@ void vertex() {
 	float t = TIME * wind_speed;
 
 	float gust = wind_gust(VERTEX.xz, t);
+	v_gust = gust * wind_strength;
 	vec2 dir = normalize(wind_direction.xz);
 	vec2 flick = vec2(sin(t * 2.3 + origin.x * 0.9 + origin.z * 0.4), cos(t * 1.9 + origin.z * 0.8)) * 0.18;
 	vec2 sway = (dir * (gust * 0.85 + 0.05) + flick) * wind_strength * w * w * min(h, 1.5) * 0.55 / stiffness;
@@ -78,17 +80,20 @@ void vertex() {
 void fragment() {
 	vec4 tex = texture(albedo_tex, UV);
 	if (use_alpha) {
-		ALPHA = tex.a;
-		ALPHA_SCISSOR_THRESHOLD = 0.5;
+		if (tex.a < 0.5) {
+			discard;
+		}
 	}
 	vec3 col;
 	if (ground_tint) {
 		vec3 tip = tip_color * (0.82 + 0.36 * v_custom.b);
 		tip = mix(tip, v_ground * 1.25, v_custom.r * 0.6);
 		col = mix(v_ground, tip, smoothstep(0.0, 1.0, v_w) * tip_mix);
+		// Gusts comb the meadow and flash the paler undersides of the blades.
+		col = mix(col, col * 1.22 + vec3(0.03, 0.035, 0.0), smoothstep(0.3, 0.75, v_gust) * v_w * 0.7);
 	} else {
 		col = tex.rgb * tint;
-		col = hue_shift(col, (v_custom.b - 0.5) * hue_variation);
+		col = hue_shift(col, (v_custom.b - 0.5) * hue_variation + v_custom.a);
 		col = mix(col, col * 0.62, v_custom.r * 0.5);
 	}
 	ALBEDO = col;

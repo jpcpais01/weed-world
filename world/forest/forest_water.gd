@@ -8,6 +8,7 @@ var layout: ForestLayout
 var terrain: ForestTerrain
 var kit: NatureKit
 var lotus_points: Array[Vector3] = []
+var fall_points: Array[Vector3] = []
 
 
 func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -> void:
@@ -23,6 +24,7 @@ func build(parent: Node3D) -> void:
 	root.add_child(_pond())
 	root.add_child(_river("Creek", terrain.creek_points, terrain.creek_surface, 1.25, 0.9))
 	root.add_child(_river("Stream", terrain.stream_points, terrain.stream_surface, 1.7, 0.35))
+	root.add_child(_falls())
 	root.add_child(_lilies())
 
 
@@ -34,12 +36,14 @@ func _pond() -> MeshInstance3D:
 	var verts := PackedVector3Array()
 	var cols := PackedColorArray()
 	var uvs := PackedVector2Array()
+	var flow := PackedVector2Array()
 	var norms := PackedVector3Array()
 	var idx := PackedInt32Array()
 	# Centre vertex then concentric rings reaching under the banks.
 	verts.append(Vector3(c.x, level, c.y))
 	cols.append(Color(level - terrain.height_at(c.x, c.y), 0.0, 0.0))
 	uvs.append(Vector2(0.5, 0.5))
+	flow.append(_pond_drift(c))
 	norms.append(Vector3.UP)
 	for r in range(1, rings + 1):
 		var f := float(r) / rings
@@ -51,6 +55,7 @@ func _pond() -> MeshInstance3D:
 			verts.append(Vector3(x, level, z))
 			cols.append(Color(maxf(level - terrain.height_at(x, z), 0.0), 0.0, 0.0))
 			uvs.append(Vector2(x, z) * 0.1)
+			flow.append(_pond_drift(Vector2(x, z)))
 			norms.append(Vector3.UP)
 	for s in seg:
 		idx.append_array([0, 1 + s, 1 + (s + 1) % seg])
@@ -60,8 +65,17 @@ func _pond() -> MeshInstance3D:
 		for s in seg:
 			var s1 := (s + 1) % seg
 			idx.append_array([a0 + s, a1 + s, a0 + s1, a1 + s, a1 + s1, a0 + s1])
-	var mi := _mesh_instance("Pond", verts, norms, cols, uvs, idx, kit.water_material(false))
+	var mi := _mesh_instance("Pond", verts, norms, cols, uvs, idx, kit.water_material(false), flow)
 	return mi
+
+
+## The pond drifts lazily from the creek mouth towards the stream outlet.
+func _pond_drift(p: Vector2) -> Vector2:
+	var inlet := terrain.creek_points[terrain.creek_points.size() - 1]
+	var outlet := terrain.stream_points[0]
+	var v := (outlet - p).normalized() * 0.05
+	v += (p - inlet).normalized() * 0.12 * exp(-p.distance_squared_to(inlet) / 6.0)
+	return v
 
 
 func _river(name: String, pts: PackedVector2Array, surface: PackedFloat32Array, width: float, turbulence: float) -> MeshInstance3D:
@@ -69,10 +83,9 @@ func _river(name: String, pts: PackedVector2Array, surface: PackedFloat32Array, 
 	var verts := PackedVector3Array()
 	var cols := PackedColorArray()
 	var uvs := PackedVector2Array()
+	var flow := PackedVector2Array()
 	var norms := PackedVector3Array()
 	var idx := PackedInt32Array()
-	var v := 0.0
-	var rows := 0
 	var first := -1
 	var last := -1
 	for k in pts.size():
@@ -86,16 +99,30 @@ func _river(name: String, pts: PackedVector2Array, surface: PackedFloat32Array, 
 		last = k
 	if first < 0:
 		return MeshInstance3D.new()
+	# Rows are laid down the channel; a waterfall breaks the ribbon in two and
+	# the sheet in _falls() bridges the drop. Below a fall the pool churns.
+	var v := 0.0
+	var row := 0
+	var since_fall := 99
 	for k in range(first, last + 1):
 		var p := pts[k]
 		var prev := pts[maxi(k - 1, 0)]
 		var next := pts[mini(k + 1, pts.size() - 1)]
 		var dir := (next - prev).normalized()
 		var perp := Vector2(-dir.y, dir.x)
-		var drop := surface[maxi(k - 1, 0)] - surface[mini(k + 1, pts.size() - 1)]
-		var grade := drop / maxf(prev.distance_to(next), 0.01)
-		var speed := clampf(0.12 + grade * 2.2, 0.1, 1.0)
-		var turb := clampf(grade * 3.0 * turbulence + 0.05, 0.0, 1.0)
+		var drop_in := surface[k - 1] - surface[k] if k > 0 else 0.0
+		var drop_out := surface[k] - surface[k + 1] if k + 1 < pts.size() else 0.0
+		if drop_in > 0.2:
+			since_fall = 0
+			row = 0
+		else:
+			since_fall += 1
+		var grade := (surface[maxi(k - 1, 0)] - surface[mini(k + 1, pts.size() - 1)]) / maxf(prev.distance_to(next), 0.01)
+		if drop_in > 0.2 or drop_out > 0.2:
+			grade = 0.15
+		var churn := (1.0 - clampf(since_fall / 4.0, 0.0, 1.0)) * 0.7
+		var speed := clampf(0.12 + grade * 2.2 + churn * 0.5, 0.1, 1.0)
+		var turb := clampf(grade * 3.0 * turbulence + 0.05 + churn * 0.75, 0.0, 1.0)
 		if k > first:
 			v += p.distance_to(pts[k - 1])
 		var w := width * (1.0 + 0.15 * sin(k * 0.37))
@@ -108,23 +135,125 @@ func _river(name: String, pts: PackedVector2Array, surface: PackedFloat32Array, 
 			norms.append(Vector3.UP)
 			cols.append(Color(depth, turb, speed))
 			uvs.append(Vector2((t * 0.5 + 0.5) * w * 2.0, v))
-		rows += 1
-	for r in rows - 1:
-		for a in across - 1:
-			var i0 := r * across + a
-			var i1 := i0 + across
-			idx.append_array([i0, i1, i0 + 1, i0 + 1, i1, i1 + 1])
-	return _mesh_instance(name, verts, norms, cols, uvs, idx, kit.water_material(true))
+			# Water hugs the middle of the channel and slows towards the banks.
+			flow.append(dir * speed * (1.0 - 0.6 * t * t))
+		if row > 0:
+			var i1 := verts.size() - across
+			var i0 := i1 - across
+			for a in across - 1:
+				idx.append_array([i0 + a, i1 + a, i0 + a + 1, i0 + a + 1, i1 + a, i1 + a + 1])
+		row += 1
+	return _mesh_instance(name, verts, norms, cols, uvs, idx, kit.water_material(true), flow)
+
+
+## Waterfall sheets over every ledge of the terraced creek, with spray.
+func _falls() -> Node3D:
+	var root := Node3D.new()
+	root.name = "Waterfalls"
+	var mat := kit.waterfall_material()
+	for f in terrain.falls:
+		var lip: Vector3 = f.lip
+		if maxf(absf(lip.x), absf(lip.z)) > ForestTerrain.EXTENT - 1.5:
+			continue
+		var dir2: Vector2 = f.dir
+		var dir := Vector3(dir2.x, 0.0, dir2.y)
+		var perp := Vector3(-dir2.y, 0.0, dir2.x)
+		var drop: float = f.drop + 0.08
+		var k: int = f.index
+		var w := 1.25 * (1.0 + 0.15 * sin(k * 0.37)) * 0.8
+		var across := 6
+		var rows := 7
+		var verts := PackedVector3Array()
+		var norms := PackedVector3Array()
+		var uvs := PackedVector2Array()
+		var idx := PackedInt32Array()
+		for r in rows:
+			var s := float(r) / (rows - 1)
+			var tangent := (dir * 0.5 - Vector3.UP * 2.0 * drop * s).normalized()
+			var n := perp.cross(tangent).normalized()
+			for a in across:
+				var u := float(a) / (across - 1)
+				var bow := sin(u * PI) * 0.06
+				var pos := lip + perp * (u * 2.0 - 1.0) * w + dir * (0.02 + 0.5 * s + bow) - Vector3.UP * drop * s * s
+				verts.append(pos)
+				norms.append(n)
+				uvs.append(Vector2(u, s))
+		for r in rows - 1:
+			for a in across - 1:
+				var i0 := r * across + a
+				idx.append_array([i0, i0 + across, i0 + 1, i0 + 1, i0 + across, i0 + across + 1])
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = verts
+		arrays[Mesh.ARRAY_NORMAL] = norms
+		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_INDEX] = idx
+		var m := ArrayMesh.new()
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		m.surface_set_material(0, mat)
+		var mi := MeshInstance3D.new()
+		mi.name = "Fall"
+		mi.mesh = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(mi)
+		var base := lip + dir * 0.55 - Vector3.UP * drop
+		fall_points.append(base)
+		root.add_child(_spray(base, w, drop))
+	return root
+
+
+func _spray(pos: Vector3, width: float, drop: float) -> GPUParticles3D:
+	var p := GPUParticles3D.new()
+	p.name = "Spray"
+	p.position = pos
+	p.amount = int(clampf(8.0 + drop * 10.0, 8.0, 24.0))
+	p.lifetime = 1.4
+	p.preprocess = 1.4
+	p.visibility_aabb = AABB(Vector3(-2, -0.5, -2), Vector3(4, 3, 4))
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = Vector3(width * 0.6, 0.05, width * 0.6)
+	pm.direction = Vector3.UP
+	pm.spread = 35.0
+	pm.initial_velocity_min = 0.3
+	pm.initial_velocity_max = 0.6 + drop * 0.4
+	pm.gravity = Vector3(0, -0.6, 0)
+	pm.damping_min = 0.4
+	pm.damping_max = 0.8
+	pm.scale_min = 0.5
+	pm.scale_max = 1.2
+	var sc := Curve.new()
+	sc.add_point(Vector2(0.0, 0.4))
+	sc.add_point(Vector2(1.0, 1.0))
+	var sct := CurveTexture.new()
+	sct.curve = sc
+	pm.scale_curve = sct
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(1, 1, 1, 0.0))
+	ramp.set_color(1, Color(1, 1, 1, 0.0))
+	ramp.add_point(0.2, Color(1, 1, 1, 0.5))
+	var rt := GradientTexture1D.new()
+	rt.gradient = ramp
+	pm.color_ramp = rt
+	p.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(0.5, 0.5) * clampf(0.6 + drop * 0.4, 0.6, 1.3)
+	q.material = kit.mist_material()
+	p.draw_pass_1 = q
+	return p
 
 
 func _mesh_instance(name: String, verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
-		uvs: PackedVector2Array, idx: PackedInt32Array, mat: Material) -> MeshInstance3D:
+		uvs: PackedVector2Array, idx: PackedInt32Array, mat: Material, flow := PackedVector2Array()) -> MeshInstance3D:
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = norms
 	arrays[Mesh.ARRAY_COLOR] = cols
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	if not flow.is_empty():
+		arrays[Mesh.ARRAY_TEX_UV2] = flow
 	arrays[Mesh.ARRAY_INDEX] = idx
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

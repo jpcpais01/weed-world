@@ -1,5 +1,12 @@
 # Patch notes
 
+## 23 Oct 2026 · 23:00 UTC
+- **Water you want to sit beside.** The pond and streams are crystal clear now. You can see the sandy, weedy bed, sunlight dances across it in rippling caustics, and the trees and sky reflect on the surface. Foam gathers around every stone, the current visibly flows downstream, rings bloom wherever insects touch the pond, and ripples spread around your Keling when you wade in.
+- **Waterfalls.** The creek tumbles down the ridge in a staircase of ten little waterfalls, each pouring into its own churning pool with drifting spray.
+- **A far fuller forest.** Many more plants and many new kinds: broad oaks, white birches, saplings, reshaped versions of every tree, lush ferns, reeds and cattails, foxgloves, lupins, bluebell carpets, fallen leaves, twigs, mossy stumps and slab rocks. A few crowns are already turning gold and red, and distant mountain ranges ring the valley.
+- **Life everywhere.** Butterflies dance over the meadow, bees work the flowers, dragonflies dart over the water and koi circle in the pond. Birds wheel above the canopy, leaves spin down beneath the trees, thistledown floats on the breeze and mist breathes over the water.
+- **Hear the forest.** Wind swells with the gusts you see combing the grass. Brooks babble, waterfalls roar, the pond laps at its banks, and frogs, bees, crickets and the crackling campfire join in. Songbirds, doves and a woodpecker call from the trees around you.
+
 ## 23 Oct 2026 · 22:20 UTC
 - **Welcome to the Whispering Glade.** Your Keling now wakes up in a hand-crafted 100 × 100 m magical forest: a sunny meadow, a winding stream with stepping stones, a lily pond fed by a creek tumbling down the ridge, and paths that lead everywhere worth going.
 - **The Elder tree.** A towering lilac spirit tree watches over the glade, ringed by glowing fairy mushrooms and drifting wisps. Climb the ridge behind it to the sunset overlook, where a campfire and two log benches wait for you and your friends.

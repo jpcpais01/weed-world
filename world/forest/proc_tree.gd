@@ -5,7 +5,7 @@ extends RefCounted
 ## water), tapered bark tubes with proper tangents for normal mapping, and leaf
 ## clusters on every twig. Same seed, same tree, on every client.
 
-enum Style { BLOSSOM, WILLOW, SENTINEL, FAR }
+enum Style { BLOSSOM, WILLOW, SENTINEL, FAR, OAK, BIRCH, SAPLING }
 
 const GOLDEN_ANGLE := 2.39996
 
@@ -59,8 +59,32 @@ func _config() -> Dictionary:
 				"height": rng.randf_range(9.0, 12.0), "trunk_r": rng.randf_range(0.2, 0.26),
 				"depth": 2, "children": [7, 3], "spread": [62.0, 40.0],
 				"ratio": [0.32, 0.55], "tropism": [0.12, 0.2], "wiggle": 0.12,
-				"sides": [7, 5, 4], "seg": 0.7, "leaf": 0.85, "leaves": 7, "split_at": 0.4,
+				"sides": [7, 5, 4], "seg": 0.7, "leaf": 1.05, "leaves": 9, "split_at": 0.4,
 				"weep": false, "trunk_lean": 0.08, "leader": true,
+			}
+		Style.OAK:
+			return {
+				"height": rng.randf_range(6.0, 7.6), "trunk_r": rng.randf_range(0.4, 0.5),
+				"depth": 3, "children": [4, 3, 3], "spread": [58.0, 46.0, 40.0],
+				"ratio": [0.66, 0.6, 0.55], "tropism": [-0.02, 0.03, 0.07], "wiggle": 0.3,
+				"sides": [9, 7, 5, 4], "seg": 0.6, "leaf": 1.15, "leaves": 7, "split_at": 0.42,
+				"weep": false, "trunk_lean": 0.1,
+			}
+		Style.BIRCH:
+			return {
+				"height": rng.randf_range(8.0, 10.5), "trunk_r": rng.randf_range(0.13, 0.17),
+				"depth": 2, "children": [9, 3], "spread": [48.0, 34.0],
+				"ratio": [0.3, 0.55], "tropism": [-0.04, -0.16], "wiggle": 0.1,
+				"sides": [7, 4, 3], "seg": 0.7, "leaf": 0.62, "leaves": 6, "split_at": 0.3,
+				"weep": false, "trunk_lean": 0.12, "leader": true,
+			}
+		Style.SAPLING:
+			return {
+				"height": rng.randf_range(1.8, 2.8), "trunk_r": rng.randf_range(0.05, 0.07),
+				"depth": 2, "children": [4, 3], "spread": [42.0, 40.0],
+				"ratio": [0.6, 0.55], "tropism": [0.1, 0.12], "wiggle": 0.22,
+				"sides": [5, 4, 3], "seg": 0.4, "leaf": 0.5, "leaves": 5, "split_at": 0.5,
+				"weep": false, "trunk_lean": 0.15,
 			}
 		_:
 			return {
