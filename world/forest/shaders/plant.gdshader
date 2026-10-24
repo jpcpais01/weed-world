@@ -42,12 +42,19 @@ vec3 hue_shift(vec3 c, float h) {
 	return c * ca + cross(k, c) * sin(h * 6.2831853) + k * dot(k, c) * (1.0 - ca);
 }
 
-vec2 push_from(vec4 it, vec3 v, float w) {
-	vec2 to = v.xz - it.xz;
-	float d = length(to);
-	float near = 1.0 - smoothstep(it.w * 0.25, it.w, d);
-	near *= 1.0 - smoothstep(0.8, 2.0, abs(v.y - it.y));
-	return to / max(d, 0.001) * near * w;
+// How hard a Keling at it.xyz (reach it.w) presses on this part of the plant.
+float press_from(vec4 it, vec3 v) {
+	float near = 1.0 - smoothstep(it.w * 0.25, it.w, distance(v.xz, it.xz));
+	return near * (1.0 - smoothstep(0.8, 2.0, abs(v.y - it.y)));
+}
+
+// Which way the whole plant leans away from that Keling. Taken from the root,
+// not from each vertex, so a plant right underfoot tips over in one piece
+// instead of splaying out to every side. At the very centre, where "away" has
+// no direction, each plant falls back to its own steady random heading.
+vec2 lean_from(vec4 it, vec2 root, vec2 own) {
+	vec2 to = root - it.xz + own * it.w * 0.2;
+	return to / max(length(to), 0.0001);
 }
 
 void vertex() {
@@ -64,17 +71,25 @@ void vertex() {
 	vec2 flick = vec2(sin(t * 2.3 + origin.x * 0.9 + origin.z * 0.4), cos(t * 1.9 + origin.z * 0.8)) * 0.18;
 	vec2 sway = (dir * (gust * 0.85 + 0.05) + flick) * wind_strength * w * w * min(h, 1.5) * 0.55 / stiffness;
 
-	vec2 push = push_from(interactor_0, VERTEX, w) + push_from(interactor_1, VERTEX, w)
-			+ push_from(interactor_2, VERTEX, w) + push_from(interactor_3, VERTEX, w);
+	float a = fract(sin(dot(origin.xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+	vec2 own = vec2(cos(a), sin(a));
+	vec2 push = lean_from(interactor_0, origin.xz, own) * press_from(interactor_0, VERTEX)
+			+ lean_from(interactor_1, origin.xz, own) * press_from(interactor_1, VERTEX)
+			+ lean_from(interactor_2, origin.xz, own) * press_from(interactor_2, VERTEX)
+			+ lean_from(interactor_3, origin.xz, own) * press_from(interactor_3, VERTEX);
 	float pl = min(length(push), 1.0);
-	push = push / max(length(push), 0.001) * pl * 0.55 * bend_height;
+	vec2 lean = length(push) > 0.0001 ? push / length(push) : own;
 
 	float cam_d = distance(origin, CAMERA_POSITION_WORLD);
 	float fade = 1.0 - smoothstep(fade_start, fade_end, cam_d);
 
 	vec3 local = VERTEX - origin;
-	local.xz += sway + push;
-	local.y -= (length(sway) * 0.35 + pl * 0.45) * w * bend_height * 0.6;
+	// Each point tips over about the spot right below it instead of sliding
+	// sideways, so blades bow down and keep their length. Stiff plants bow less.
+	float bow = pl * 1.2 * min(1.0, 1.4 / stiffness) * mix(0.6, 1.0, w);
+	float up = max(local.y, 0.0);
+	local.xz += sway + lean * up * sin(bow);
+	local.y -= up * (1.0 - cos(bow)) + length(sway) * 0.35 * w * bend_height * 0.6;
 	VERTEX = origin + local * fade;
 
 	NORMAL = normalize(mix(NORMAL, vec3(0.0, 1.0, 0.0), up_normal));
