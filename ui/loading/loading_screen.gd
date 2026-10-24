@@ -76,7 +76,7 @@ var _layer: CanvasLayer
 var _curtain: Control
 var _art: TextureRect
 var _fireflies: Control
-var _roster: KelingRoster
+var _vine: VineProgress
 var _stage: Label
 var _tip: Label
 var _shade: Control
@@ -296,13 +296,12 @@ func _end_warm() -> void:
 	# Let the world settle (cameras snap behind the Keling, feet find the
 	# ground) for a moment before lifting the curtain.
 	_level.process_mode = Node.PROCESS_MODE_INHERIT
-	_roster.wake_all()
+	_vine.value = 1.0
 	_goto(Phase.REVEAL)
 
 
 func _step_reveal(_delta: float) -> void:
-	# Long enough to see the last Kelings hop up and start dancing.
-	var hold := 0.8
+	var hold := 0.35
 	var fade := 1.1
 	var t := clampf((_phase_t - hold) / fade, 0.0, 1.0)
 	var e := t * t * (3.0 - 2.0 * t)
@@ -318,7 +317,7 @@ func _step_reveal(_delta: float) -> void:
 
 
 func _set_progress(lo: float, hi: float, f: float, stage: String) -> void:
-	_roster.value = maxf(_roster.value, lerpf(lo, hi, clampf(f, 0.0, 1.0)))
+	_vine.value = maxf(_vine.value, lerpf(lo, hi, clampf(f, 0.0, 1.0)))
 	if stage != _stage_text:
 		_stage_text = stage
 
@@ -372,7 +371,7 @@ func _build_ui() -> void:
 	shade.anchor_right = 1.0
 	shade.anchor_top = 1.0
 	shade.anchor_bottom = 1.0
-	shade.offset_top = -420
+	shade.offset_top = -300
 	_curtain.add_child(shade)
 	_shade = shade
 
@@ -381,23 +380,22 @@ func _build_ui() -> void:
 	bottom.alignment = BoxContainer.ALIGNMENT_END
 	bottom.add_theme_constant_override("separation", 10)
 	_curtain.add_child(bottom)
-	bottom.anchor_left = 0.1
-	bottom.anchor_right = 0.9
+	bottom.anchor_left = 0.15
+	bottom.anchor_right = 0.85
 	bottom.anchor_top = 1.0
 	bottom.anchor_bottom = 1.0
 	bottom.offset_left = 0
 	bottom.offset_right = 0
-	bottom.offset_top = -360
-	bottom.offset_bottom = -26
+	bottom.offset_top = -230
+	bottom.offset_bottom = -36
 	bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
-	# All five Kelings along the growing vine: each wakes up as it arrives.
-	_roster = KelingRoster.new()
-	_roster.custom_minimum_size = Vector2(0, 236)
-	bottom.add_child(_roster)
-
-	_stage = _label(30, 600, Color(1.0, 0.97, 0.86))
+	_stage = _label(32, 600, Color(1.0, 0.97, 0.86))
 	bottom.add_child(_stage)
+
+	_vine = VineProgress.new()
+	_vine.custom_minimum_size = Vector2(0, 58)
+	bottom.add_child(_vine)
 
 	_tip = _label(23, 450, Color(0.93, 0.96, 0.88, 0.9))
 	_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -432,7 +430,7 @@ func _animate_ui(delta: float) -> void:
 		_art.scale = Vector2.ONE * _art_zoom()
 	# Fade the words in after the splash hand-over so the first frame matches it.
 	var ui_a := clampf((_clock - 0.15) / 0.6, 0.0, 1.0)
-	_roster.modulate.a = ui_a
+	_vine.modulate.a = ui_a
 	_shade.modulate.a = ui_a
 
 	var dots := ".".repeat(1 + int(_clock * 2.5) % 3)

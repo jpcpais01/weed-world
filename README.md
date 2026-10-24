@@ -82,7 +82,6 @@ xvfb-run godot --path . --rendering-method gl_compatibility -s res://tools/map_p
 ```sh
 xvfb-run godot --path . --rendering-driver vulkan --resolution 1024x1024 -s res://tools/render_icon_portrait.gd -- art_source/keling_portrait.png Surprise 0.4 20
 xvfb-run godot --path . --rendering-driver vulkan --resolution 1920x864 -s res://tools/render_key_art.gd -- art_source/key_art.png
-xvfb-run godot --path . --rendering-driver vulkan --resolution 384x384 -s res://tools/render_keling_sprites.gd   # loading screen roster loops
 python3 tools/icon_compose.py && python3 tools/splash_compose.py   # needs Pillow and numpy
 ```
 
