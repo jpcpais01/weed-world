@@ -10,7 +10,9 @@ extends CharacterBody3D
 ## depending on impact speed. The grab action reaches out for the nearest
 ## herb (or just in front) with arm IK and a full finger grip. Near a bench
 ## the same button walks up, turns round and hops onto the seat to take in
-## the view.
+## the view. Wading slows it down; once the water is too deep to stand in it
+## swims (KelingSwim poses it, KelingWater splashes), and jump hops it back
+## out.
 ##
 ## In co-op the same scene stands in for a friend's Keling: make_remote()
 ## strips the camera and input, and KelingSync plays their snapshots back
@@ -27,7 +29,7 @@ signal net_event(kind: StringName, args: Array)
 ## &"light", &"puff", &"hold" or &"idle" (see KelingWeed.play_remote).
 signal activity_changed(name: StringName, data: Dictionary)
 
-enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT, CRAFT }
+enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT, CRAFT, SWIM }
 
 const FLOWER_SHADER := preload("res://player/keling_flower.gdshader")
 ## Hue turn and saturation of the crown flowers for each co-op colour slot
@@ -38,6 +40,8 @@ enum SitPhase { APPROACH, ALIGN, DOWN, SEATED, UP }
 ## Hop onto and off a bench seat (seconds).
 const SIT_DOWN_TIME := 0.75
 const SIT_UP_TIME := 0.6
+## A good shake to dry off after a swim (seconds).
+const SHAKE_TIME := 0.75
 
 @export_group("Speeds")
 @export var walk_speed := 0.45
@@ -68,6 +72,16 @@ const SIT_UP_TIME := 0.6
 ## Impact speed (m/s) that triggers a crouch landing.
 @export var hard_land_speed := 10.0
 
+@export_group("Swim")
+@export var swim_speed := 0.95
+@export var swim_sprint_speed := 1.5
+@export var swim_acceleration := 2.4
+## How quickly a swimmer glides to a stop with no stroke (m/s²).
+@export var swim_drag := 1.3
+@export var swim_turn_rate := 3.4
+## Jumping out of deep water (m/s up).
+@export var swim_hop_speed := 3.6
+
 @onready var visual: Node3D = $Visual
 @onready var model: Node3D = $Visual/Model
 @onready var animator: KelingAnimator = $Visual/AnimationTree
@@ -80,6 +94,8 @@ var procedural: KelingProcedural
 var grab: KelingGrab
 var sit: KelingSit
 var weed: KelingWeed
+var swim: KelingSwim
+var water: KelingWater
 var springs: SpringBoneSimulator3D
 
 var _skeleton: Skeleton3D
@@ -116,6 +132,7 @@ var _sit_t := 0.0
 var _sit_from := Vector3.ZERO
 var _sit_landed := false
 var _hip_offset := Vector3.ZERO  # hip joint from the body origin (model space)
+var _water_shake := 0.0
 
 ## Co-op identity. A friend's Keling has is_local false and is driven by
 ## `remote` instead of input and physics.
@@ -160,6 +177,10 @@ func _setup_rig() -> void:
 	sit = KelingSit.new()
 	sit.name = "Sit"
 	_skeleton.add_child(sit)
+	# Swimming poses the whole body on top of breathing and look.
+	swim = KelingSwim.new()
+	swim.name = "Swim"
+	_skeleton.add_child(swim)
 	_hip_offset = _skeleton.get_bone_global_rest(_skeleton.find_bone("Hips")).origin
 	grab = KelingGrab.new()
 	grab.name = "Grab"
@@ -198,6 +219,11 @@ func _setup_rig() -> void:
 	weed = KelingWeed.new()
 	weed.setup(self, _skeleton)
 	add_child(weed)
+
+	# Water: wading, swimming, splashes and drips.
+	water = KelingWater.new()
+	water.setup(self)
+	add_child(water)
 
 
 func _spring(i: int, root: String, end: String, tip: float, stiffness: float, drag: float, grav: float, radius: float) -> void:
@@ -239,6 +265,8 @@ func _physics_process_timed(delta: float) -> void:
 
 	var on_floor := is_on_floor()
 	_coyote = coyote_time if on_floor else maxf(_coyote - delta, 0.0)
+	water.sense()
+	_check_water()
 
 	match mode:
 		Mode.GROUND:
@@ -259,6 +287,8 @@ func _physics_process_timed(delta: float) -> void:
 			_sit_mode(delta)
 		Mode.CRAFT:
 			_craft_mode(delta)
+		Mode.SWIM:
+			_swim(delta)
 
 	# On the seat the body is placed by hand: no gravity, no sliding.
 	if mode == Mode.SIT and _sit_phase >= SitPhase.DOWN:
@@ -266,7 +296,7 @@ func _physics_process_timed(delta: float) -> void:
 		_update_visuals(delta)
 		return
 
-	if mode != Mode.AIR:
+	if mode != Mode.AIR and mode != Mode.SWIM:
 		velocity.y = -1.0 if on_floor else velocity.y - gravity * delta
 		if not on_floor and mode != Mode.TURN and _coyote <= 0.0:
 			_enter_air(false)
@@ -326,7 +356,7 @@ func _ground(delta: float) -> void:
 	var speed := _flat_velocity().length()
 	if _try_jump():
 		return
-	var target_speed := _desired_speed()
+	var target_speed := _desired_speed() * water.wade_factor()
 	if target_speed > 0.0:
 		_idle_time = 0.0
 		var desired_yaw := atan2(_input_dir.x, _input_dir.z)
@@ -579,6 +609,89 @@ func _craft_mode(delta: float) -> void:
 		_back_to_ground()
 
 
+# --- water -------------------------------------------------------------------
+
+## Switches to swimming once the water is too deep to stand in, or when a
+## jump or a fall drops the Keling into the deep.
+func _check_water() -> void:
+	if mode == Mode.SWIM or mode == Mode.SIT or water.surface == -INF:
+		return
+	if mode == Mode.AIR:
+		var deep := water.bed_depth >= KelingWater.SWIM_DEPTH * water.body_scale()
+		if velocity.y <= 0.0 and deep and water.immersion > water.float_depth(0.0) * 0.55:
+			# The water takes most of the fall; the float spring does the rest.
+			velocity.y *= 0.4
+			_enter_swim()
+	elif water.can_swim():
+		_enter_swim()
+
+
+func _enter_swim() -> void:
+	if grab and grab.grabbing:
+		grab.cancel()
+		net_event.emit(&"grab_cancel", [])
+	if weed and weed.busy():
+		weed.interrupt()
+	mode = Mode.SWIM
+	_emote = &""
+	_air_time = 0.0
+	animator.travel(&"Move")
+	animator.cancel_fidget()
+
+
+func _swim(delta: float) -> void:
+	var s := water.body_scale()
+	if water.surface == -INF or water.can_stand() or (is_on_floor() and water.bed_depth < (KelingWater.SWIM_DEPTH - 0.08) * s):
+		# Found our feet: wade out.
+		velocity.y = minf(velocity.y, 0.0)
+		_back_to_ground()
+		return
+	if _jump_buffer > 0.0:
+		# A kick and a hop up out of the water (onto a bank, or just for fun).
+		_jump_buffer = 0.0
+		velocity.y = swim_hop_speed
+		velocity += Vector3(sin(facing), 0.0, cos(facing)) * 0.5
+		_enter_air(true)
+		_kick_squash(0.07)
+		jumped.emit()
+		return
+	if _input_strength > 0.05:
+		var desired_yaw := atan2(_input_dir.x, _input_dir.z)
+		var diff := wrapf(desired_yaw - facing, -PI, PI)
+		var rate := clampf(diff * 5.0, -swim_turn_rate, swim_turn_rate)
+		var step := clampf(rate * delta, -absf(diff), absf(diff))
+		facing = wrapf(facing + step, -PI, PI)
+		_yaw_rate = lerpf(_yaw_rate, step / maxf(delta, 0.001), 1.0 - exp(-8.0 * delta))
+		var target_speed := swim_speed * clampf(inverse_lerp(0.05, 0.85, _input_strength), 0.3, 1.0)
+		if GameInput.is_sprinting() and _input_strength > 0.45:
+			target_speed = swim_sprint_speed
+		# Swim where we face, easing off while still turning; each stroke surges.
+		var align := clampf(cos(diff), 0.0, 1.0)
+		var heading := Vector3(sin(facing), 0.0, cos(facing))
+		_approach_velocity(heading * target_speed * lerpf(0.3, 1.0, align) * water.stroke_surge(), swim_acceleration, delta)
+	else:
+		_yaw_rate = lerpf(_yaw_rate, 0.0, 1.0 - exp(-6.0 * delta))
+		_approach_velocity(Vector3.ZERO, swim_drag, delta)
+	# Float: a soft spring holds the chin at the waterline, bobbing gently and
+	# dipping a little with every stroke. After a plunge it bobs back up.
+	var stroke := water.stroke_amount()
+	var bob := (sin(Time.get_ticks_msec() * 0.0021) * 0.018 + sin(water.phase * 2.0) * 0.012 * stroke) * s
+	var float_y := water.surface - water.float_depth(stroke) + bob
+	velocity.y += ((float_y - global_position.y) * 42.0 - velocity.y * 7.0) * delta
+	animator.update_locomotion(0.0, false, delta)
+
+
+## Shakes the water off like a puppy (visual only; KelingWater sprays).
+func shake_off() -> void:
+	_water_shake = SHAKE_TIME
+	_kick_squash(0.05)
+
+
+## How fast the body is turning (rad/s).
+func turn_rate() -> float:
+	return _yaw_rate
+
+
 func _sit_mode(delta: float) -> void:
 	if _bench == null or not is_instance_valid(_bench):
 		_leave_bench()
@@ -800,7 +913,11 @@ func _on_landed(impact: float) -> void:
 	var strength := clampf(impact / 12.0, 0.15, 1.0)
 	_kick_compression(0.035 + 0.05 * strength)
 	_kick_squash(-0.08 * strength)
-	_puff(strength)
+	# Leaves fly up on land; in the shallows the water splashes instead.
+	if water.immersion > 0.015:
+		water.on_landed(impact)
+	else:
+		_puff(strength)
 	if kind == &"hard" and camera_rig:
 		camera_rig.shake(0.25 * strength)
 	landed.emit(impact, kind)
@@ -903,7 +1020,14 @@ func _update_visuals(delta: float) -> void:
 	_squash += _squash_vel * delta
 	var sy := 1.0 + _squash
 	var sxz := 1.0 - _squash * 0.45
-	model.transform = Transform3D(Basis(Vector3.BACK, _bank).scaled(Vector3(sxz, sy, sxz)), Vector3.ZERO)
+	var shake := Basis()
+	if _water_shake > 0.0:
+		# A quick twisting shiver that starts hard and settles.
+		_water_shake = maxf(_water_shake - delta, 0.0)
+		var age := SHAKE_TIME - _water_shake
+		var wob := sin(age * 44.0) * sin(_water_shake / SHAKE_TIME * PI)
+		shake = Basis(Vector3.UP, wob * 0.32) * Basis(Vector3.BACK, wob * 0.1)
+	model.transform = Transform3D(shake * Basis(Vector3.BACK, _bank).scaled(Vector3(sxz, sy, sxz)), Vector3.ZERO)
 
 	# Landing compression of the hips (spring back up).
 	_compression_vel += (-_compression * 220.0 - _compression_vel * 18.0) * delta
@@ -970,7 +1094,7 @@ func _update_look() -> void:
 		var to := _grab_point - (global_position + Vector3(0, 1.1, 0))
 		target_yaw = wrapf(atan2(to.x, to.z) - facing, -PI, PI)
 		target_pitch = clampf(-atan2(to.y, Vector2(to.x, to.z).length()) * 0.5, -0.15, 0.25)
-	elif _input_dir != Vector3.ZERO and mode in [Mode.GROUND, Mode.TURN]:
+	elif _input_dir != Vector3.ZERO and mode in [Mode.GROUND, Mode.TURN, Mode.SWIM]:
 		target_yaw = wrapf(atan2(_input_dir.x, _input_dir.z) - facing, -PI, PI)
 	elif mode == Mode.GROUND and _flat_velocity().length() < 0.05:
 		var cam_fwd := -camera_rig.get_flat_basis().z
@@ -1080,7 +1204,10 @@ func apply_net_event(kind: StringName, args: Array) -> void:
 			var strength := clampf(float(args[0]) / 12.0, 0.15, 1.0)
 			_kick_compression(0.035 + 0.05 * strength)
 			_kick_squash(-0.08 * strength)
-			_puff(strength)
+			if water and water.immersion > 0.015:
+				water.on_landed(float(args[0]))
+			else:
+				_puff(strength)
 		&"grab":
 			_grab_point = args[0]
 			_grab_right = args[1]

@@ -115,6 +115,12 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/weed.log"; then exit 1; fi
           grep -q "weed_check: PASS" "$RUNNER_TEMP/weed.log"
 
+      - name: Swim check
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s res://tools/swim_check.gd 2>&1 | tee "$RUNNER_TEMP/swim.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/swim.log"; then exit 1; fi
+          grep -q "swim_check: PASS" "$RUNNER_TEMP/swim.log"
+
       - name: Settings and pause menu check
         run: |
           timeout 300 ~/godot/godot --headless --path . -s res://tools/settings_check.gd 2>&1 | tee "$RUNNER_TEMP/settings.log"

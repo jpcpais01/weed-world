@@ -126,6 +126,9 @@ func build() -> void:
 		sound = ForestSound.new()
 		_generated.add_child(sound)
 		sound.setup(self)
+		# Splash rings and swimmers' wakes on every stretch of water.
+		_generated.add_child(WaterFX.new(kit.water_materials))
+		WaterLevel.publish(terrain)
 
 	kit.set_wind(wind_direction, wind_strength)
 	_place_spawn()
@@ -166,6 +169,7 @@ func ground_height(x: float, z: float) -> float:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE and is_built:
 		ForestGround.withdraw()
+		WaterLevel.withdraw(terrain)
 
 
 func _process(delta: float) -> void:

@@ -42,6 +42,8 @@ const WORK := Vector3(0.0, 0.80, 0.6)
 const TRAY_L := Vector3(0.17, 0.78, 0.46)
 const TRAY_R := Vector3(-0.17, 0.78, 0.46)
 const HOLD_R := Vector3(-0.25, 0.64, 0.40)
+## Swimming, the joint is held up high to keep it dry.
+const SWIM_HOLD_R := Vector3(-0.24, 1.04, 0.48)
 const TO_MOUTH_R := Vector3(-0.15, 0.80, 0.47)
 const TO_MOUTH_FRONT_R := Vector3(-0.09, 0.77, 0.5)
 const TADA_R := Vector3(-0.24, 0.97, 0.42)
@@ -94,6 +96,7 @@ var _flame: MeshInstance3D
 var _fist_bud: Node3D
 var _fist_mesh: MeshInstance3D
 var _hold := 0.0
+var _swim_hold := 0.0
 var _left_w := 0.0
 var _roll_strain: StringName = &""
 var _hit_counted := false
@@ -1174,7 +1177,9 @@ func _place_props() -> void:
 
 func _pose_rest() -> void:
 	var w := _hold
-	_arm("Right", HOLD_R, w * 0.9, P_WRIST, Vector3(0.0, 0.3, 1.0), Vector3(1.0, 0.3, 0.0), "hold")
+	_swim_hold = move_toward(_swim_hold, 1.0 if keling.mode == KelingController.Mode.SWIM else 0.0, 0.04)
+	var goal := HOLD_R.lerp(SWIM_HOLD_R, smoothstep(0.0, 1.0, _swim_hold))
+	_arm("Right", goal, w * 0.9, P_WRIST, Vector3(0.0, 0.3 + 0.5 * _swim_hold, 1.0), Vector3(1.0, 0.3, 0.0), "hold")
 	var l: Dictionary = hands.arms["Left"]
 	l.w = move_toward(l.w, 0.0, 0.05)
 	hands.chest_swell = move_toward(hands.chest_swell, 0.0, 0.05)
