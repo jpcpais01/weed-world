@@ -1,12 +1,15 @@
 extends CanvasLayer
 ## In-game HUD: touch controls on phones, control hints on desktop / gamepad,
-## a debug readout (F3) and a "What's new" panel fed by PATCH_NOTES.md.
+## an FPS / triangle counter (tap it, or press 0, for the debug readout) and a
+## "What's new" panel fed by PATCH_NOTES.md.
 
 const PATCH_NOTES := "res://PATCH_NOTES.md"
 
 var _touch: TouchControls
 var _hints: Label
 var _debug: Label
+var _stats: Button
+var _stats_timer := 0.0
 var _notes_panel: PanelContainer
 var _hint_timer := 14.0
 var _debug_on := false
@@ -24,7 +27,7 @@ func _ready() -> void:
 
 	var title := Label.new()
 	title.text = "Weed World  ·  v%s  ·  movement test" % ProjectSettings.get_setting("application/config/version", "0.1")
-	title.position = Vector2(24, 18)
+	title.position = Vector2(24, 8)
 	_style_label(title, 18, Color(1, 1, 1, 0.75))
 	root.add_child(title)
 
@@ -35,9 +38,32 @@ func _ready() -> void:
 	_hints.position = Vector2(24, -24)
 	root.add_child(_hints)
 
+	# Frame rate and triangles drawn, always on; it doubles as the debug toggle
+	# (it sits in the top strip the touch controls leave alone).
+	_stats = Button.new()
+	_stats.flat = true
+	_stats.focus_mode = Control.FOCUS_NONE
+	_stats.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_stats.position = Vector2(18, 33)
+	_stats.add_theme_font_size_override("font_size", 14)
+	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		_stats.add_theme_color_override(state, Color(0.85, 1, 0.75, 0.9))
+	_stats.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	_stats.add_theme_constant_override("outline_size", 4)
+	_stats.add_theme_constant_override("line_spacing", -3)
+	var pad := StyleBoxEmpty.new()
+	pad.content_margin_left = 6
+	pad.content_margin_top = 0
+	pad.content_margin_bottom = 0
+	for state in ["normal", "hover", "pressed", "focus"]:
+		_stats.add_theme_stylebox_override(state, pad)
+	_stats.text = "-- FPS\n-- triangles"
+	_stats.pressed.connect(_toggle_debug)
+	root.add_child(_stats)
+
 	_debug = Label.new()
 	_style_label(_debug, 15, Color(0.85, 1, 0.75, 0.95))
-	_debug.position = Vector2(24, 48)
+	_debug.position = Vector2(24, 76)
 	_debug.visible = false
 	root.add_child(_debug)
 
@@ -136,17 +162,21 @@ func _refresh() -> void:
 		GameInput.Method.TOUCH:
 			_hints.text = ""
 		GameInput.Method.GAMEPAD:
-			_hints.text = "Left stick  move (push gently to walk)\nRight stick  camera   ·   LB/RB  zoom\nA  jump (hold for higher)   ·   X  grab   ·   B / L3  sprint\nD-pad  dance · cheer · sit · nod"
+			_hints.text = "Left stick  move (push gently to walk)\nRight stick  camera   ·   LB/RB  zoom\nA  jump (hold for higher)   ·   X  grab   ·   B / L3  sprint\nD-pad  dance · cheer · sit · nod   ·   Back  debug"
 		_:
-			_hints.text = "WASD  move   ·   Shift  sprint   ·   C  walk toggle\nSpace  jump (hold for higher)   ·   E  grab\nClick  capture mouse to look   ·   Wheel  zoom   ·   Esc  release\n1 dance   2 cheer   3 sit   4 nod   ·   F3 debug   ·   F11 fullscreen"
+			_hints.text = "WASD  move   ·   Shift  sprint   ·   C  walk toggle\nSpace  jump (hold for higher)   ·   E  grab\nClick  capture mouse to look   ·   Wheel  zoom   ·   Esc  release\n1 dance   2 cheer   3 sit   4 nod   ·   0 debug   ·   F11 fullscreen"
 	_hints.modulate.a = 1.0
 	_hint_timer = 14.0
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
-		_debug_on = not _debug_on
-		_debug.visible = _debug_on
+		_toggle_debug()
+
+
+func _toggle_debug() -> void:
+	_debug_on = not _debug_on
+	_debug.visible = _debug_on
 
 
 func _process(delta: float) -> void:
@@ -154,9 +184,21 @@ func _process(delta: float) -> void:
 		_hint_timer -= delta
 	else:
 		_hints.modulate.a = move_toward(_hints.modulate.a, 0.35, delta * 0.5)
+	_stats_timer -= delta
+	if _stats_timer <= 0.0:
+		_stats_timer = 0.25
+		var tris := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
+		_stats.text = "%d FPS\n%s triangles" % [Engine.get_frames_per_second(), _short(tris)]
 	if _debug_on:
 		var player := get_tree().get_first_node_in_group("player")
-		var txt := "%d fps\n" % Engine.get_frames_per_second()
 		if player and player.has_method("get_debug_text"):
-			txt += player.get_debug_text()
-		_debug.text = txt
+			_debug.text = player.get_debug_text()
+
+
+## 1234 -> "1234", 48210 -> "48.2k", 1250000 -> "1.25M"
+static func _short(n: int) -> String:
+	if n >= 1000000:
+		return "%.2fM" % (n / 1000000.0)
+	if n >= 10000:
+		return "%.1fk" % (n / 1000.0)
+	return str(n)
