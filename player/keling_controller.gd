@@ -11,14 +11,25 @@ extends CharacterBody3D
 ## herb (or just in front) with arm IK and a full finger grip. Near a bench
 ## the same button walks up, turns round and hops onto the seat to take in
 ## the view.
+##
+## In co-op the same scene stands in for a friend's Keling: make_remote()
+## strips the camera and input, and KelingSync plays their snapshots back
+## through the same animation, lean, look and sit layers.
 
 signal jumped
 signal landed(impact_speed: float, kind: StringName)
 signal grabbed(target: Node)
 signal sat_down(bench: Node)
 signal stood_up(bench: Node)
+## Something a friend's copy of this Keling should replay (grab, seat...).
+signal net_event(kind: StringName, args: Array)
 
 enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT }
+
+const FLOWER_SHADER := preload("res://player/keling_flower.gdshader")
+## Hue turn and saturation of the crown flowers for each co-op colour slot
+## (buttercup gold, coral, forget-me-not blue, lilac), matching the map dots.
+const FLOWER_TINTS := [Vector2(0.0, 1.0), Vector2(-0.13, 0.78), Vector2(0.44, 0.82), Vector2(0.6, 0.62)]
 enum SitPhase { APPROACH, ALIGN, DOWN, SEATED, UP }
 
 ## Hop onto and off a bench seat (seconds).
@@ -57,7 +68,7 @@ const SIT_UP_TIME := 0.6
 @onready var visual: Node3D = $Visual
 @onready var model: Node3D = $Visual/Model
 @onready var animator: KelingAnimator = $Visual/AnimationTree
-@onready var camera_rig: OrbitCamera = $CameraRig
+@onready var camera_rig: OrbitCamera = get_node_or_null("CameraRig")
 @onready var leaf_puff: CPUParticles3D = $Visual/LeafPuff
 
 var mode: int = Mode.GROUND
@@ -101,17 +112,35 @@ var _sit_from := Vector3.ZERO
 var _sit_landed := false
 var _hip_offset := Vector3.ZERO  # hip joint from the body origin (model space)
 
+## Co-op identity. A friend's Keling has is_local false and is driven by
+## `remote` instead of input and physics.
+var is_local := true
+var peer_id := 1
+var player_index := 0
+var player_name := ""
+var remote: KelingSync
+var _wants_move := false
+var _remote_floor := true
+var _remote_state: StringName = &""
+var _remote_grab_hit := false
+var _flower_mats: Array[ShaderMaterial] = []
+var _tag: Label3D
+
 
 func _ready() -> void:
 	add_to_group("player")
+	if is_local:
+		add_to_group("local_player")
 	facing = rotation.y
 	rotation.y = 0.0
 	visual.rotation.y = facing
-	camera_rig.set_yaw(facing + PI)
+	if camera_rig:
+		camera_rig.set_yaw(facing + PI)
 	animator.configure_speeds(walk_speed, jog_speed, sprint_speed)
 	animator.state_finished.connect(_on_state_finished)
 	_skeleton = model.find_child("Skeleton3D", true, false)
 	_setup_rig()
+	set_player(player_index, player_name)
 
 
 func _setup_rig() -> void:
@@ -142,18 +171,16 @@ func _setup_rig() -> void:
 		_spring(i, chains[i] + "_1", chains[i] + "_2", tip_len, 1.1 if chains[i] == "Crown_Top" else 1.5, 0.28, 0.04, 0.035)
 	_skeleton.add_child(springs)
 
-	# The flowers carry their colour in the vertices.
+	# The flowers carry their colour in the vertices; each co-op player's
+	# Keling wears its own colour of them.
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		for si in mi.mesh.get_surface_count():
 			var m: Material = mi.mesh.surface_get_material(si)
 			if m and m.resource_name == "Flower":
-				var fm := StandardMaterial3D.new()
-				fm.vertex_color_use_as_albedo = true
-				fm.roughness = 0.45
-				fm.cull_mode = BaseMaterial3D.CULL_DISABLED
-				fm.backlight_enabled = true
-				fm.backlight = Color(0.55, 0.42, 0.05)
+				var fm := ShaderMaterial.new()
+				fm.shader = FLOWER_SHADER
 				mi.set_surface_override_material(si, fm)
+				_flower_mats.append(fm)
 
 	# A sprig that appears in whichever hand just picked something.
 	_sprig = Herb.build(0.16)
@@ -175,6 +202,9 @@ func _spring(i: int, root: String, end: String, tip: float, stiffness: float, dr
 
 
 func _physics_process(delta: float) -> void:
+	if not is_local:
+		_puppet_physics(delta)
+		return
 	_read_input()
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
 	if not GameInput.ui_locked:
@@ -234,6 +264,7 @@ func _read_input() -> void:
 	var dir := basis * Vector3(v.x, 0.0, v.y)
 	dir.y = 0.0
 	_input_dir = dir.normalized() if dir.length_squared() > 0.0001 else Vector3.ZERO
+	_wants_move = _desired_speed() > 0.0
 
 
 func _desired_speed() -> float:
@@ -309,7 +340,9 @@ func _ground(delta: float) -> void:
 			if _idle_time > _next_fidget:
 				_idle_time = 0.0
 				_next_fidget = randf_range(9.0, 16.0)
-				animator.play_fidget()
+				var clip := animator.play_fidget()
+				if clip != &"":
+					net_event.emit(&"fidget", [clip])
 	animator.update_locomotion(_flat_velocity().length(), target_speed > 0.0, delta)
 
 
@@ -386,6 +419,7 @@ func try_grab() -> void:
 	if absf(local_x) > 0.08:
 		_grab_right = local_x < 0.0
 	grab.start(_grab_point, "Right" if _grab_right else "Left")
+	net_event.emit(&"grab", [_grab_point, _grab_right, best != null])
 
 
 func _grab_mode(delta: float) -> void:
@@ -404,6 +438,7 @@ func _grab_mode(delta: float) -> void:
 	animator.update_locomotion(_flat_velocity().length(), vel != Vector3.ZERO, delta)
 	if _jump_buffer > 0.0 or (_desired_speed() > 0.0 and grab.time > 1.3):
 		grab.cancel()
+		net_event.emit(&"grab_cancel", [])
 		_back_to_ground()
 		return
 	if not grab.grabbing:
@@ -416,7 +451,10 @@ func _on_gripped() -> void:
 			_grab_target.on_grabbed()
 		grabbed.emit(_grab_target)
 		_sprig.visible = true
-	Input.vibrate_handheld(15)
+	elif not is_local and _remote_grab_hit:
+		_sprig.visible = true
+	if is_local:
+		Input.vibrate_handheld(15)
 
 
 # --- benches -----------------------------------------------------------------
@@ -431,6 +469,7 @@ func try_sit() -> bool:
 		return false
 	_bench = found.bench
 	_seat = found.seat
+	net_event.emit(&"seat", [_bench.site.get("id", ""), _seat])
 	mode = Mode.SIT
 	_sit_phase = SitPhase.APPROACH
 	_sit_t = 0.0
@@ -452,6 +491,8 @@ func stand_up() -> void:
 
 
 func is_sitting() -> bool:
+	if not is_local:
+		return sit != null and sit.amount > 0.5
 	return mode == Mode.SIT and _sit_phase >= SitPhase.DOWN
 
 
@@ -537,7 +578,8 @@ func _begin_stand() -> void:
 	_sit_phase = SitPhase.UP
 	_sit_t = 0.0
 	_jump_buffer = 0.0
-	camera_rig.release_view()
+	if camera_rig:
+		camera_rig.release_view()
 	BenchCaption.dismiss(get_tree())
 
 
@@ -555,6 +597,7 @@ func _leave_bench() -> void:
 	if _bench and is_instance_valid(_bench):
 		var was := _bench
 		_bench.release(self)
+		net_event.emit(&"unseat", [])
 		if _sit_phase >= SitPhase.DOWN:
 			stood_up.emit(was)
 	_bench = null
@@ -562,7 +605,8 @@ func _leave_bench() -> void:
 	sit.amount = 0.0
 	sit.legs = 0.0
 	sit.hop = 0.0
-	camera_rig.release_view()
+	if camera_rig:
+		camera_rig.release_view()
 
 
 func _skid(delta: float) -> void:
@@ -674,7 +718,7 @@ func _on_landed(impact: float) -> void:
 	_kick_compression(0.035 + 0.05 * strength)
 	_kick_squash(-0.08 * strength)
 	_puff(strength)
-	if kind == &"hard":
+	if kind == &"hard" and camera_rig:
 		camera_rig.shake(0.25 * strength)
 	landed.emit(impact, kind)
 
@@ -794,10 +838,11 @@ func _update_visuals(delta: float) -> void:
 		procedural.land_compression = maxf(_compression, 0.0)
 		procedural.space_state = get_world_3d().direct_space_state
 		var walking := mode in [Mode.GROUND, Mode.LAND, Mode.TURN, Mode.SKID, Mode.EMOTE, Mode.GRAB] or (mode == Mode.SIT and _sit_phase < SitPhase.DOWN)
-		procedural.ik_enabled = walking and is_on_floor()
+		procedural.ik_enabled = walking and (is_on_floor() if is_local else _remote_floor)
 		procedural.ik_weight = 1.0 - clampf(inverse_lerp(jog_speed, sprint_speed, speed), 0.0, 0.7)
 		procedural.crouch = grab.crouch_amount() * 0.1 if grab else 0.0
-		_update_look()
+		if is_local:
+			_update_look()
 
 
 ## Places the picked sprig in the closed fist: stem through the fingers, bud up.
@@ -848,6 +893,199 @@ func _update_look() -> void:
 		target_pitch = clampf(-camera_rig.pitch * 0.35, -0.2, 0.25)
 	procedural.look_yaw = clampf(target_yaw, -deg_to_rad(15.0), deg_to_rad(15.0))
 	procedural.look_pitch = clampf(target_pitch, -0.12, 0.2)
+
+
+## True while the player is steering somewhere (the gait wants to walk).
+func wants_move() -> bool:
+	return _wants_move
+
+
+func current_bench_id() -> String:
+	return String(_bench.site.get("id", "")) if _bench and is_instance_valid(_bench) else ""
+
+
+func current_seat() -> int:
+	return _seat
+
+
+# --- co-op -------------------------------------------------------------------
+
+## Colour slot (0..3) and name of whoever plays this Keling: tints the crown
+## flowers to match their map dot, and floats a name over a friend's head.
+func set_player(slot: int, display_name: String) -> void:
+	player_index = slot
+	player_name = display_name
+	var tint: Vector2 = FLOWER_TINTS[clampi(slot, 0, 3)]
+	for fm in _flower_mats:
+		fm.set_shader_parameter("hue_shift", tint.x)
+		fm.set_shader_parameter("saturation", tint.y)
+	if is_local or not is_inside_tree():
+		return
+	if _tag == null:
+		_tag = Label3D.new()
+		_tag.name = "NameTag"
+		_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_tag.pixel_size = 0.0021
+		_tag.font = HudTheme.title_font(600)
+		_tag.font_size = 44
+		_tag.outline_size = 14
+		_tag.position = Vector3(0, 1.58, 0)
+		_tag.render_priority = 5
+		_tag.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
+		add_child(_tag)
+	_tag.text = display_name
+	_tag.modulate = HudTheme.PLAYER_COLORS[clampi(slot, 0, 3)].lightened(0.25)
+	_tag.outline_modulate = Color(0.04, 0.08, 0.05, 0.85)
+
+
+## Turns this Keling into a friend's: no camera, no input, no physics of its
+## own. Call before it enters the tree.
+func make_remote(id: int, slot: int, display_name: String) -> void:
+	is_local = false
+	peer_id = id
+	player_index = slot
+	player_name = display_name
+	remote = KelingSync.new()
+	var rig := get_node_or_null("CameraRig")
+	if rig:
+		remove_child(rig)
+		rig.free()
+
+
+## Drops this (local) Keling at `pos` facing `yaw`: used when joining a friend.
+func arrive_at(pos: Vector3, yaw: float) -> void:
+	if mode == Mode.SIT:
+		_leave_bench()
+	if grab and grab.grabbing:
+		grab.cancel()
+	global_position = pos
+	velocity = Vector3.ZERO
+	facing = yaw
+	visual.rotation.y = facing
+	mode = Mode.GROUND
+	_emote = &""
+	animator.travel(&"Move")
+	reset_physics_interpolation()
+	if camera_rig:
+		camera_rig.set_yaw(facing + PI)
+		camera_rig.snap()
+	_puff(0.8)
+
+
+## Someone with a lower id took our seat at the same moment: step back.
+func yield_seat() -> void:
+	if mode != Mode.SIT:
+		return
+	_leave_bench()
+	_back_to_ground()
+	if is_on_floor():
+		play_emote(&"Surprise")
+
+
+## Replays an event from the real Keling on this puppet.
+func apply_net_event(kind: StringName, args: Array) -> void:
+	match kind:
+		&"jump":
+			_kick_squash(0.09)
+		&"land":
+			var strength := clampf(float(args[0]) / 12.0, 0.15, 1.0)
+			_kick_compression(0.035 + 0.05 * strength)
+			_kick_squash(-0.08 * strength)
+			_puff(strength)
+		&"grab":
+			_grab_point = args[0]
+			_grab_right = args[1]
+			_remote_grab_hit = args[2]
+			if grab:
+				grab.start(_grab_point, "Right" if _grab_right else "Left")
+		&"grab_cancel":
+			if grab:
+				grab.cancel()
+		&"fidget":
+			animator.play_fidget(args[0])
+		&"seat":
+			_remote_seat(String(args[0]), int(args[1]))
+		&"unseat":
+			if _bench and is_instance_valid(_bench):
+				_bench.release(self)
+			_bench = null
+			_seat = -1
+
+
+func _remote_seat(bench_id: String, seat: int) -> void:
+	if _bench and is_instance_valid(_bench):
+		_bench.release(self)
+	_bench = null
+	_seat = -1
+	for n in get_tree().get_nodes_in_group("bench"):
+		var b := n as Bench
+		if b == null or String(b.site.get("id", "")) != bench_id or seat < 0 or seat >= b.occupants.size():
+			continue
+		var holder = b.occupants[seat]
+		if holder != null and is_instance_valid(holder) and holder != self:
+			# Both hopped for the same seat: the lower id keeps it.
+			if holder.get("is_local") == true and peer_id < int(holder.peer_id):
+				holder.yield_seat()
+			else:
+				return
+		if b.claim(seat, self):
+			_bench = b
+			_seat = seat
+		return
+
+
+func _puppet_physics(delta: float) -> void:
+	if remote == null:
+		return
+	var s := remote.sample()
+	if s.is_empty():
+		return
+	var prev := facing
+	global_position = s.pos
+	if s.teleport:
+		reset_physics_interpolation()
+		prev = s.facing
+	velocity = s.vel
+	facing = s.facing
+	_yaw_rate = lerpf(_yaw_rate, wrapf(facing - prev, -PI, PI) / maxf(delta, 0.001), 1.0 - exp(-12.0 * delta))
+	mode = s.mode
+	_remote_floor = s.floor
+	_wants_move = s.moving
+	# Follow their state changes, but let our own animator run states on to
+	# their next (JumpStart into Fall...) without being dragged back.
+	if s.state != _remote_state:
+		_remote_state = s.state
+		animator.travel(s.state)
+	animator.update_locomotion(_flat_velocity().length(), s.moving, delta)
+	if _bench and is_instance_valid(_bench) and s.sit > 0.001:
+		sit.hip_world = _bench.hip_point(_seat)
+		sit.amount = s.sit
+		sit.legs = s.legs
+		sit.hop = s.hop
+	else:
+		sit.amount = 0.0
+		sit.legs = 0.0
+		sit.hop = 0.0
+	if absf(s.scale - visual.scale.y) > 0.001:
+		visual.scale = Vector3.ONE * clampf(s.scale, 0.2, 5.0)
+	_update_visuals(delta)
+	procedural.look_yaw = s.look_yaw
+	procedural.look_pitch = s.look_pitch
+	_update_tag()
+
+
+func _update_tag() -> void:
+	if _tag == null:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var d := cam.global_position.distance_to(global_position)
+	var a := (1.0 - smoothstep(16.0, 28.0, d)) * smoothstep(0.8, 1.6, d)
+	_tag.visible = a > 0.01
+	_tag.modulate.a = a
+	_tag.outline_modulate.a = 0.85 * a
+	_tag.position.y = 1.58 * visual.scale.y + (0.12 if is_sitting() or sit.amount > 0.5 else 0.0)
 
 
 ## For HUD/debug.

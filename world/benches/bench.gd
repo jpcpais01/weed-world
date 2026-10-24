@@ -263,7 +263,7 @@ func _update_prompt(delta: float) -> void:
 	var seat := -1
 	for n in get_tree().get_nodes_in_group("player"):
 		var p := n as Node3D
-		if p == null or (p.has_method("is_sitting") and p.is_sitting()):
+		if p == null or p.get("is_local") == false or (p.has_method("is_sitting") and p.is_sitting()):
 			continue
 		var i := nearest_seat(p.global_position, true)
 		if i >= 0 and _flat(stand_point(i) - p.global_position).length() < REACH:

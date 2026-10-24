@@ -92,12 +92,14 @@ func update_locomotion(ground_speed: float, wants_move: bool, delta: float) -> v
 	set("parameters/Move/cadence/scale", _cadence(ground_speed))
 
 
-## Plays an idle fidget once (look around, fold arms...).
-func play_fidget() -> void:
+## Plays an idle fidget once (look around, fold arms...): `clip`, or a random
+## one. Returns the clip it played, or &"" if the Keling was busy.
+func play_fidget(clip: StringName = &"") -> StringName:
 	if _state != &"Move" or _move_amount > 0.05:
-		return
-	_fidget_node.animation = FIDGETS.pick_random()
+		return &""
+	_fidget_node.animation = clip if clip in FIDGETS else FIDGETS.pick_random()
 	set("parameters/Move/fidget/request", AnimationNodeOneShot.ONE_SHOT_REQUEST_FIRE)
+	return _fidget_node.animation
 
 
 func cancel_fidget() -> void:

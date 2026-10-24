@@ -47,6 +47,7 @@ func _enter_tree() -> void:
 	_add("zoom_out", [], [JOY_BUTTON_LEFT_SHOULDER], [])
 	_add("map", [KEY_M, KEY_TAB], [JOY_BUTTON_Y], [])
 	_add("controls_help", [KEY_H, KEY_F1], [], [])
+	_add("coop", [KEY_P], [], [])
 	_add("toggle_debug", [KEY_0, KEY_KP_0, KEY_F3], [JOY_BUTTON_BACK], [])
 	_add("toggle_mouse", [KEY_ESCAPE], [JOY_BUTTON_START], [])
 	_add("fullscreen", [KEY_F11], [], [])
