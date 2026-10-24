@@ -4,7 +4,7 @@ extends Control
 ## out from your Keling to the whole valley. Drag to pan, wheel or pinch to
 ## zoom, tap a place (or anywhere) to set a waypoint; tap the waypoint again
 ## to clear it. Gamepad: left stick pans, LB/RB zoom, A marks the centre,
-## X finds you, B closes. The world keeps running while it is open (it's
+## X finds you, B or Y closes. The world keeps running while it is open (it's
 ## co-op), but your Keling stays put.
 
 signal opened
@@ -117,7 +117,7 @@ func _add_button(glyph: String, d: float, cb: Callable) -> void:
 
 func _build_card() -> void:
 	_card = PanelContainer.new()
-	_card.add_theme_stylebox_override("panel", HudTheme.glass(20, 0.82, 16.0))
+	_card.add_theme_stylebox_override("panel", HudTheme.glass(20, 0.93, 16.0))
 	_card.mouse_filter = Control.MOUSE_FILTER_STOP
 	_card.add_to_group("touch_blockers")
 	var box := VBoxContainer.new()
@@ -195,7 +195,7 @@ func _refresh_hint() -> void:
 		GameInput.Method.TOUCH:
 			_hint.text = "Drag to look around  ·  Pinch to zoom  ·  Tap a place to set a waypoint"
 		GameInput.Method.GAMEPAD:
-			_hint.text = "Left stick  pan   ·   LB / RB  zoom   ·   A  mark   ·   X  find me   ·   B  close"
+			_hint.text = "Left stick  pan   ·   LB / RB  zoom   ·   A  mark   ·   X  find me   ·   B / Y  close"
 		_:
 			_hint.text = "Drag to pan  ·  Wheel to zoom  ·  Click a place to set a waypoint  ·  E  find me  ·  M  close"
 
@@ -225,7 +225,7 @@ func open() -> void:
 	_zoom = _fit_zoom() * 2.6
 	_center = at
 	_zoom_target = _fit_zoom() * 1.12
-	_center_target = at.lerp(Vector2.ZERO, 0.45)
+	_center_target = Vector2(0.0, -2.0)  # the heart of the valley
 	_clamp_center()
 	_touches.clear()
 	_press_pos.clear()
@@ -487,6 +487,7 @@ func _draw_map() -> void:
 		var tl := _to_screen(Vector2(-MapState.EXTENT, -MapState.EXTENT))
 		var br := _to_screen(Vector2(MapState.EXTENT, MapState.EXTENT))
 		_canvas.draw_texture_rect(state.texture, Rect2(tl, br - tl), false)
+		_feather_edges(tl, br)
 	else:
 		var msg := "The map is being painted…"
 		var tw := font.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
@@ -538,6 +539,25 @@ func _draw_map() -> void:
 
 	_draw_compass(Vector2(cs.x - 70.0, cs.y - 70.0), 44.0, font)
 	_draw_scale_bar(Vector2(cs.x - 160.0 - 120.0, cs.y - 34.0), font)
+
+
+## Melts the painted square into the mist around it instead of a hard edge.
+func _feather_edges(tl: Vector2, br: Vector2) -> void:
+	var mist := Color(0.83, 0.87, 0.77)
+	var clear := Color(mist, 0.0)
+	var w := 14.0 * _zoom
+	var tr := Vector2(br.x, tl.y)
+	var bl := Vector2(tl.x, br.y)
+	var o := Vector2(w, w)
+	var oi := Vector2(w, -w)
+	var quads := [
+		[tl, tr, tr + Vector2(-w, w), tl + o],         # north
+		[tr, br, br - o, tr + Vector2(-w, w)],         # east
+		[br, bl, bl + oi, br - o],                     # south
+		[bl, tl, tl + o, bl + oi],                     # west
+	]
+	for q in quads:
+		_canvas.draw_polygon(PackedVector2Array(q), PackedColorArray([mist, mist, clear, clear]))
 
 
 func _draw_compass(c: Vector2, r: float, font: Font) -> void:

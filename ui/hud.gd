@@ -1,7 +1,8 @@
 extends CanvasLayer
 ## In-game HUD: the minimap and world map, place-name banners, touch controls
-## on phones, key-cap control hints on desktop / gamepad, a debug readout (F3)
-## and a "What's new" scroll fed by PATCH_NOTES.md. Everything is built in code
+## on phones, key-cap control hints on desktop / gamepad, an FPS / triangle
+## counter (tap it, or press 0, for the debug readout) and a "What's new"
+## scroll fed by PATCH_NOTES.md. Everything is built in code
 ## and laid out for a phone first: big touch targets, notch-safe margins.
 
 const PATCH_NOTES := "res://PATCH_NOTES.md"
@@ -16,6 +17,8 @@ var _hints: PanelContainer
 var _hints_box: VBoxContainer
 var _hints_chip: PanelContainer
 var _debug: Label
+var _stats: Button
+var _stats_timer := 0.0
 var _notes_btn: RoundIconButton
 var _notes_panel: PanelContainer
 var _notes_backdrop: ColorRect
@@ -53,9 +56,9 @@ func _ready() -> void:
 
 	_debug = Label.new()
 	HudTheme.style_label(_debug, 15, Color(0.85, 1, 0.75, 0.95), HudTheme.body_font(700))
-	_debug.position = Vector2(24, 70)
 	_debug.visible = false
 	_root.add_child(_debug)
+	_build_stats()
 
 	_banner = AreaBanner.new()
 	_root.add_child(_banner)
@@ -104,6 +107,45 @@ func _build_brand() -> void:
 	row.add_child(ver)
 	_brand = chip
 	_root.add_child(chip)
+
+
+## Frame rate and triangles drawn, always on; tapping it toggles the debug
+## readout.
+func _build_stats() -> void:
+	_stats = Button.new()
+	_stats.flat = true
+	_stats.focus_mode = Control.FOCUS_NONE
+	_stats.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_stats.add_theme_font_override("font", HudTheme.body_font(750))
+	_stats.add_theme_font_size_override("font_size", 13)
+	for st in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		_stats.add_theme_color_override(st, Color(HudTheme.LEAF, 0.9))
+	_stats.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	_stats.add_theme_constant_override("outline_size", 4)
+	var pad := StyleBoxEmpty.new()
+	pad.content_margin_left = 10
+	pad.content_margin_top = 2
+	pad.content_margin_bottom = 2
+	for st in ["normal", "hover", "pressed", "focus"]:
+		_stats.add_theme_stylebox_override(st, pad)
+	_stats.text = "-- FPS  ·  -- triangles"
+	_stats.add_to_group("touch_blockers")
+	_stats.pressed.connect(_toggle_debug)
+	_root.add_child(_stats)
+
+
+func _toggle_debug() -> void:
+	_debug_on = not _debug_on
+	_debug.visible = _debug_on
+
+
+## 1234 -> "1234", 48210 -> "48.2k", 1250000 -> "1.25M"
+static func _short(n: int) -> String:
+	if n >= 1000000:
+		return "%.2fM" % (n / 1000000.0)
+	if n >= 10000:
+		return "%.1fk" % (n / 1000.0)
+	return str(n)
 
 
 func _build_hints() -> void:
@@ -302,6 +344,9 @@ func _layout() -> void:
 
 	_brand.reset_size()
 	_brand.position = Vector2(left, top)
+	_stats.reset_size()
+	_stats.position = Vector2(left, _brand.position.y + _brand.size.y + 4.0)
+	_debug.position = Vector2(left + 8.0, _stats.position.y + _stats.size.y + 4.0)
 
 	var mm := _minimap.size
 	_minimap.position = Vector2(s.x - right - mm.x + 8.0, top - 8.0)
@@ -338,14 +383,14 @@ func _refresh() -> void:
 		GameInput.Method.GAMEPAD:
 			rows = [
 				[[["L"], "move"], [["R"], "camera"], [["LB", "RB"], "zoom"]],
-				[[["A"], "jump"], [["X"], "grab"], [["B"], "sprint"], [["View"], "map"]],
-				[[["D-pad"], "dance · cheer · sit · nod"]],
+				[[["A"], "jump"], [["X"], "grab"], [["B"], "sprint"], [["Y"], "map"]],
+				[[["D-pad"], "dance · cheer · sit · nod"], [["View"], "debug"]],
 			]
 		_:
 			rows = [
 				[[["W", "A", "S", "D"], "move"], [["Shift"], "sprint"], [["C"], "walk"]],
 				[[["Space"], "jump"], [["E"], "grab"], [["M"], "map"], [["Esc"], "free mouse"]],
-				[[["1", "2", "3", "4"], "dance · cheer · sit · nod"], [["F11"], "fullscreen"]],
+				[[["1", "2", "3", "4"], "dance · cheer · sit · nod"], [["0"], "debug"], [["F11"], "fullscreen"]],
 			]
 	for r in rows:
 		_hints_box.add_child(_hint_row(r, pad))
@@ -477,8 +522,7 @@ func _store_setting(key: String, value: Variant) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
-		_debug_on = not _debug_on
-		_debug.visible = _debug_on
+		_toggle_debug()
 	elif event.is_action_pressed("controls_help") and GameInput.method != GameInput.Method.TOUCH:
 		_hints_open = not _hints_open
 		_hint_timer = 14.0 if _hints_open else 0.0
@@ -506,9 +550,12 @@ func _process(delta: float) -> void:
 			_area_tick = 0.25
 			_update_area()
 
+	_stats_timer -= delta
+	if _stats_timer <= 0.0:
+		_stats_timer = 0.25
+		var tris := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
+		_stats.text = "%d FPS  ·  %s triangles" % [Engine.get_frames_per_second(), _short(tris)]
 	if _debug_on:
 		var player := get_tree().get_first_node_in_group("player")
-		var txt := "%d fps\n" % Engine.get_frames_per_second()
 		if player and player.has_method("get_debug_text"):
-			txt += player.get_debug_text()
-		_debug.text = txt
+			_debug.text = player.get_debug_text()

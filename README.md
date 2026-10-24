@@ -20,14 +20,17 @@ Every merge to `main` publishes a [release](../../releases/latest) with:
 | Grab | Hand button | E or F | X |
 | Camera | Drag on the right, pinch to zoom | Click to capture, mouse, wheel | Right stick, LB/RB |
 | Emotes | Smiley button | 1 dance, 2 cheer, 3 sit, 4 nod | D-pad |
+| World map | Tap the minimap | M (or click the minimap) | Y |
+| On the map | Drag, pinch, tap to set a waypoint | Drag, wheel, click to set a waypoint, E finds you | Left stick, LB/RB, A marks, X finds you, B closes |
 
-F3 shows a debug readout, F11 toggles fullscreen.
+The top-left corner shows FPS and triangles drawn. Tap it, or press 0 (Back on a gamepad), for the debug readout. F11 toggles fullscreen, H shows the control hints again.
 
 ## Project layout
 
 - `player/`: the Keling (controller, animation graph, procedural layer: breathing, lean, foot IK, spring bones; procedural grab with arm IK and finger curls)
 - `camera/`: third-person orbit camera
-- `ui/`: HUD and touch controls
+- `ui/`: HUD (shared look in `hud_theme.gd`, Fredoka and Nunito fonts under OFL), touch controls, place-name banners
+- `ui/map/`: the world map. `map_baker.gd` paints it once at load from the forest's own terrain fields and tree list (storybook shader + brushed crowns), `minimap.gd` and `world_map.gd` share it through `map_state.gd`; named places live in `map_landmarks.gd`
 - `world/forest/`: the Whispering Glade, a 100 × 100 m magical forest grown at load time from a fixed seed (terrain, procedural trees, scatter, water, golden-hour lighting, magic FX). `forest_level.tscn` is the main scene; `forest.tscn` runs standalone with a fly camera.
 - `assets/nature/`: Quaternius Stylized Nature MegaKit (CC0), re-dressed in the forest's own shaders
 - `assets/audio/forest/`: the forest soundscape, synthesised from scratch by `tools/synth_forest_audio.py` (original, no third-party audio)
@@ -51,6 +54,8 @@ godot --headless --path . -s res://tools/smoke_test.gd      # scripted run throu
 godot --headless --path . -s res://tools/foot_slip_test.gd  # planted-foot sliding per gait
 godot --headless --path . -s res://tools/grab_test.gd       # grab reach: hand-to-herb distance at grip
 godot --headless --path . -s res://tools/forest_check.gd    # grow the forest, walk the Keling across it
+# HUD / map screenshots (needs a GPU or xvfb + GL; looks only)
+xvfb-run godot --path . --rendering-method gl_compatibility -s res://tools/map_preview.gd -- /tmp/map_preview
 ```
 
 ### Regenerating the forest sounds

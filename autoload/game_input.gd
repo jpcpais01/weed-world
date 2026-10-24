@@ -45,9 +45,9 @@ func _enter_tree() -> void:
 	_add("emote_nod", [KEY_4], [JOY_BUTTON_DPAD_LEFT], [])
 	_add("zoom_in", [], [JOY_BUTTON_RIGHT_SHOULDER], [])
 	_add("zoom_out", [], [JOY_BUTTON_LEFT_SHOULDER], [])
-	_add("map", [KEY_M, KEY_TAB], [JOY_BUTTON_BACK], [])
+	_add("map", [KEY_M, KEY_TAB], [JOY_BUTTON_Y], [])
 	_add("controls_help", [KEY_H, KEY_F1], [], [])
-	_add("toggle_debug", [KEY_F3], [], [])
+	_add("toggle_debug", [KEY_0, KEY_KP_0, KEY_F3], [JOY_BUTTON_BACK], [])
 	_add("toggle_mouse", [KEY_ESCAPE], [JOY_BUTTON_START], [])
 	_add("fullscreen", [KEY_F11], [], [])
 	if DisplayServer.is_touchscreen_available() and OS.has_feature("mobile"):

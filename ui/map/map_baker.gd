@@ -111,7 +111,7 @@ class _Painter extends Node2D:
 			var kind: String = t.get("kind", "common")
 			if kind == "":
 				kind = "common"
-			var r: float = t.canopy * (0.62 if kind in ["pine", "sentinel"] else 0.8)
+			var r: float = t.canopy * {"pine": 0.62, "sentinel": 0.62, "elder": 0.6}.get(kind, 0.8)
 			# Keep crowns off the paths so the trails stay readable.
 			var pd := forest.terrain.path_distance(p.x, p.y)
 			r = clampf(r, t.canopy * 0.35, maxf(pd - 0.8, t.canopy * 0.35))
