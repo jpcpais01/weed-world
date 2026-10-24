@@ -567,10 +567,20 @@ func _rock(model: String, x: float, z: float, scale: float, sink: float, collide
 	var yaw := rng.randf() * TAU
 	var xf := _ground_xform(x, z, scale, yaw, sink, 0.6)
 	xf.basis = Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.25)) * xf.basis
+	if _near_bench(Vector2(x, z), 1.3 + scale):
+		return  # leave the scenic benches (and the space to sit) clear
 	var mesh := _named(model) if shape == "" else kit.reshaped(model, shape, ROCK_SHAPES[shape])
 	add(mesh, xf, Color(rng.randf(), rng.randf(), 0.0, 0.0), group)
 	if collide:
 		colliders.append({"shape": _convex(mesh), "xform": xf})
+
+
+func _near_bench(p: Vector2, within: float) -> bool:
+	for site in terrain.bench_sites:
+		var half: float = site.length * 0.5
+		if _seg_dist(p, site.pos - site.axis * half, site.pos + site.axis * half) < within:
+			return true
+	return false
 
 
 var _convex_cache := {}

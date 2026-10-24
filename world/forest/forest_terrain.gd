@@ -29,6 +29,7 @@ var stream_points := PackedVector2Array()
 var stream_surface := PackedFloat32Array()
 var falls: Array[Dictionary] = []      # {index, lip: Vector3, dir: Vector2, drop: float}
 var path_points: Array[PackedVector2Array] = []
+var bench_sites: Array[Dictionary] = []  # see BenchSites.plan()
 
 
 func _init(p_layout: ForestLayout) -> void:
@@ -55,6 +56,7 @@ func build() -> void:
 	_carve_pond()
 	_carve_creek()
 	_carve_stream()
+	bench_sites = BenchSites.plan(self)
 	_trace_paths()
 	_compute_normals()
 
@@ -344,6 +346,10 @@ func _trace_paths() -> void:
 	]
 	for pts in path_points:
 		_rasterize(pts, 4.0, path_dist)
+	# Spur trails and trodden pads out to the scenic benches.
+	for site in bench_sites:
+		for pts in site.trails:
+			_rasterize(pts, 4.0, path_dist)
 	# Footpaths are trodden smooth: relax the terrain along them.
 	var relaxed := heights.duplicate()
 	for gz in range(2, N - 2):

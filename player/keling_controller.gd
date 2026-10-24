@@ -8,13 +8,22 @@ extends CharacterBody3D
 ## turns use real turn-in-place steps (root motion), reversing at full tilt
 ## skids, and landings pick between a soft absorb and a crouch land
 ## depending on impact speed. The grab action reaches out for the nearest
-## herb (or just in front) with arm IK and a full finger grip.
+## herb (or just in front) with arm IK and a full finger grip. Near a bench
+## the same button walks up, turns round and hops onto the seat to take in
+## the view.
 
 signal jumped
 signal landed(impact_speed: float, kind: StringName)
 signal grabbed(target: Node)
+signal sat_down(bench: Node)
+signal stood_up(bench: Node)
 
-enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE }
+enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT }
+enum SitPhase { APPROACH, ALIGN, DOWN, SEATED, UP }
+
+## Hop onto and off a bench seat (seconds).
+const SIT_DOWN_TIME := 0.75
+const SIT_UP_TIME := 0.6
 
 @export_group("Speeds")
 @export var walk_speed := 0.45
@@ -55,6 +64,7 @@ var mode: int = Mode.GROUND
 var facing := 0.0  ## yaw of the body (0 = +Z)
 var procedural: KelingProcedural
 var grab: KelingGrab
+var sit: KelingSit
 var springs: SpringBoneSimulator3D
 
 var _skeleton: Skeleton3D
@@ -83,6 +93,13 @@ var _grab_target: Node3D
 var _grab_point := Vector3.ZERO
 var _grab_right := true
 var _sprig: Node3D
+var _bench: Bench
+var _seat := -1
+var _sit_phase: int = SitPhase.APPROACH
+var _sit_t := 0.0
+var _sit_from := Vector3.ZERO
+var _sit_landed := false
+var _hip_offset := Vector3.ZERO  # hip joint from the body origin (model space)
 
 
 func _ready() -> void:
@@ -104,6 +121,11 @@ func _setup_rig() -> void:
 	procedural.name = "Procedural"
 	_skeleton.add_child(procedural)
 	procedural.ray_exclude = [get_rid()]
+	# The bench sit pose goes on top of breathing and look, under the grab.
+	sit = KelingSit.new()
+	sit.name = "Sit"
+	_skeleton.add_child(sit)
+	_hip_offset = _skeleton.get_bone_global_rest(_skeleton.find_bone("Hips")).origin
 	grab = KelingGrab.new()
 	grab.name = "Grab"
 	_skeleton.add_child(grab)
@@ -181,6 +203,14 @@ func _physics_process(delta: float) -> void:
 			_turn(delta)
 		Mode.EMOTE:
 			_emote_mode(delta)
+		Mode.SIT:
+			_sit_mode(delta)
+
+	# On the seat the body is placed by hand: no gravity, no sliding.
+	if mode == Mode.SIT and _sit_phase >= SitPhase.DOWN:
+		velocity = Vector3.ZERO
+		_update_visuals(delta)
+		return
 
 	if mode != Mode.AIR:
 		velocity.y = -1.0 if on_floor else velocity.y - gravity * delta
@@ -310,7 +340,13 @@ func _land(delta: float) -> void:
 
 
 ## Reaches for the nearest herb in front (or just in front of the Keling).
+## Next to a bench it sits down instead, and on a bench it stands back up.
 func try_grab() -> void:
+	if mode == Mode.SIT:
+		stand_up()
+		return
+	if try_sit():
+		return
 	if mode not in [Mode.GROUND, Mode.EMOTE] or not is_on_floor() or grab == null or grab.grabbing:
 		return
 	var heading := Vector3(sin(facing), 0.0, cos(facing))
@@ -375,6 +411,152 @@ func _on_gripped() -> void:
 		grabbed.emit(_grab_target)
 		_sprig.visible = true
 	Input.vibrate_handheld(15)
+
+
+# --- benches -----------------------------------------------------------------
+
+## Walks to the nearest free bench seat in reach and sits down. Returns true
+## if a seat was taken.
+func try_sit() -> bool:
+	if mode not in [Mode.GROUND, Mode.EMOTE] or not is_on_floor() or (grab and grab.grabbing):
+		return false
+	var found := Bench.find_free_seat(get_tree(), global_position)
+	if found.is_empty() or not (found.bench as Bench).claim(found.seat, self):
+		return false
+	_bench = found.bench
+	_seat = found.seat
+	mode = Mode.SIT
+	_sit_phase = SitPhase.APPROACH
+	_sit_t = 0.0
+	_emote = &""
+	animator.travel(&"Move")
+	animator.cancel_fidget()
+	return true
+
+
+## Hops off the bench (or gives up walking to it).
+func stand_up() -> void:
+	if mode != Mode.SIT:
+		return
+	if _sit_phase < SitPhase.DOWN:
+		_leave_bench()
+		_back_to_ground()
+	elif _sit_phase == SitPhase.SEATED or (_sit_phase == SitPhase.DOWN and _sit_t > SIT_DOWN_TIME * 0.6):
+		_begin_stand()
+
+
+func is_sitting() -> bool:
+	return mode == Mode.SIT and _sit_phase >= SitPhase.DOWN
+
+
+func _sit_mode(delta: float) -> void:
+	if _bench == null or not is_instance_valid(_bench):
+		_leave_bench()
+		_back_to_ground()
+		return
+	_sit_t += delta
+	var stand := _bench.stand_point(_seat)
+	var seat_yaw := _bench.facing_yaw()
+	match _sit_phase:
+		SitPhase.APPROACH:
+			# Walk (or trot) up to the front of the seat.
+			var to := stand - global_position
+			to.y = 0.0
+			var d := to.length()
+			if _desired_speed() > 0.0 and _sit_t > 0.3:
+				_leave_bench()
+				_back_to_ground()
+				return
+			if d < 0.06 or _sit_t > 4.0:
+				_sit_phase = SitPhase.ALIGN
+				_sit_t = 0.0
+			else:
+				var speed := clampf(d * 2.2, 0.3, walk_speed * 2.2)
+				_turn_towards(atan2(to.x, to.z), speed, delta)
+				var vel := to / d * minf(speed, d / maxf(delta, 0.001))
+				_approach_velocity(vel, acceleration * 1.5, delta)
+			animator.update_locomotion(_flat_velocity().length(), d > 0.06, delta)
+		SitPhase.ALIGN:
+			# Turn round to put our back to the bench.
+			_approach_velocity(Vector3.ZERO, braking * 2.0, delta)
+			_turn_towards(seat_yaw, 0.0, delta)
+			animator.update_locomotion(_flat_velocity().length(), false, delta)
+			if absf(wrapf(seat_yaw - facing, -PI, PI)) < 0.08 or _sit_t > 1.2:
+				_sit_phase = SitPhase.DOWN
+				_sit_t = 0.0
+				_sit_from = global_position
+				_sit_landed = false
+		SitPhase.DOWN:
+			# A little crouch and a hop back up onto the seat.
+			var t := clampf(_sit_t / SIT_DOWN_TIME, 0.0, 1.0)
+			facing = lerp_angle(facing, seat_yaw, 1.0 - exp(-14.0 * delta))
+			_place_on_seat(_sit_from, smoothstep(0.15, 0.85, t))
+			sit.amount = smoothstep(0.1, 0.75, t)
+			sit.legs = smoothstep(0.35, 0.95, t)
+			sit.hop = sin(clampf((t - 0.15) / 0.6, 0.0, 1.0) * PI) * 0.07 - (1.0 - smoothstep(0.0, 0.2, t)) * 0.03 * t * 5.0
+			if not _sit_landed and t > 0.72:
+				_sit_landed = true
+				_kick_squash(-0.07)
+				_kick_compression(0.03)
+				Input.vibrate_handheld(12)
+				var ignore: Array[RID] = [_bench.body.get_rid()]
+				camera_rig.frame_view(_bench.view_point, _bench.site.get("cam", 3.4), ignore)
+				BenchCaption.show_for(get_tree(), _bench)
+				sat_down.emit(_bench)
+			if t >= 1.0:
+				_sit_phase = SitPhase.SEATED
+				_sit_t = 0.0
+		SitPhase.SEATED:
+			_place_on_seat(_sit_from, 1.0)
+			sit.amount = 1.0
+			sit.legs = 1.0
+			sit.hop = 0.0
+			if _desired_speed() > 0.0 or _jump_buffer > 0.0:
+				_begin_stand()
+		SitPhase.UP:
+			# Scoot forward and drop back onto our feet.
+			var t := clampf(_sit_t / SIT_UP_TIME, 0.0, 1.0)
+			_place_on_seat(_sit_from, 1.0 - smoothstep(0.1, 0.8, t))
+			sit.amount = 1.0 - smoothstep(0.2, 0.9, t)
+			sit.legs = 1.0 - smoothstep(0.0, 0.45, t)
+			sit.hop = sin(clampf(t / 0.7, 0.0, 1.0) * PI) * 0.05
+			if t >= 1.0:
+				_jump_buffer = 0.0
+				_kick_compression(0.03)
+				_leave_bench()
+				_back_to_ground()
+
+
+func _begin_stand() -> void:
+	_sit_phase = SitPhase.UP
+	_sit_t = 0.0
+	_jump_buffer = 0.0
+	camera_rig.release_view()
+	BenchCaption.dismiss(get_tree())
+
+
+## Puts the body between where it stood (blend 0) and on the seat (blend 1),
+## and tells the sit pose where the hips belong.
+func _place_on_seat(from: Vector3, blend: float) -> void:
+	var hip := _bench.hip_point(_seat)
+	var off := Basis(Vector3.UP, facing) * Vector3(_hip_offset.x, 0.0, _hip_offset.z)
+	var seated := Vector3(hip.x - off.x, from.y, hip.z - off.z)
+	global_position = from.lerp(seated, blend)
+	sit.hip_world = hip
+
+
+func _leave_bench() -> void:
+	if _bench and is_instance_valid(_bench):
+		var was := _bench
+		_bench.release(self)
+		if _sit_phase >= SitPhase.DOWN:
+			stood_up.emit(was)
+	_bench = null
+	_seat = -1
+	sit.amount = 0.0
+	sit.legs = 0.0
+	sit.hop = 0.0
+	camera_rig.release_view()
 
 
 func _skid(delta: float) -> void:
@@ -603,7 +785,8 @@ func _update_visuals(delta: float) -> void:
 		procedural.exertion = _exertion
 		procedural.land_compression = maxf(_compression, 0.0)
 		procedural.space_state = get_world_3d().direct_space_state
-		procedural.ik_enabled = mode in [Mode.GROUND, Mode.LAND, Mode.TURN, Mode.SKID, Mode.EMOTE, Mode.GRAB] and is_on_floor()
+		var walking := mode in [Mode.GROUND, Mode.LAND, Mode.TURN, Mode.SKID, Mode.EMOTE, Mode.GRAB] or (mode == Mode.SIT and _sit_phase < SitPhase.DOWN)
+		procedural.ik_enabled = walking and is_on_floor()
 		procedural.ik_weight = 1.0 - clampf(inverse_lerp(jog_speed, sprint_speed, speed), 0.0, 0.7)
 		procedural.crouch = grab.crouch_amount() * 0.1 if grab else 0.0
 		_update_look()
@@ -636,7 +819,14 @@ func _update_look() -> void:
 	# speak of, so it only turns a little.
 	var target_yaw := 0.0
 	var target_pitch := 0.0
-	if mode == Mode.GRAB:
+	if is_sitting() and _bench:
+		# Drink in the view, glancing now and then towards the camera.
+		var to := _bench.view_point - (global_position + Vector3(0, 1.1, 0))
+		target_yaw = wrapf(atan2(to.x, to.z) - facing, -PI, PI)
+		target_pitch = clampf(-atan2(to.y, Vector2(to.x, to.z).length()) * 0.6, -0.12, 0.2)
+		if sin(Time.get_ticks_msec() * 0.00041) > 0.93:
+			target_yaw += 0.25
+	elif mode == Mode.GRAB:
 		var to := _grab_point - (global_position + Vector3(0, 1.1, 0))
 		target_yaw = wrapf(atan2(to.x, to.z) - facing, -PI, PI)
 		target_pitch = clampf(-atan2(to.y, Vector2(to.x, to.z).length()) * 0.5, -0.15, 0.25)

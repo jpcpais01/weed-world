@@ -85,6 +85,14 @@ static func glyph(ci: CanvasItem, c: Vector2, s: float, icon: String, t: float) 
 					pts.append(c + Vector2(x + sin(y * 5.0 + t * 6.0 + k) * 0.07, y) * s)
 				ci.draw_polyline(pts, w, s * 0.17, true)
 			_ellipse(ci, c + Vector2(0, 0.85) * s, Vector2(0.75, 0.18) * s, Color(0.85, 0.95, 1.0))
+		"bench":
+			# A little garden bench with a glowing emblem on its back.
+			var wood := Color(0.62, 0.38, 0.22)
+			ci.draw_line(c + Vector2(-0.8, 0.2) * s, c + Vector2(0.8, 0.2) * s, wood, s * 0.24, true)
+			ci.draw_line(c + Vector2(-0.72, -0.5) * s, c + Vector2(0.72, -0.5) * s, wood, s * 0.2, true)
+			for x in [-0.62, 0.62]:
+				ci.draw_line(c + Vector2(x, -0.62) * s, c + Vector2(x, 0.85) * s, wood.darkened(0.25), s * 0.16, true)
+			ci.draw_circle(c + Vector2(0, -0.5) * s, s * (0.2 + 0.04 * sin(t * 2.5)), HudTheme.GOLD)
 		"trailhead":
 			var g := Color(0.35, 0.65, 0.3)
 			ci.draw_line(c + Vector2(0, 0.9) * s, c + Vector2(0, -0.1) * s, g.darkened(0.2), s * 0.18, true)

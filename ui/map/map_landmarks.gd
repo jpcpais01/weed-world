@@ -23,6 +23,10 @@ static func all(forest: Forest = null) -> Array[Dictionary]:
 		var f: Dictionary = forest.terrain.falls[forest.terrain.falls.size() / 2]
 		falls_at = Vector2(f.lip.x, f.lip.z)
 	out.append(_place("falls", "Waterfall Stairs", "The creek tumbles down the ridge in little falls.", falls_at, 6.0, "falls"))
+	# The scenic benches, each a little discovery of its own.
+	if forest and forest.terrain:
+		for site in forest.terrain.bench_sites:
+			out.append(_place("bench_" + String(site.id), site.title, site.caption, site.pos, 2.4, "bench"))
 	return out
 
 

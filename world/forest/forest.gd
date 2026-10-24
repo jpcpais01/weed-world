@@ -35,6 +35,7 @@ var atmosphere: ForestAtmosphere
 var fx: ForestFX
 var life: ForestLife
 var sound: ForestSound
+var benches: BenchSet
 var _generated: Node3D
 var _interactors: Array[Vector3] = []
 var _wind_timer := 0.0
@@ -88,6 +89,8 @@ func build() -> void:
 	build_step = 3
 	scatter.populate()
 	laps.append("undergrowth %d" % (Time.get_ticks_msec() - t0))
+	benches = BenchSet.new(layout, terrain, kit, scatter)
+	benches.decorate()
 	build_step = 4
 	scatter.build(_generated)
 	laps.append("batches %d" % (Time.get_ticks_msec() - t0))
@@ -107,6 +110,8 @@ func build() -> void:
 	life = ForestLife.new(layout, terrain, kit)
 	life.build(_generated)
 	build_step = 7
+
+	benches.build(_generated)
 
 	if not Engine.is_editor_hint():
 		sound = ForestSound.new()

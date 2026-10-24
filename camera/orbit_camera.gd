@@ -29,6 +29,13 @@ var _zoom := 3.4
 var _since_manual := 99.0
 var _shake := 0.0
 var _shake_t := 0.0
+# Scenic framing (benches): ease round to gaze at a view.
+var _view_active := false
+var _view_point := Vector3.ZERO
+var _view_blend := 0.0
+var _view_zoom := 0.0
+var _saved_zoom := 0.0
+var _view_excluded: Array[RID] = []
 
 
 func _ready() -> void:
@@ -75,6 +82,34 @@ func zoom_by(factor: float) -> void:
 
 func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
+
+
+## Eases the camera round behind the character to frame a view, pulled back a
+## little and a touch wider. Manual look still works; the camera drifts back
+## to the view after a while. `exclude` lists bodies the arm may pass through
+## (the bench it sits on).
+func frame_view(point: Vector3, view_distance := 4.2, exclude: Array[RID] = []) -> void:
+	if not _view_active:
+		_saved_zoom = _zoom
+	_view_active = true
+	_view_point = point
+	_view_zoom = view_distance
+	_since_manual = 99.0
+	for rid in _view_excluded:
+		arm.remove_excluded_object(rid)
+	_view_excluded = exclude.duplicate()
+	for rid in _view_excluded:
+		arm.add_excluded_object(rid)
+
+
+func release_view() -> void:
+	if not _view_active:
+		return
+	_view_active = false
+	_zoom = _saved_zoom
+	for rid in _view_excluded:
+		arm.remove_excluded_object(rid)
+	_view_excluded.clear()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -124,6 +159,11 @@ func _process(delta: float) -> void:
 		yaw = lerp_angle(yaw, behind, t)
 		pitch = lerpf(pitch, deg_to_rad(-14.0), t * 0.5)
 
+	if _view_active:
+		_frame_view(delta)
+	else:
+		_view_blend = move_toward(_view_blend, 0.0, delta * 0.8)
+
 	# Smooth follow: stiffer vertically when falling so we don't lose the player.
 	var focus_target := target_pos + Vector3.UP * target_height
 	var k := 1.0 - exp(-follow_lag * delta)
@@ -137,7 +177,8 @@ func _process(delta: float) -> void:
 	rotation = Vector3(pitch, yaw, 0.0)
 
 	var sprinting := flat_speed > 2.0
-	camera.fov = lerpf(camera.fov, base_fov + (6.0 if sprinting else 0.0), 1.0 - exp(-3.0 * delta))
+	var fov_target := base_fov + (6.0 if sprinting else 0.0) + 5.0 * smoothstep(0.0, 1.0, _view_blend)
+	camera.fov = lerpf(camera.fov, fov_target, 1.0 - exp(-(1.2 if _view_active else 3.0) * delta))
 
 	if _shake > 0.001:
 		_shake_t += delta * 40.0
@@ -147,3 +188,20 @@ func _process(delta: float) -> void:
 	else:
 		camera.h_offset = 0.0
 		camera.v_offset = 0.0
+
+
+func _frame_view(delta: float) -> void:
+	_view_blend = move_toward(_view_blend, 1.0, delta * 0.6)
+	# Swing round slowly and cinematically; hold off while the player looks
+	# around, then drift back to the view.
+	var to := _view_point - _focus
+	var flat := Vector2(to.x, to.z)
+	if flat.length() < 0.5:
+		return
+	var want_yaw := atan2(-to.x, -to.z)
+	var want_pitch := clampf(atan2(to.y, flat.length()) - deg_to_rad(9.0), deg_to_rad(-30.0), deg_to_rad(10.0))
+	var rate := 1.5 if _since_manual > 3.5 else 0.0
+	var k := 1.0 - exp(-rate * delta)
+	yaw = lerp_angle(yaw, want_yaw, k)
+	pitch = lerpf(pitch, want_pitch, k)
+	_zoom = lerpf(_zoom, _view_zoom, 1.0 - exp(-0.9 * delta))
