@@ -68,7 +68,7 @@ vec2 drop_ripples(vec2 p, float t) {
 			float age = mod(t + h * 97.0, period);
 			if (age > 2.4) continue;
 			vec2 centre = (c + vec2(hash12(c + 7.1), hash12(c + 3.7)) * 0.8 + 0.1) * 2.6;
-			float fade = 1.0 - age / 2.4;
+			float fade = (1.0 - age / 2.4) * smoothstep(0.0, 0.2, age);
 			g += ring_grad(p, centre, age * 0.55, 0.22 * fade * fade);
 		}
 	}
@@ -98,16 +98,26 @@ void fragment() {
 	// Surface normal: two noise layers advected along the flow and cross-faded
 	// (a flow map), so the water visibly runs downstream without stretching.
 	vec2 flow = v_flow * 1.6;
-	float ph0 = fract(t * 0.35);
-	float ph1 = fract(t * 0.35 + 0.5);
-	float blend = abs(1.0 - 2.0 * ph0);
+	// Each layer jumps back to its start once per cycle, so it must be
+	// invisible at that moment: a layer's weight peaks mid-cycle and falls to
+	// zero exactly when it wraps. A slow noise staggers the cycle across the
+	// surface so the whole river never pulses in step.
 	vec2 base = wp * 0.16;
-	vec4 n0 = texture(water_noise, base - flow * ph0 + vec2(t * 0.011, t * 0.007));
-	vec4 n1 = texture(water_noise, base - flow * ph1 + vec2(0.37, 0.61) + vec2(t * 0.011, t * 0.007));
-	vec4 n = mix(n1, n0, blend);
-	vec4 fine = texture(water_noise, wp * 0.43 - flow * ph0 * 1.7 + vec2(-t * 0.02, t * 0.017));
-	vec4 fine1 = texture(water_noise, wp * 0.43 - flow * ph1 * 1.7 + vec2(0.5) + vec2(-t * 0.02, t * 0.017));
-	fine = mix(fine1, fine, blend);
+	float stagger = texture(water_noise, wp * 0.015).b * 0.6;
+	float ph0 = fract(t * 0.35 + stagger);
+	float ph1 = fract(ph0 + 0.5);
+	float w0 = 1.0 - abs(1.0 - 2.0 * ph0);
+	float w1 = 1.0 - w0;
+	// Averaging two unrelated noises flattens them; restore the contrast.
+	float keep = inversesqrt(w0 * w0 + w1 * w1);
+	vec2 drift = vec2(t * 0.011, t * 0.007);
+	vec4 n0 = texture(water_noise, base - flow * ph0 + drift);
+	vec4 n1 = texture(water_noise, base - flow * ph1 + vec2(0.37, 0.61) + drift);
+	vec4 n = vec4(((n0.rg - 0.5) * w0 + (n1.rg - 0.5) * w1) * keep + 0.5, n0.ba * w0 + n1.ba * w1);
+	vec2 fdrift = vec2(-t * 0.02, t * 0.017);
+	vec4 fine0 = texture(water_noise, wp * 0.43 - flow * ph0 * 1.7 + fdrift);
+	vec4 fine1 = texture(water_noise, wp * 0.43 - flow * ph1 * 1.7 + vec2(0.5) + fdrift);
+	vec4 fine = vec4(((fine0.rg - 0.5) * w0 + (fine1.rg - 0.5) * w1) * keep + 0.5, fine0.ba * w0 + fine1.ba * w1);
 	vec2 grad = (n.rg - 0.5) * (normal_strength + turb * 0.9) + (fine.rg - 0.5) * (0.16 + turb * 0.5);
 	if (ripples) {
 		grad += drop_ripples(wp, t);
@@ -137,6 +147,10 @@ void fragment() {
 	float path = max(length(scene - VERTEX), 0.0);
 	float vdepth = max(v_wp.y - bed.y, 0.0);
 	float vdepth0 = max(v_wp.y - (INV_VIEW_MATRIX * vec4(scene0, 1.0)).y, 0.0);
+	// The mesh also knows the depth at each vertex (0 where its rim runs up
+	// under the bank), which keeps the shore soft even where the depth buffer
+	// is coarse or unavailable.
+	float shallow = min(vdepth0, COLOR.r);
 
 	vec3 behind = textureLod(screen_tex, ruv, 0.0).rgb;
 
@@ -155,12 +169,22 @@ void fragment() {
 	vec3 body = scatter_color * (0.55 + 0.45 * sun_up) * sun_color * 1.2;
 	vec3 water = behind * trans + body * (1.0 - trans);
 
-	// Foam where the water is shallow against banks and stones, and in rapids.
+	// Shoreline. The water thins away over its last few centimetres so the
+	// edge never traces the ground's polygons, and the shore foam is only a
+	// soft, broken line that laps slowly in and out (on gentle banks a wide
+	// depth band would paint a broad white strip). Rapids and the stones in
+	// running water still churn up proper foam.
 	float fn = texture(water_noise, wp * 0.7 - v_flow * t * 0.9).b * 0.6
 			+ texture(water_noise, wp * 1.6 + vec2(t * 0.05, -t * 0.04)).b * 0.4;
-	float shore = 1.0 - smoothstep(0.0, 0.07 + fn * 0.16, vdepth0);
+	float soft = texture(water_noise, wp * 0.23 + vec2(t * 0.013, -t * 0.009)).b;
+	float edge = smoothstep(0.0, 0.14 + soft * 0.08, shallow);
+	float lap = 0.5 + 0.5 * sin(t * 0.85 + soft * 9.0);
+	float line_depth = 0.02 + lap * 0.035;
+	float lap_line = exp(-pow((shallow - line_depth) / (0.012 + soft * 0.01), 2.0));
+	float shore = lap_line * smoothstep(0.3, 0.75, fn * 0.7 + soft * 0.5) * (flowing ? 0.7 : 0.42);
+	float stones = flowing ? (1.0 - smoothstep(0.0, 0.05 + fn * 0.1, vdepth0)) * smoothstep(0.35, 0.65, fn) * 0.6 : 0.0;
 	float rapids = smoothstep(0.3, 0.8, turb * (0.55 + fn * 0.9));
-	float foam = clamp(shore * 0.9 + rapids, 0.0, 1.0) * smoothstep(0.3, 0.62, fn + rapids * 0.35 + shore * 0.15);
+	float foam = clamp(max(max(shore, stones), rapids * smoothstep(0.3, 0.62, fn + rapids * 0.35)), 0.0, 1.0);
 
 	// Screen-space reflection of whatever stands above the water.
 	float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(nv, VIEW), 0.0, 1.0), 5.0);
@@ -189,11 +213,16 @@ void fragment() {
 	float facing = max(dot(reflect(light_dir, n_world), normalize(CAMERA_POSITION_WORLD - v_wp)), 0.0);
 	float sparkle = smoothstep(0.82, 1.0, fine.b) * pow(facing, 60.0) * 6.0;
 
+	// Reflections and glints fade with the edge too, or the thinning water
+	// would still draw a bright outline.
+	hit *= edge;
+	sparkle *= edge;
 	vec3 col = water * (1.0 - fres * hit) + refl * fres * hit;
-	ALBEDO = foam_color * foam;
+	vec3 froth = mix(water, foam_color, 0.75);
+	ALBEDO = froth * foam;
 	EMISSION = col * (1.0 - foam) + sun_color * sparkle * (1.0 - foam);
 	ROUGHNESS = mix(0.04, 0.55, foam);
 	METALLIC = 0.0;
-	SPECULAR = mix(0.5, 0.0, max(hit, foam));
-	ALPHA = clamp(smoothstep(0.0, 0.05, vdepth0) + foam, 0.0, 1.0);
+	SPECULAR = mix(0.5, 0.0, max(hit, foam)) * edge;
+	ALPHA = clamp(edge + foam * 0.85, 0.0, 1.0);
 }

@@ -1,5 +1,10 @@
 # Patch notes
 
+## 24 Oct 2026 · 14:30 UTC
+- **Smooth water.** The rippling surface of the streams and the creek no longer jumps every second or so. It now flows on without a hitch.
+- **Gentler shores.** The wide, speckled white strip around the pond is gone. The water now thins away into a wet, darker bank with a soft line of foam lapping slowly in and out, and land plants no longer sit floating in the shallows.
+- **Quieter, softer water.** The brook, waterfalls and pond have new sounds: a soft burble and a deep, gentle rush instead of the tinny fizz. They sit lower in the mix under the birds and wind and no longer repeat every few seconds.
+
 ## 24 Oct 2026 · 14:00 UTC
 - **A better view.** The camera sits a little higher and frames your Keling on the lower third of the screen, so you can see more of the forest ahead.
 - **Turn and go.** Push the stick the other way and your Keling now pivots and starts running in the same move, instead of finishing a turn on the spot first. A gentle push still turns on the spot.
