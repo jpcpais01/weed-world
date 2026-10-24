@@ -2,7 +2,7 @@ extends SceneTree
 ## Renders the Keling portrait used for the game icon and splash art onto a
 ## transparent background. Needs a real renderer (not --headless):
 ##   xvfb-run godot --path . --rendering-driver vulkan --resolution 1024x1024 -s res://tools/render_icon_portrait.gd -- <out.png> [anim] [time] [yaw_deg] [framing]
-## art_source/icon_compose.py turns the portrait into every icon size.
+## tools/icon_compose.py turns the portrait into every icon size.
 
 var _frames := 0
 var _out := "user://keling_portrait.png"
