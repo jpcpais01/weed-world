@@ -117,6 +117,12 @@ func _gust(p: Vector2, t: float) -> float:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"sound", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	_clock += delta
 	var ear := _listener()
 	var ear2 := Vector2(ear.x, ear.z)

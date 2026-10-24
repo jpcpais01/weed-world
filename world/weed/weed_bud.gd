@@ -64,6 +64,12 @@ func ripen() -> void:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"weed buds", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if Engine.is_editor_hint():
 		set_process(false)
 		return

@@ -517,6 +517,12 @@ func puppet(id: int) -> KelingController:
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_physics_process_timed(delta)
+	PerfMeter.add(&"co-op", Time.get_ticks_usec() - t0)
+
+
+func _physics_process_timed(delta: float) -> void:
 	_try_resume()
 	if _peer and status != Status.CONNECTING and _peer.get_connection_status() == MultiplayerPeer.CONNECTION_DISCONNECTED:
 		_end(_peer.fail_reason if _peer.fail_reason != "" else "lost the relay")
