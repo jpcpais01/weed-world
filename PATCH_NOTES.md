@@ -1,5 +1,12 @@
 # Patch notes
 
+## 24 Oct 2026 · 20:36 UTC
+- **Smoke that looks like smoke.** No more white blobs. A lit joint now sends up a thin thread of smoke that rises straight for a moment, then curls, spreads and drifts off on the breeze. Exhales leave your Keling's lips as a jet that opens into a soft, wispy cloud, tears into strands and fades away, with a little smoke trickling from the nose too. Smoke stays where you blew it while you walk on.
+- **Lighting up, properly.** Your Keling holds the joint out in front, flicks a fairy flame alight with its thumb and holds it under the tip for three short draws until the ember catches, then shakes the flame out and lets a first small puff go.
+- **A deeper puff.** Each puff is now a long draw with the ember flaring and crackling (with little sparks), a moment holding it in, then the head tips back for a slow breath out. The ember is grey ash with glowing cracks, and the joint burns a little shorter with every puff.
+- **A filter on every joint.** Joints now have a cardboard filter at the mouth end, a fifth of the joint long.
+- **New sounds.** The flick of the flame, the crackling draw, the breath out and the flame going out. Every strain smokes the same for now; rarer strains with their own special smoke are on the way.
+
 ## 24 Oct 2026 · 20:02 UTC
 - **About twice as fast on PC.** Windows now draws with Godot's Forward+ renderer, which works out what's in front before painting, so the thick leafy crowns no longer get painted over and over. On an RTX 4060 laptop at 1440p the graphics card went from 9.3 to 4.7 ms a frame (trees 6.4 to 3.3 ms, shadows 3.7 to 3.1 ms) with the same look. Phones keep the Mobile renderer.
 - **Which graphics card?** The frame-time panel now shows the graphics card the game is using, whether it's the dedicated or built-in one, the driver and the renderer.

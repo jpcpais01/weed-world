@@ -192,6 +192,7 @@ func _process_timed(delta: float) -> void:
 		_wind_timer = 0.2
 		var swell := 0.85 + 0.3 * sin(t * 0.13) * sin(t * 0.071 + 1.0)
 		kit.set_wind(wind_direction, wind_strength * swell)
+		WeedSmoke.wind = wind_direction * wind_strength * swell * 0.35
 
 
 func _spawn_preview_camera() -> void:

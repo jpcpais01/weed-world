@@ -1,11 +1,11 @@
 class_name WeedStrains
 extends RefCounted
 ## The three strains growing wild in the Whispering Glade. Each has its own
-## plant model, a bud tint, the colour of its smoke and the hue of the dreamy
-## glow it leaves behind when smoked away from a bench.
+## plant model, a bud tint, a smoke style (WeedSmoke.STYLES) and the hue of
+## the dreamy glow it leaves behind when smoked away from a bench.
 ##
-## Buds keep their strain all the way from the plant to the joint, so the
-## smoke you blow is the colour of what you picked.
+## Buds keep their strain all the way from the plant to the joint. The wild
+## strains all smoke "normal"; rarer strains can bring a style of their own.
 
 const BUD_MESH := "res://assets/weed/bud.glb"
 
@@ -16,7 +16,7 @@ const STRAINS := {
 		"height": 1.15,             # metres, a Keling is ~1.3
 		"bud_tint": Color(1.0, 0.72, 0.42),
 		"glow": Color(1.0, 0.55, 0.2),
-		"smoke": Color(1.0, 0.86, 0.72),
+		"smoke": &"normal",
 		"dream": Color(1.0, 0.6, 0.3),
 		"blurb": "Warm and toasty, with a crackle of orange sparks.",
 	},
@@ -26,7 +26,7 @@ const STRAINS := {
 		"height": 1.05,
 		"bud_tint": Color(0.86, 0.68, 1.0),
 		"glow": Color(0.72, 0.45, 1.0),
-		"smoke": Color(0.88, 0.8, 1.0),
+		"smoke": &"normal",
 		"dream": Color(0.68, 0.48, 1.0),
 		"blurb": "Violet and shimmering, like a sky full of stars.",
 	},
@@ -36,7 +36,7 @@ const STRAINS := {
 		"height": 1.0,
 		"bud_tint": Color(0.68, 1.0, 0.7),
 		"glow": Color(0.35, 1.0, 0.55),
-		"smoke": Color(0.82, 1.0, 0.86),
+		"smoke": &"normal",
 		"dream": Color(0.35, 1.0, 0.6),
 		"blurb": "Fresh as dew on a spring morning.",
 	},
