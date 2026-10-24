@@ -100,7 +100,8 @@ func start(url: String) -> Error:
 	_started = Time.get_ticks_msec()
 	link.subscribe(topic)
 	var client_id := "ww%s" % _crypto.generate_random_bytes(8).hex_encode()
-	return link.open(url, client_id, topic, _frame(Kind.BYE, PackedByteArray()))
+	# The last will is a BYE marked "dropped", so friends know to wait for us.
+	return link.open(url, client_id, topic, _frame(Kind.BYE, PackedByteArray([0])))
 
 
 func is_host() -> bool:
@@ -153,10 +154,12 @@ func _get_packet_script() -> PackedByteArray:
 func _put_packet_script(p_buffer: PackedByteArray) -> Error:
 	if _status != CONNECTION_CONNECTED:
 		return ERR_UNCONFIGURED
+	# Always name the targets: "everyone" to us is not "everyone" to someone
+	# who joined a moment ago and is still catching up.
 	var targets: Array = []
 	if _target > 0:
 		targets = [_target]
-	elif _target < 0:
+	else:
 		for id in _admitted:
 			if id != -_target:
 				targets.append(id)
@@ -244,7 +247,7 @@ func _close() -> void:
 		return
 	if _status == CONNECTION_CONNECTED:
 		_flush()
-		_publish(Kind.BYE, PackedByteArray())
+		_publish(Kind.BYE, PackedByteArray([1]))
 	_shutdown("left")
 
 
@@ -286,7 +289,7 @@ func _poll() -> void:
 	for id in _peers.keys():
 		if now - (_peers[id].seen as int) > PEER_TIMEOUT:
 			if id == 1 or _host:
-				_drop(id)
+				_drop(id, "quiet")
 	for id in _early.keys():
 		_early[id] = (_early[id] as Array).filter(func(e): return now - (e[0] as int) < EARLY_KEEP)
 		if (_early[id] as Array).is_empty():
@@ -351,7 +354,8 @@ func _on_link_message(_topic: String, payload: PackedByteArray) -> void:
 				_on_data(sender, buf)
 		Kind.BYE:
 			if _peers.has(sender):
-				_drop(sender)
+				var clean := buf.get_available_bytes() > 0 and buf.get_u8() == 1
+				_drop(sender, "bye" if clean else "quiet")
 		Kind.PING:
 			buf.get_u32()
 			if _peers.has(sender):
@@ -430,7 +434,7 @@ func _on_data(sender: int, buf: StreamPeerBuffer) -> void:
 	var count := buf.get_u16()
 	for i in count:
 		var n := buf.get_u8()
-		var mine := n == 0
+		var mine := false
 		for k in n:
 			if buf.get_u32() == _id:
 				mine = true
@@ -461,9 +465,11 @@ func _release_early(id: int) -> void:
 		_early.erase(id)
 
 
-func _drop(id: int) -> void:
+## `why`: "bye" (they said goodbye or the relay passed on their last will),
+## "quiet" (timed out) or "roster" (the host's list no longer has them).
+func _drop(id: int, why := "bye") -> void:
 	if id == 1 and not _host:
-		_shutdown("host left")
+		_shutdown("host left" if why == "bye" else "host lost")
 		return
 	if not _peers.has(id):
 		return
@@ -526,11 +532,8 @@ func _flush() -> void:
 		return
 	var body := StreamPeerBuffer.new()
 	body.put_u16(_pending.size())
-	var everyone := _admitted.size()
 	for p in _pending:
 		var targets: Array = p[0]
-		if targets.size() >= everyone:
-			targets = []
 		body.put_u8(targets.size())
 		for t in targets:
 			body.put_u32(t)

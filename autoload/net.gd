@@ -62,6 +62,11 @@ var player_name := ""
 ## ws://host:port/path to use instead of the public relays (tests, or
 ## `--relay=` on the command line).
 var relay_override := ""
+## How long to keep trying to get back into the forest after the connection
+## drops (an app switch, a tunnel, a flaky Wi-Fi), in seconds.
+const RESUME_FOR := 40.0
+const RESUME_EVERY := 3.0
+
 ## Makes the transport (MqttLink by default; tests swap in LoopbackLink).
 var link_factory: Callable = func(): return MqttLink.new()
 ## Where to look for the local Keling (defaults to the whole tree).
@@ -75,6 +80,12 @@ var _local: KelingController
 var _send_acc := 0.0
 var _arrived := true
 var _activity: Array = []    # [name, data] of the local Keling's current activity
+var _resume_code := ""        # room to get back into after a dropped connection
+var _resume_host := false
+var _resume_until := 0
+var _resume_next := 0
+var _resume_relay := 0
+var _resuming := false
 
 
 func _enter_tree() -> void:
@@ -131,6 +142,11 @@ func is_opening_own() -> bool:
 	return _hosting
 
 
+## True while trying to get back into a forest after the connection dropped.
+func is_reconnecting() -> bool:
+	return _resume_code != ""
+
+
 func is_busy() -> bool:
 	return status != Status.OFFLINE
 
@@ -156,6 +172,7 @@ func players() -> Array[Dictionary]:
 func host() -> void:
 	if is_busy():
 		return
+	_stop_resume()
 	_hosting = true
 	_relay_index = 0
 	last_error = ""
@@ -166,6 +183,8 @@ func host() -> void:
 func join(code: String) -> bool:
 	if is_busy():
 		return false
+	if not _resuming:
+		_stop_resume()
 	code = normalize_code(code)
 	if code.length() != CODE_LENGTH:
 		last_error = "Codes are %d letters and numbers." % CODE_LENGTH
@@ -181,8 +200,10 @@ func join(code: String) -> bool:
 
 
 func leave() -> void:
+	_stop_resume()
 	if is_busy():
 		_end("left")
+	status_changed.emit()
 
 
 static func normalize_code(code: String) -> String:
@@ -198,8 +219,8 @@ static func pretty_code(code: String) -> String:
 	return code.left(3) + "-" + code.substr(3) if code.length() == CODE_LENGTH else code
 
 
-func _open_room() -> void:
-	room_code = _new_code(_relay_index)
+func _open_room(code := "") -> void:
+	room_code = code if code != "" else _new_code(_relay_index)
 	var peer := RelayPeer.create_host(link_factory.call(), room_code, _card())
 	_begin(peer)
 
@@ -238,12 +259,16 @@ func _begin(peer: RelayPeer) -> void:
 
 func _on_room_ready() -> void:
 	status = Status.HOSTING if _hosting else Status.JOINED
-	_arrived = _hosting
+	var resumed := _resume_code != ""
+	_arrived = _hosting or resumed
+	_stop_resume()
 	_bind_local()
 	if _local:
 		_local.peer_id = multiplayer.get_unique_id()
 		_local.set_player(_peer.slot_of(_local.peer_id), player_name)
-	if _hosting:
+	if resumed:
+		notice.emit("Reconnected", HudTheme.LEAF)
+	elif _hosting:
 		notice.emit("Your forest is open · code %s" % pretty_code(room_code), HudTheme.LEAF)
 	else:
 		notice.emit("You joined %s's forest" % _host_name(), HudTheme.LEAF)
@@ -254,8 +279,9 @@ func _on_room_ready() -> void:
 func _on_room_failed(reason: String, peer: RelayPeer) -> void:
 	if peer != _peer:
 		return
-	# A host can simply try the next relay with a fresh code.
-	if _hosting and relay_override == "" and _relay_index < RELAYS.size() - 1 and status == Status.CONNECTING:
+	# A host can simply try the next relay with a fresh code (not while
+	# reopening a room friends already know the code of).
+	if _hosting and _resume_code == "" and relay_override == "" and _relay_index < RELAYS.size() - 1 and status == Status.CONNECTING:
 		_relay_index += 1
 		_detach()
 		_open_room()
@@ -280,6 +306,7 @@ func _on_roster_changed() -> void:
 func _end(reason: String) -> void:
 	var was_online := online
 	var was_host := _hosting
+	var code := room_code
 	for id in _puppets.keys():
 		_despawn(id, true)
 	_detach()
@@ -289,6 +316,26 @@ func _end(reason: String) -> void:
 	if _local and is_instance_valid(_local):
 		_local.peer_id = 1
 		_local.set_player(0, player_name)
+	# A dropped connection (not a goodbye): quietly keep trying to get back.
+	var dropped := reason.begins_with("lost the relay") or reason == "host lost" or reason.begins_with("Couldn't reach")
+	if _resume_code != "" and Time.get_ticks_msec() < _resume_until:
+		status_changed.emit()
+		return
+	if dropped and was_online and code != "":
+		_resume_code = code
+		_resume_host = was_host
+		_resume_relay = _relay_index
+		_resume_until = Time.get_ticks_msec() + int(RESUME_FOR * 1000.0)
+		_resume_next = Time.get_ticks_msec() + 1500
+		notice.emit("Connection lost · reconnecting…", HudTheme.GOLD)
+		status_changed.emit()
+		roster_changed.emit()
+		return
+	if _resume_code != "":
+		_stop_resume()
+		reason = "Couldn't reconnect"
+		was_online = true
+		was_host = false
 	if reason != "" and reason != "left":
 		last_error = _friendly(reason)
 		if was_online and not was_host:
@@ -297,6 +344,28 @@ func _end(reason: String) -> void:
 		notice.emit("Back in your own forest" if not was_host else "Your forest is closed to visitors", HudTheme.CREAM)
 	status_changed.emit()
 	roster_changed.emit()
+
+
+func _stop_resume() -> void:
+	_resume_code = ""
+	_resume_until = 0
+
+
+func _try_resume() -> void:
+	if _resume_code == "" or is_busy() or Time.get_ticks_msec() < _resume_next:
+		return
+	if Time.get_ticks_msec() > _resume_until:
+		_end("gave up")
+		return
+	_resume_next = Time.get_ticks_msec() + int(RESUME_EVERY * 1000.0)
+	_resuming = true
+	if _resume_host:
+		_hosting = true
+		_relay_index = _resume_relay
+		_open_room(_resume_code)
+	else:
+		join(_resume_code)
+	_resuming = false
 
 
 func _detach() -> void:
@@ -446,6 +515,7 @@ func puppet(id: int) -> KelingController:
 
 
 func _physics_process(delta: float) -> void:
+	_try_resume()
 	if _peer and status != Status.CONNECTING and _peer.get_connection_status() == MultiplayerPeer.CONNECTION_DISCONNECTED:
 		_end(_peer.fail_reason if _peer.fail_reason != "" else "lost the relay")
 		return

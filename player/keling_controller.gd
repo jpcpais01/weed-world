@@ -925,7 +925,9 @@ func set_player(slot: int, display_name: String) -> void:
 		_tag = Label3D.new()
 		_tag.name = "NameTag"
 		_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_tag.pixel_size = 0.0021
+		# Same size on screen near or far, like a name you can always read.
+		_tag.fixed_size = true
+		_tag.pixel_size = 0.0007
 		_tag.font = HudTheme.title_font(600)
 		_tag.font_size = 44
 		_tag.outline_size = 14

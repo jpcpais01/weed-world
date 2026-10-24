@@ -41,7 +41,7 @@ var _art: Control
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	visible = false
 	_net = get_node_or_null("/root/Net")
@@ -363,17 +363,20 @@ func _sync() -> void:
 		_error.text = "Co-op isn't available here."
 		return
 	var st: int = _net.status
-	_offline.visible = st == 0
-	_busy.visible = st == 1
+	var again: bool = _net.is_reconnecting() and st <= 1
+	_offline.visible = st == 0 and not again
+	_busy.visible = st == 1 or again
 	_room.visible = st >= 2
 	_name_edit.editable = st == 0
 	_dice.disabled = st != 0
 	_dice.modulate.a = 1.0 if st == 0 else 0.4
 	if not _name_edit.has_focus():
 		_name_edit.text = _net.player_name
-	_error.text = _net.last_error if st == 0 else ""
+	_error.text = _net.last_error if st == 0 and not again else ""
 	_error.visible = _error.text != ""
-	if st == 1:
+	if again:
+		_busy_label.text = "Reconnecting"
+	elif st == 1:
 		_busy_label.text = "Opening your forest" if _net.is_opening_own() else "Looking for %s" % _net.pretty_code(_net.room_code)
 	if st >= 2:
 		var hosting: bool = st == 2

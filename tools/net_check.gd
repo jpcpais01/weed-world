@@ -39,13 +39,22 @@ func _world(tag: String, x: float) -> Dictionary:
 	var net = NetScript.new()
 	net.name = "Net"
 	net.world_root = branch
-	net.link_factory = func(): return load("res://net/loopback_link.gd").new()
+	if not _real_relay():
+		net.link_factory = func(): return load("res://net/loopback_link.gd").new()
 	branch.add_child(net)
 	net.player_name = "Keling " + tag
 	net.world_event.connect(func(kind, id, data, from): _events.append([tag, kind, id, data, from]))
 	var w := {"tag": tag, "branch": branch, "net": net, "keling": keling}
 	_worlds.append(w)
 	return w
+
+
+## With `-- --relay=ws://...` the check runs over a real MQTT broker instead.
+func _real_relay() -> bool:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--relay="):
+			return true
+	return false
 
 
 func _check(ok: bool, what: String) -> void:
@@ -142,14 +151,21 @@ func _run() -> void:
 	d.net._peer.link.kill()
 	_check(await _until(func(): return a.net.puppet(d_id) == null and b.net.puppet(d_id) == null), "a vanished guest is dropped")
 	_check(await _until(func(): return d.net.status == S.OFFLINE), "the vanished guest goes back offline")
+	_check(await _until(func(): return d.net.status == S.JOINED and a.net.players().size() == 3, 15.0), "the vanished guest reconnects by itself")
 
 	# Wrong code: nobody answers.
 	e.net.join("ZZZ-ZZZ")
-	_check(await _until(func(): return e.net.status == S.OFFLINE and e.net.last_error != "", 14.0), "a wrong code times out kindly")
+	_check(await _until(func(): return e.net.status == S.OFFLINE and e.net.last_error != "", 16.0), "a wrong code times out kindly")
+
+	# The host's connection drops: it reopens the same room and guests find it again.
+	a.net._peer.link.kill()
+	_check(await _until(func(): return a.net.is_reconnecting() or a.net.status != S.HOSTING), "host notices its connection dropped")
+	_check(await _until(func(): return a.net.status == S.HOSTING and a.net.room_code == code, 10.0), "host reopens the same code")
+	_check(await _until(func(): return b.net.status == S.JOINED and d.net.status == S.JOINED and a.net.players().size() == 3, 30.0), "guests find the host again")
 
 	# Host closes the forest.
 	a.net.leave()
-	_check(await _until(func(): return b.net.status == S.OFFLINE), "guests go home when the host leaves")
+	_check(await _until(func(): return b.net.status == S.OFFLINE and not b.net.is_reconnecting()), "guests go home when the host leaves")
 	_check(b.net.puppet(a_id) == null and b.keling.player_index == 0, "back to a solo forest")
 	_check(a.net.status == S.OFFLINE, "host is offline")
 

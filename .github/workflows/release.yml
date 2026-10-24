@@ -109,6 +109,16 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/update.log"; then exit 1; fi
           grep -q "update_check: PASS" "$RUNNER_TEMP/update.log"
 
+      - name: Co-op check
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s res://tools/net_check.gd 2>&1 | tee "$RUNNER_TEMP/net.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/net.log"; then exit 1; fi
+          grep -q "net_check: PASS" "$RUNNER_TEMP/net.log"
+
+      - name: Co-op relays probe
+        continue-on-error: true
+        run: timeout 180 ~/godot/godot --headless --path . -s res://tools/net_probe.gd 2>&1 | grep "net_probe"
+
       - name: Restore release keystore
         if: env.PUBLISH == 'true'
         uses: actions/cache@v4

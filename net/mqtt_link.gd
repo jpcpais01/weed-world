@@ -80,6 +80,14 @@ func close() -> void:
 	_finish("closed")
 
 
+## Drops the connection without a goodbye, as if the app were killed: the
+## broker publishes our last will. (Used by tools/net_check.gd.)
+func kill() -> void:
+	if state != State.CLOSED and state != State.IDLE:
+		_ws.close()
+	_finish("killed")
+
+
 func poll() -> void:
 	if state == State.IDLE or state == State.CLOSED:
 		return
