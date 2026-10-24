@@ -31,6 +31,8 @@ The top-left corner shows FPS and triangles drawn. Tap it, or press 0 (Back on a
 - `camera/`: third-person orbit camera
 - `ui/`: HUD (shared look in `hud_theme.gd`, Fredoka and Nunito fonts under OFL), touch controls, place-name banners
 - `ui/map/`: the world map. `map_baker.gd` paints it once at load from the forest's own terrain fields and tree list (storybook shader + brushed crowns), `minimap.gd` and `world_map.gd` share it through `map_state.gd`; named places live in `map_landmarks.gd`
+- `ui/loading/`: the loading screen and main scene (threaded load, forest grown on a worker thread, shader warm-up)
+- `branding/`: app icons and the boot splash, made by `tools/icon_compose.py` and `tools/splash_compose.py` from renders of the real Keling and forest
 - `world/forest/`: the Whispering Glade, a 100 × 100 m magical forest grown at load time from a fixed seed (terrain, procedural trees, scatter, water, golden-hour lighting, magic FX). `forest_level.tscn` is the main scene; `forest.tscn` runs standalone with a fly camera.
 - `assets/nature/`: Quaternius Stylized Nature MegaKit (CC0), re-dressed in the forest's own shaders
 - `assets/audio/forest/`: the forest soundscape, synthesised from scratch by `tools/synth_forest_audio.py` (original, no third-party audio)
@@ -54,8 +56,17 @@ godot --headless --path . -s res://tools/smoke_test.gd      # scripted run throu
 godot --headless --path . -s res://tools/foot_slip_test.gd  # planted-foot sliding per gait
 godot --headless --path . -s res://tools/grab_test.gd       # grab reach: hand-to-herb distance at grip
 godot --headless --path . -s res://tools/forest_check.gd    # grow the forest, walk the Keling across it
+godot --headless --path . -s res://tools/loading_check.gd   # boot through the loading screen into the forest
 # HUD / map screenshots (needs a GPU or xvfb + GL; looks only)
 xvfb-run godot --path . --rendering-method gl_compatibility -s res://tools/map_preview.gd -- /tmp/map_preview
+```
+
+### Regenerating the icon and splash
+
+```sh
+xvfb-run godot --path . --rendering-driver vulkan --resolution 1024x1024 -s res://tools/render_icon_portrait.gd -- art_source/keling_portrait.png Surprise 0.4 20
+xvfb-run godot --path . --rendering-driver vulkan --resolution 1920x864 -s res://tools/render_key_art.gd -- art_source/key_art.png
+python3 tools/icon_compose.py && python3 tools/splash_compose.py   # needs Pillow and numpy
 ```
 
 ### Regenerating the forest sounds

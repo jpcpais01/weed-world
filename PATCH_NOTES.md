@@ -1,5 +1,11 @@
 # Patch notes
 
+## 24 Oct 2026 · 02:30 UTC
+- **Meet the Keling on your home screen.** Weed World has its own icon at last: a portrait of your Keling with its buttercup crown, glowing in a golden forest clearing. It shows on the Windows game file, the taskbar and the window, and on Android as a proper adaptive icon (plus a themed one if your launcher uses them).
+- **A beautiful way in.** The game opens on a golden-hour view down the meadow path, with a Keling waiting for you and the Weed World title over the trees.
+- **Loading that never freezes.** While the forest grows, a vine creeps across the screen, unfurling leaves and popping buttercups, with a firefly lighting its tip. Fireflies drift over the picture and handy tips fade in and out.
+- **No stutter when you arrive.** The whole forest is grown in the background and the game quietly looks all around the glade before the curtain lifts, so everything is ready the moment you see it. The picture then melts away into the real forest as its sounds swell in.
+
 ## 24 Oct 2026 · 02:00 UTC
 - **A map of the whole glade.** A round minimap now sits in the corner, painted from the forest itself: rolling hills with contour lines, worn footpaths, the pond, the creek and its waterfalls, and every tree crown in its own colour (pink blossoms, golden autumn leaves, dark pines and the lilac Elder). It turns with your camera, so up is always where you're looking, and a little N bead keeps north in sight. Scroll over it to zoom.
 - **The big map.** Press M (Y on a gamepad), or tap or click the minimap, and the map swoops out from your Keling to show the whole valley with every place named. Drag to look around, pinch or scroll to zoom, and tap the target button to find yourself again.
