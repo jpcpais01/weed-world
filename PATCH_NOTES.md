@@ -1,5 +1,18 @@
 # Patch notes
 
+## 24 Oct 2026 · 16:00 UTC
+- **Play together.** Up to four Kelings can now share the Whispering Glade, on phones and PCs, over the internet with nothing to set up. Tap the new friends button under the scroll (or press P), choose Open my forest and send your friends the six-letter code. They type it in and pop out of a puff of leaves right beside you.
+- **Everyone in their own colours.** Each player's Keling wears its own crown of flowers (buttercup gold, coral, forget-me-not blue or lilac), matching its dot on the minimap and world map, with its name floating over its head. Pick your name in the Play together card, or roll the dice for a random one like Mossy Toes.
+- **Gather and smoke together.** Friends see you walk, run, jump, dance, cheer and sit on the benches beside them. A bud one of you picks vanishes from the plant for everyone, and when someone rolls a joint, lights up and puffs, the others watch the whole ritual, the smoke and the bench power it brings.
+- **Holds on through hiccups.** Switch apps for a moment or lose signal in a tunnel and the game quietly reconnects you to the same forest. If the host heads home, everyone is gently sent back to their own forest, and the card shows who's in and how good each connection is.
+
+## 24 Oct 2026 · 15:30 UTC
+- **Wild weed in the Whispering Glade.** Three strains grow in little patches beside the paths: warm Ember Kush, violet Starlit Haze and fresh Verdant Dream. The first patch grows just ahead of where you start. Walk up and press grab (E, X on gamepad, or the hand button) to pluck a glowing bud. The plant shivers, sheds a few leaves and slowly grows the bud back, and every new strain you find gets its own little fanfare.
+- **Roll your own.** With a bud in your pouch, press R (right trigger, or the new leaf button). A little forest magic floats the bud and a rolling paper up between your Keling's hands: the bud crumbles onto the paper, the paper curls itself up, gets a lick and a twist, and ten seconds later, ta-da, a joint ready to smoke. Walk off halfway and you keep your bud.
+- **Light up and puff.** Press again to snap a fairy flame off your fingertips and light it. Each press is one deep puff, three to a joint: the ember flares, your Keling's chest swells, and out rolls a cloud of smoke in the colour of the strain. Between puffs a thin curl of smoke rises from the joint in your hand.
+- **Bench powers.** Smoke while sitting on a scenic bench and the view gives you a power: Brook Stride by the river (run faster with ripples at every step), Spirit Sight at the Lotus Pond (every ripe bud shines through the trees), Featherfall at Misty Falls (jump twice as high and drift down), Mountain Might on Sunset Ridge (grow big and land with a stomp) and Bloom Trail in Elder's Meadow (flowers spring up in your footsteps and nearby plants ripen). Anywhere else you get the Glade Glow: the forest turns dreamy and rainbow motes drift around you. Every puff makes it stronger and last longer.
+- **Your stash.** A pouch under the logo shows your buds and your joint with the puffs left (tap it or press Q to choose which strain to roll). It's saved, so it's all still there next time you play.
+
 ## 24 Oct 2026 · 14:30 UTC
 - **Smooth water.** The rippling surface of the streams and the creek no longer jumps every second or so. It now flows on without a hitch.
 - **Gentler shores.** The wide, speckled white strip around the pond is gone. The water now thins away into a wet, darker bank with a soft line of foam lapping slowly in and out, and land plants no longer sit floating in the shallows.

@@ -124,6 +124,10 @@ func _run() -> void:
 	var host_k = a.keling
 	host_k.net_event.emit(&"grab", [host_k.global_position + Vector3(0, 0.5, 0.4), true, true])
 	_check(await _until(func(): return b.net.puppet(a_id).grab.grabbing and c.net.puppet(a_id).grab.grabbing), "grab replays on every puppet")
+	host_k.activity_changed.emit(&"roll", {"strain": &"ember"})
+	_check(await _until(func(): return b.net.puppet(a_id).weed.act == 1 and c.net.puppet(a_id).weed.act == 1), "rolling a joint replays on every puppet")
+	host_k.activity_changed.emit(&"hold", {"strain": &"ember", "puffs": 3, "lit": false})
+	_check(await _until(func(): return b.net.puppet(a_id).weed.act == 0 and b.net.puppet(a_id).weed.has_joint()), "the finished joint shows in their hand")
 	_events.clear()
 	b.net.send_world_event(&"weed_picked", 42, {"strain": "test"})
 	_check(await _until(func(): return _events.size() >= 2), "world event reaches everyone else")

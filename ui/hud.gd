@@ -448,12 +448,12 @@ func _refresh() -> void:
 		GameInput.Method.GAMEPAD:
 			rows = [
 				[[["L"], "move"], [["R"], "camera"], [["LB", "RB"], "zoom"]],
-				[[["A"], "jump"], [["X"], "grab"], [["B"], "sprint"], [["Y"], "map"]],
+				[[["A"], "jump"], [["X"], "grab"], [["B"], "sprint"], [["Y"], "map"], [["RT"], "roll · smoke"]],
 				[[["D-pad"], "dance · cheer · sit · nod"], [["View"], "debug"]],
 			]
 		_:
 			rows = [
-				[[["W", "A", "S", "D"], "move"], [["Shift"], "sprint"], [["C"], "walk"]],
+				[[["W", "A", "S", "D"], "move"], [["Shift"], "sprint"], [["C"], "walk"], [["R"], "roll · smoke"]],
 				[[["Space"], "jump"], [["E"], "grab"], [["M"], "map"], [["P"], "play together"], [["Esc"], "free mouse"]],
 				[[["1", "2", "3", "4"], "dance · cheer · sit · nod"], [["0"], "debug"], [["F11"], "fullscreen"]],
 			]

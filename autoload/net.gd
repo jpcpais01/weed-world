@@ -101,6 +101,8 @@ func _ready() -> void:
 	# to them work from inside the handlers.
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	world_event.connect(_on_world_event)
+	world_sync_requested.connect(_send_world_state)
 
 
 func _load_profile() -> void:
@@ -559,6 +561,48 @@ func _find_forest() -> Node:
 			return f
 		n = n.get_parent()
 	return null
+
+
+# --- the shared forest -----------------------------------------------------------
+
+## What friends did to the forest, applied here: picked buds pop off their
+## plants, Bloom Trail makes plants burst back into bud.
+func _on_world_event(kind: StringName, id: Variant, data: Dictionary, _from: int) -> void:
+	var forest := _find_forest()
+	var weed = forest.get("weed") if forest else null
+	if weed == null:
+		return
+	match kind:
+		&"weed_picked":
+			_remote_pick(weed, int(id))
+		&"weed_ripened":
+			var plant = weed.plant_by_index(int(id))
+			if plant:
+				plant.ripen_all()
+		&"weed_state":
+			for bid in data.get("picked", []):
+				_remote_pick(weed, int(bid))
+
+
+func _remote_pick(weed, id: int) -> void:
+	var bud = weed.bud_by_id(id)
+	if bud and bud.ripe:
+		bud.apply_remote_pick()
+
+
+## Host: tells a newcomer which buds have been picked lately.
+func _send_world_state(peer_id: int) -> void:
+	var forest := _find_forest()
+	var weed = forest.get("weed") if forest else null
+	if weed == null:
+		return
+	var picked: Array[int] = []
+	for plant in weed.nodes:
+		for bud in plant.buds:
+			if not bud.ripe:
+				picked.append(bud.net_id)
+	if not picked.is_empty():
+		send_world_event_to(peer_id, &"weed_state", 0, {"picked": picked})
 
 
 # --- wire -------------------------------------------------------------------------
