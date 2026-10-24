@@ -16,6 +16,8 @@ uniform float normal_strength = 1.0;
 uniform float stiffness = 1.0;
 uniform float uv_scale = 1.0;
 uniform float birch : hint_range(0.0, 1.0) = 0.0;
+// 1 on the sawn top of a stump: UV is centred on the heart, 0.5 at the rim.
+uniform float cut_face : hint_range(0.0, 1.0) = 0.0;
 
 varying vec3 v_wn;
 varying vec3 v_wp;
@@ -49,11 +51,33 @@ void fragment() {
 	float foot = 1.0 - smoothstep(0.0, 1.1 + n, v_base);
 	float moss = clamp((top * 0.9 + foot * 0.75) * moss_amount, 0.0, 1.0);
 	alb = mix(alb, moss_color * (0.75 + 0.5 * n), moss);
+	vec3 nmap = texture(bark_normal, uv).rgb;
+	float spec = 0.2;
+	if (cut_face > 0.0) {
+		// Sawn heartwood: wobbly growth rings, a dark pith, radial checks,
+		// weathered grey patches and a ring of bark and moss at the rim.
+		vec2 c = UV - 0.5;
+		float r = length(c) * 2.0;
+		float w = texture(noise_tex, UV * 0.8).r;
+		float ring = 0.5 + 0.5 * sin((r + (w - 0.5) * 0.12) * 46.0);
+		vec3 wood = mix(vec3(0.5, 0.29, 0.1), vec3(0.34, 0.18, 0.06), ring * 0.6);
+		wood = mix(vec3(0.18, 0.1, 0.05), wood, smoothstep(0.0, 0.14, r));
+		float ang = atan(c.y, c.x);
+		float check = texture(noise_tex, vec2(ang * 0.32, r * 0.06)).g;
+		wood *= 1.0 - smoothstep(0.8, 0.9, check) * smoothstep(0.08, 0.35, r) * 0.65;
+		wood = mix(wood, vec3(0.34, 0.28, 0.2) * (0.8 + 0.4 * n), smoothstep(0.5, 0.8, n) * 0.35);
+		float rim = smoothstep(0.84, 0.93, r);
+		vec3 cut = mix(wood, alb, rim);
+		float cut_moss = smoothstep(0.6, 0.95, r + (n - 0.5) * 0.6) * moss_amount * 2.5;
+		alb = mix(cut, moss_color * (0.75 + 0.5 * n), clamp(cut_moss, 0.0, 1.0) * 0.8);
+		nmap = mix(vec3(0.5, 0.5, 1.0), nmap, rim);
+		spec = 0.06;
+	}
 	ALBEDO = alb;
-	NORMAL_MAP = texture(bark_normal, uv).rgb;
+	NORMAL_MAP = nmap;
 	NORMAL_MAP_DEPTH = normal_strength * (1.0 - moss * 0.7);
 	ROUGHNESS = 0.92;
-	SPECULAR = 0.2;
+	SPECULAR = spec;
 	AO = mix(0.45, 1.0, COLOR.r);
 	AO_LIGHT_AFFECT = 0.35;
 }
