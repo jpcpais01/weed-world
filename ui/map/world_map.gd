@@ -435,6 +435,12 @@ func _refresh_card() -> void:
 # Frame loop and drawing
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"world map", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	_t += delta
 	var target := 1.0 if is_open else 0.0
 	_open = move_toward(_open, target, delta / 0.28)

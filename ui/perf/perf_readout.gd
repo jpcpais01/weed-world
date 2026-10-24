@@ -94,6 +94,8 @@ func _summarise() -> void:
 	if now - _worst[2] > 5.0:
 		_worst = ["", 0.0, -INF]
 	for k in taken.peak:
+		if String(k).ends_with("(background)"):
+			continue  # off the main thread: slow, but no stutter
 		var ms: float = taken.peak[k] / 1000.0
 		if ms > _worst[1]:
 			_worst = [k, ms, now]

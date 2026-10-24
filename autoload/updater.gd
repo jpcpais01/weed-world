@@ -80,6 +80,12 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"updater", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if state in [State.IDLE, State.UP_TO_DATE]:
 		_next_check -= delta
 		if _next_check <= 0.0:

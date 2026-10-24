@@ -118,6 +118,12 @@ func _ease(a: float, b: float) -> float:
 
 
 func _process_modification_with_delta(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_modification_with_delta_timed(delta)
+	PerfMeter.add(&"grab pose", Time.get_ticks_usec() - t0)
+
+
+func _process_modification_with_delta_timed(delta: float) -> void:
 	var skel := get_skeleton()
 	if skel == null or _bones.is_empty() or not grabbing:
 		return
