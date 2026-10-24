@@ -409,6 +409,60 @@ func stump(seed: int) -> ArrayMesh:
 	return m
 
 
+## Surface roots for a trunk of radius 1 standing at the origin: `count`
+## gnarled tubes that leave the trunk a little above the ground, arch out
+## across the soil and dive into it. Dressed in the trunk's own bark.
+func roots(seed: int, count: int, bark: Material) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var sides := 5
+	for k in count:
+		var a := TAU * (k + rng.randf_range(-0.3, 0.3)) / count
+		var reach := rng.randf_range(1.9, 3.1)
+		var curl := rng.randf_range(-0.35, 0.35)
+		var thick := rng.randf_range(0.75, 1.15)
+		# Spine from high on the trunk out to the tip below the surface.
+		var spine: Array[Vector3] = []
+		var radii: Array[float] = []
+		var segs := 5
+		for j in segs + 1:
+			var t := float(j) / segs
+			var r := lerpf(0.4, reach, t)
+			var aa := a + curl * t * t
+			# Steep where it leaves the trunk, then hugging the soil, then under.
+			var y := pow(1.0 - t, 2.4) * 1.05 + sin(t * PI) * 0.05 - 0.12 * t * t
+			spine.append(Vector3(cos(aa) * r, y, sin(aa) * r))
+			radii.append(lerpf(0.75, 0.1, pow(t, 1.1)) * thick)
+		var v_along := 0.0
+		for j in segs:
+			var p0 := spine[j]
+			var p1 := spine[j + 1]
+			var seg_len := p0.distance_to(p1)
+			for s in sides:
+				for corner in [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]]:
+					var jj: int = j + corner[1]
+					var ss: int = s + corner[0]
+					var c := spine[jj]
+					var fwd := (spine[mini(jj + 1, segs)] - spine[maxi(jj - 1, 0)]).normalized()
+					var side := fwd.cross(Vector3.UP).normalized()
+					var up := side.cross(fwd).normalized()
+					var ang := TAU * ss / sides
+					# Flattened oval cross-section: roots spread sideways.
+					var nrm := (side * cos(ang) * 0.7 + up * sin(ang) * 1.5).normalized()
+					var off := side * cos(ang) * radii[jj] * 1.5 + up * sin(ang) * radii[jj] * 0.7
+					st.set_normal(nrm)
+					st.set_uv(Vector2(float(ss) / sides, (v_along + (seg_len if corner[1] == 1 else 0.0)) * 0.9))
+					st.set_color(Color(lerpf(0.6, 1.0, float(jj) / segs), 0.0, 0.0))
+					st.add_vertex(c + off)
+			v_along += seg_len
+	st.generate_tangents()
+	var m := st.commit()
+	m.surface_set_material(0, bark)
+	return m
+
+
 ## The dead-tree bark switched to its cut-wood mode: growth rings, cracks and a
 ## weathered, mossy rim. It keeps the bark's sway so cap and sides stay joined.
 func _cut_wood() -> ShaderMaterial:

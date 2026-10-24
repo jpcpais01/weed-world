@@ -1,9 +1,11 @@
 // Bark with a normal map, mossy tops and a damp mossy foot, swaying in step
-// with its canopy.
+// with its canopy. Trunks, roots, logs and stumps fade into the colour of the
+// soil they grow from, with a contact shadow along the ground line.
 shader_type spatial;
 render_mode world_vertex_coords;
 
 #include "wind.gdshaderinc"
+#include "ground.gdshaderinc"
 
 uniform sampler2D bark_tex : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D bark_normal : hint_normal, filter_linear_mipmap, repeat_enable;
@@ -73,11 +75,28 @@ void fragment() {
 		nmap = mix(vec3(0.5, 0.5, 1.0), nmap, rim);
 		spec = 0.06;
 	}
+	float ao = mix(0.45, 1.0, COLOR.r);
+	float melt = 0.0;
+	if (ground_inside(v_wp.xz) > 0.5) {
+		float hg = v_wp.y - ground_height_at(v_wp.xz);
+		melt = 1.0 - smoothstep(0.0, 0.16, hg + (n - 0.5) * 0.14);
+		if (melt > 0.001) {
+			float mudm;
+			float contact;
+			vec4 det = texture(ground_detail, ground_detail_uv(v_wp.xz));
+			vec3 g = ground_albedo(v_wp.xz, ground_mask_at(v_wp.xz), det, alb, 0.0, 0.0, mudm, contact);
+			alb = mix(alb, g, melt);
+			NORMAL = normalize(mix(NORMAL, (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz, melt * 0.6));
+		}
+		float c = 1.0 - smoothstep(0.0, 0.55, hg);
+		alb *= 1.0 - c * 0.18;
+		ao *= 1.0 - c * 0.45;
+	}
 	ALBEDO = alb;
 	NORMAL_MAP = nmap;
-	NORMAL_MAP_DEPTH = normal_strength * (1.0 - moss * 0.7);
+	NORMAL_MAP_DEPTH = normal_strength * (1.0 - moss * 0.7) * (1.0 - melt);
 	ROUGHNESS = 0.92;
 	SPECULAR = spec;
-	AO = mix(0.45, 1.0, COLOR.r);
+	AO = ao;
 	AO_LIGHT_AFFECT = 0.35;
 }

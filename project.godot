@@ -53,3 +53,26 @@ lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/size.mobile=2048
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=1
+
+[shader_globals]
+
+ground_height={
+"type": "sampler2D",
+"value": ""
+}
+ground_mask={
+"type": "sampler2D",
+"value": ""
+}
+ground_detail={
+"type": "sampler2D",
+"value": ""
+}
+ground_grid={
+"type": "vec4",
+"value": Vector4(-60, -60, 0.5, 241)
+}
+ground_blend={
+"type": "float",
+"value": 0.0
+}

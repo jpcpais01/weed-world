@@ -135,6 +135,14 @@ func slope_at(x: float, z: float) -> float:
 	return rad_to_deg(acos(clampf(normal_at(x, z).y, -1.0, 1.0)))
 
 
+## Is the ground here below the surface of the pond, the creek or the stream?
+func is_under_water(x: float, z: float) -> bool:
+	var ix := clampi(int(round((x + EXTENT) / STEP)), 0, N - 1)
+	var iz := clampi(int(round((z + EXTENT) / STEP)), 0, N - 1)
+	var i := iz * N + ix
+	return water_level[i] > heights[i] - 0.03
+
+
 func is_in_pond(x: float, z: float, margin: float = 0.0) -> bool:
 	var v := Vector2(x, z) - ForestLayout.POND
 	return v.length() < layout.pond_radius(v.angle()) + margin
@@ -380,7 +388,16 @@ func _compute_normals() -> void:
 # ----------------------------------------------------------------------------
 # Mesh and collision
 
-## Vertex colour channels: R worn path, G bare rock, B wet bank, A canopy shade.
+## The terrain masks of grid sample i: R worn path, G bare rock, B wet bank,
+## A canopy shade. Baked into the mesh colours and into ForestGround's mask.
+func mask_color(i: int) -> Color:
+	var path := 1.0 - ForestLayout.sstep(0.55, 1.65, path_dist[i])
+	var rock := ForestLayout.sstep(0.80, 0.62, normals[i].y)
+	var wet := 1.0 - ForestLayout.sstep(-0.2, 2.2, water_dist[i])
+	return Color(path, rock, wet, shade[i])
+
+
+## Vertex colours are mask_color(); UV.x is the water depth over the vertex.
 func build_meshes(material: Material) -> Array[MeshInstance3D]:
 	var out: Array[MeshInstance3D] = []
 	var cells := (N - 1) / CHUNKS
@@ -413,12 +430,8 @@ func _chunk_mesh(x0: int, z0: int, cells: int) -> ArrayMesh:
 			var i := gz * N + gx
 			var k := lz * w + lx
 			verts[k] = Vector3(_gx(gx), heights[i], _gx(gz))
-			var n := normals[i]
-			norms[k] = n
-			var path := 1.0 - ForestLayout.sstep(0.55, 1.65, path_dist[i])
-			var rock := ForestLayout.sstep(0.80, 0.62, n.y)
-			var wet := 1.0 - ForestLayout.sstep(-0.2, 2.2, water_dist[i])
-			cols[k] = Color(path, rock, wet, shade[i])
+			norms[k] = normals[i]
+			cols[k] = mask_color(i)
 			uvs[k] = Vector2(maxf(water_level[i] - heights[i], 0.0), 0.0)
 	var idx := PackedInt32Array()
 	idx.resize(cells * cells * 6)

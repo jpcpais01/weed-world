@@ -1,21 +1,20 @@
 // Forest floor: meadow grass that shares its colour with the grass blades,
-// worn footpaths with pebbles, leaf litter under the canopy, dark mud at the
-// water's edge and biplanar mossy rock on steep slopes.
+// worn footpaths with a trampled verge and little stones, bare soil and moss
+// where trunks and boulders stand, leaf litter under the canopy, dark mud at
+// the water's edge and mossy rock breaking through steep slopes.
 shader_type spatial;
 render_mode diffuse_lambert_wrap;
 
 #include "ground.gdshaderinc"
 
 uniform sampler2D rock_tex : source_color, filter_linear_mipmap, repeat_enable;
-uniform vec3 dirt_a : source_color = vec3(0.45, 0.33, 0.20);
-uniform vec3 dirt_b : source_color = vec3(0.62, 0.50, 0.33);
-uniform vec3 pebble : source_color = vec3(0.70, 0.66, 0.58);
-uniform vec3 litter : source_color = vec3(0.36, 0.26, 0.14);
-uniform vec3 mud : source_color = vec3(0.20, 0.16, 0.11);
-uniform vec3 sand : source_color = vec3(0.62, 0.55, 0.40);
-uniform vec3 algae : source_color = vec3(0.22, 0.34, 0.12);
 uniform vec3 rock_tint : source_color = vec3(1.0);
 uniform float rock_scale = 0.16;
+// Where the grass blades have shrunk away with distance, the meadow keeps
+// their sunny colour so the fade never shows.
+uniform vec3 blade_tint : source_color = vec3(0.62, 0.72, 0.26);
+uniform float blade_fade_start = 17.0;
+uniform float blade_fade_end = 30.0;
 
 varying vec3 v_wp;
 varying vec3 v_wn;
@@ -27,56 +26,34 @@ void vertex() {
 
 void fragment() {
 	vec2 p = v_wp.xz;
-	float shade = COLOR.a;
-	float wet = COLOR.b;
-	vec4 n = texture(ground_noise, p * 0.21);
-	vec4 nf = texture(ground_noise, p * 1.1);
-
-	vec3 c = ground_grass(p, shade, wet);
-	// fine mottling so close-up ground never looks flat
-	c *= 0.9 + 0.2 * nf.g;
-
-	// leaf litter pools under heavy canopy
-	float lit = smoothstep(0.45, 0.85, shade + (n.b - 0.5) * 0.5);
-	c = mix(c, litter * (0.8 + 0.4 * nf.r), lit * 0.55);
-
-	// worn footpath with scattered pebbles
-	float pm = smoothstep(0.38, 0.62, COLOR.r + (n.r - 0.5) * 0.55);
-	vec3 dirt = mix(dirt_a, dirt_b, smoothstep(0.2, 0.8, n.g)) * (0.85 + 0.3 * nf.b);
-	float peb = smoothstep(0.82, 0.9, nf.a) * smoothstep(0.3, 0.8, n.b);
-	dirt = mix(dirt, pebble * (0.8 + 0.3 * nf.r), peb);
-	dirt = mix(dirt, dirt * 0.75, shade * 0.6);
-	c = mix(c, dirt, pm);
-
-	// dark wet mud along water
-	float mudm = smoothstep(0.55, 0.95, wet + (n.g - 0.5) * 0.4);
-	c = mix(c, mud * (0.8 + 0.4 * nf.b), mudm * 0.85);
-
-	// Under water: pale sand and pebbles in the shallows, weed-green deeper.
-	float under = smoothstep(0.03, 0.18, UV.x);
-	if (under > 0.0) {
-		float pebs = smoothstep(0.55, 0.8, nf.a) * (0.7 + 0.3 * n.r);
-		vec3 bed = mix(sand * (0.85 + 0.25 * nf.r), pebble * (0.6 + 0.5 * nf.b), pebs * 0.8);
-		float weed = smoothstep(0.25, 0.9, UV.x * 0.8 + (n.g - 0.5) * 0.8);
-		bed = mix(bed, algae * (0.7 + 0.6 * nf.g), weed * 0.75);
-		c = mix(c, bed, under);
-		mudm *= 1.0 - under;
+	vec4 m = COLOR;
+	vec4 det = texture(ground_detail, ground_detail_uv(p)) * ground_inside(p);
+	if (ground_blend < 0.5) {
+		// No baked ground (e.g. a test scene): fall back to the soft vertex path.
+		det.b = m.r * 0.62;
 	}
 
-	// rock on steep ground
-	float rm = smoothstep(0.3, 0.7, COLOR.g + (n.r - 0.5) * 0.5);
-	if (rm > 0.001) {
+	vec3 rk = vec3(0.0);
+	if (m.g > 0.05) {
 		vec3 bw = pow(abs(v_wn), vec3(4.0));
 		bw /= (bw.x + bw.y + bw.z);
-		vec3 rk = texture(rock_tex, v_wp.zy * rock_scale).rgb * bw.x
+		rk = (texture(rock_tex, v_wp.zy * rock_scale).rgb * bw.x
 				+ texture(rock_tex, v_wp.xz * rock_scale).rgb * bw.y
-				+ texture(rock_tex, v_wp.xy * rock_scale).rgb * bw.z;
-		c = mix(c, rk * rock_tint, rm);
+				+ texture(rock_tex, v_wp.xy * rock_scale).rgb * bw.z) * rock_tint;
 	}
+
+	float under = smoothstep(0.03, 0.18, UV.x);
+	float mudm;
+	float contact;
+	vec3 c = ground_albedo(p, m, det, rk, under, 1.0, mudm, contact);
+
+	float grassy = ground_grassy(m, det, mudm, contact) * (1.0 - under);
+	float far = smoothstep(blade_fade_start, blade_fade_end, length(VERTEX));
+	c = mix(c, c * 0.55 + blade_tint * (0.55 - m.a * 0.3), grassy * far * 0.55);
 
 	ALBEDO = c;
 	ROUGHNESS = mix(0.95, 0.35, mudm);
 	SPECULAR = mix(0.2, 0.45, mudm);
-	AO = 1.0 - shade * 0.55;
-	AO_LIGHT_AFFECT = 0.15;
+	AO = (1.0 - m.a * 0.55) * (1.0 - contact * 0.55);
+	AO_LIGHT_AFFECT = 0.15 + contact * 0.25;
 }

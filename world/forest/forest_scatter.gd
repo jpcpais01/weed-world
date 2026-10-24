@@ -7,11 +7,11 @@ extends RefCounted
 ## INSTANCE_CUSTOM conventions:
 ##   trees/bushes: r hue jitter, g brightness, b wind phase, a magic tint
 ##   plants/grass: r canopy shade, g wetness, b random, a unused
-##   rocks:        r moss bias, g brightness
+##   rocks:        r moss bias, g brightness, b ground blend band (m)
 
-const CHUNK := {"tree": 40.0, "far": 60.0, "rock": 30.0, "bush": 24.0, "plant": 16.0, "grass": 14.0, "small": 16.0, "litter": 16.0}
-const VIS_END := {"tree": 0.0, "far": 0.0, "rock": 0.0, "bush": 70.0, "plant": 48.0, "grass": 38.0, "small": 34.0, "litter": 28.0}
-const SHADOWS := {"tree": true, "far": false, "rock": true, "bush": true, "plant": false, "grass": false, "small": false, "litter": false}
+const CHUNK := {"tree": 40.0, "far": 60.0, "rock": 30.0, "bush": 24.0, "plant": 16.0, "grass": 14.0, "small": 16.0, "litter": 16.0, "roots": 24.0}
+const VIS_END := {"tree": 0.0, "far": 0.0, "rock": 0.0, "bush": 70.0, "plant": 48.0, "grass": 38.0, "small": 34.0, "litter": 28.0, "roots": 46.0}
+const SHADOWS := {"tree": true, "far": false, "rock": true, "bush": true, "plant": false, "grass": false, "small": false, "litter": false, "roots": false}
 
 var layout: ForestLayout
 var terrain: ForestTerrain
@@ -26,7 +26,10 @@ var _proc_pool := {}
 var _patch := FastNoiseLite.new()
 var _hash := {}                            # 8 m buckets of tree indices
 var flora: ForestFlora
+var ground: ForestGround                   # contact stamps and path edges, see forest_ground.gd
 var counts := {}                           # instances per group, for the build log
+var _grng := RandomNumberGenerator.new()   # ground dressing, kept apart so it never shifts the forest
+var _roots := {}
 
 
 func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -> void:
@@ -38,6 +41,8 @@ func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -
 	_patch.frequency = 0.09
 	_patch.fractal_octaves = 2
 	flora = ForestFlora.new(kit)
+	ground = ForestGround.new(terrain)
+	_grng.seed = ForestLayout.SEED * 17 + 3
 
 
 # ----------------------------------------------------------------------------
@@ -50,6 +55,10 @@ func plan() -> void:
 	_place_outer_belt()
 	for t in trees:
 		terrain.paint_shade(t.pos, t.canopy, t.get("shade", 0.55))
+	# Every trunk gets a ring of bare soil, moss and contact shade at its foot.
+	for t in trees:
+		if t.trunk > 0.0:
+			ground.stamp(ForestGround.Foot.TREE, t.pos, t.trunk)
 
 
 ## Everything that depends on the final shade map comes after the terrain mesh
@@ -60,7 +69,9 @@ func populate() -> void:
 	_place_path_stones()
 	_place_undergrowth()
 	_place_flora()
+	ground.bake_paths()
 	_place_grass()
+	_place_collars()
 
 
 func build(parent: Node3D) -> void:
@@ -275,8 +286,35 @@ func plant_kit_tree(kind: String, model: String, pos: Vector2, scale: float, mag
 	xf.basis = xf.basis * Basis.from_scale(Vector3(1.0 / sqrt(stretch), stretch, 1.0 / sqrt(stretch)))
 	# Gentle lean adds a lot of life to repeated models.
 	xf.basis = Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.06)) * xf.basis
-	add(_kit_tree_mesh(kind, model), xf, _tree_custom(magic, autumn), "tree")
+	var mesh := _kit_tree_mesh(kind, model)
+	var custom := _tree_custom(magic, autumn)
+	add(mesh, xf, custom, "tree")
 	_register(pos, dims[2] * scale, dims[0] * scale, dims[1] * scale, true, 0.55, kind, autumn)
+	_plant_roots(mesh, pos, dims[0] * scale, yaw, custom, 1 if kind == "twisted" else 0)
+
+
+## Surface roots splaying out of a kit trunk and diving into the soil (the
+## kit models stop dead at the ground). Built per bark so they match the
+## trunk, scaled by its radius and tilted with the slope.
+func _plant_roots(tree_mesh: ArrayMesh, pos: Vector2, trunk: float, yaw: float, custom: Color, style: int) -> void:
+	if maxf(absf(pos.x), absf(pos.y)) > ForestLayout.HALF + 3.0:
+		return
+	var bark: Material
+	for s in tree_mesh.get_surface_count():
+		var m := tree_mesh.surface_get_material(s)
+		if m is ShaderMaterial and (m as ShaderMaterial).shader == NatureKit.SH_BARK:
+			bark = m
+			break
+	if bark == null:
+		return
+	var variant := absi(int(pos.x * 13.0 + pos.y * 7.0)) % 3
+	var key := "%d_%d_%d" % [bark.get_instance_id(), style, variant]
+	if not _roots.has(key):
+		var m := flora.roots(ForestLayout.SEED + style * 31 + variant * 7, [5, 6, 9][style] + variant % 2, bark)
+		m.resource_name = "Roots_%d_%d_%d" % [_roots.size(), style, variant]
+		_roots[key] = m
+	var xf := _ground_xform(pos.x, pos.y, trunk, yaw + variant * 1.3, 0.02, 0.8)
+	add(_roots[key], xf, custom, "roots")
 
 
 func plant_proc_tree(style: ProcTree.Style, variant: int, pos: Vector2, scale: float, magic: float, group: String = "tree", autumn := 0.0) -> Dictionary:
@@ -296,6 +334,7 @@ func _place_hero_trees() -> void:
 	var xf := _ground_xform(e.x, e.y, elder_scale, deg_to_rad(200.0), 0.05)
 	add(_named("TwistedTree_3"), xf, Color(0.5, 0.75, 0.3, 0.82), "tree")
 	_register(e, 7.0, 1.1, 8.5, true, 0.75, "elder")
+	_plant_roots(_named("TwistedTree_3"), e, 1.05, deg_to_rad(200.0), Color(0.5, 0.75, 0.3, 0.82), 2)
 	var crown := xf * Vector3(1.2, 10.5, -0.8)
 	hero["elder_crown"] = crown
 	hero["elder_base"] = xf.origin
@@ -319,11 +358,13 @@ func _place_hero_trees() -> void:
 	var dx := _ground_xform(d.x, d.y, 0.9, 0.7, 0.05)
 	add(_named("DeadTree_1", "pale"), dx, Color(0.5, 0.5, 0.5, 0.0), "tree")
 	_register(d, 4.5, 0.55, 2.0, true, 0.2, "dead")
+	_plant_roots(_named("DeadTree_1", "pale"), d, 0.5, 0.7, Color(0.5, 0.5, 0.5, 0.0), 1)
 
 	# A second, taller snag on the eastern ridge above the creek.
 	var d2 := Vector2(31.0, -37.0)
 	add(_named("DeadTree_2", "pale"), _ground_xform(d2.x, d2.y, 0.75, 2.2, 0.05), Color(0.5, 0.5, 0.5, 0.0), "tree")
 	_register(d2, 4.0, 0.5, 2.0, true, 0.15, "dead")
+	_plant_roots(_named("DeadTree_2", "pale"), d2, 0.45, 2.2, Color(0.5, 0.5, 0.5, 0.0), 1)
 
 	# A grandmother tree for the hollow, crown tinged with teal.
 	plant_kit_tree("twisted", "TwistedTree_5", Vector2(38.0, -16.0), 1.15, 0.0, 1.0)
@@ -570,7 +611,12 @@ func _rock(model: String, x: float, z: float, scale: float, sink: float, collide
 	if _near_bench(Vector2(x, z), 1.3 + scale):
 		return  # leave the scenic benches (and the space to sit) clear
 	var mesh := _named(model) if shape == "" else kit.reshaped(model, shape, ROCK_SHAPES[shape])
-	add(mesh, xf, Color(rng.randf(), rng.randf(), 0.0, 0.0), group)
+	# The ground blend band grows with the stone, and its footprint is stamped
+	# into the floor so soil, moss and shade gather round its base.
+	var size := mesh.get_aabb().size
+	var band := clampf(0.035 + scale * 0.07, 0.04, 0.22)
+	add(mesh, xf, Color(rng.randf(), rng.randf(), band, 0.0), group)
+	ground.stamp(ForestGround.Foot.ROCK, Vector2(x, z), maxf(size.x, size.z) * 0.5 * scale * 0.85)
 	if collide:
 		colliders.append({"shape": _convex(mesh), "xform": xf})
 
@@ -699,6 +745,7 @@ func _log(p: Vector2, yaw: float, length: float, radius: float) -> void:
 	var ya := terrain.height_at(a.x, a.y)
 	var yb := terrain.height_at(b.x, b.y)
 	var along := Vector3(b.x - a.x, yb - ya, b.y - a.y).normalized()
+	ground.stamp_line(a, b, radius)
 	var side := along.cross(Vector3.UP).normalized()
 	var up := side.cross(along).normalized()
 	var basis := Basis(side * radius, up * radius, along * length)
@@ -758,7 +805,7 @@ func _place_path_stones() -> void:
 		var y := maxf(terrain.height_at(q.x, q.y), surf + 0.06)
 		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, 1.4, s)), Vector3(q.x, y - 0.05, q.y))
 		var mesh := _named(round[i % 3])
-		add(mesh, xf, Color(0.2, 0.5, 0, 0), "rock")
+		add(mesh, xf, Color(0.2, 0.5, 0.03, 0), "rock")
 		var shape := CylinderShape3D.new()
 		shape.radius = 0.5 * s
 		shape.height = 0.6
@@ -771,7 +818,8 @@ func _place_path_stones() -> void:
 		var r := sqrt(rng.randf()) * 3.2
 		var q := o + Vector2(cos(a), sin(a)) * r
 		var xf := _ground_xform(q.x, q.y, rng.randf_range(0.8, 1.1), rng.randf() * TAU, 0.06, 1.0)
-		add(_named(sq[rng.randi() % 3]), xf, Color(0.3, 0.5, 0, 0), "small")
+		add(_named(sq[rng.randi() % 3]), xf, Color(0.3, 0.5, 0.025, 0), "small")
+		ground.stamp(ForestGround.Foot.STONE, q, 0.32)
 	# Occasional stones set into the footpaths.
 	for pts in terrain.path_points:
 		for j in range(0, pts.size(), 3):
@@ -781,13 +829,14 @@ func _place_path_stones() -> void:
 			if terrain.water_distance(q.x, q.y) < 0.3 or maxf(absf(q.x), absf(q.y)) > 52.0:
 				continue
 			var xf := _ground_xform(q.x, q.y, rng.randf_range(0.45, 0.75), rng.randf() * TAU, 0.05, 1.0)
-			add(_named(round[rng.randi() % 3]), xf, Color(0.0, rng.randf(), 0, 0), "small")
+			add(_named(round[rng.randi() % 3]), xf, Color(0.0, rng.randf(), 0.03, 0), "small")
+			ground.stamp(ForestGround.Foot.STONE, q, 0.2)
 			# Pebbles kicked to the path verge.
 			if rng.randf() < 0.6:
 				var e := pts[j] + Vector2(rng.randf_range(-1.6, 1.6), rng.randf_range(-1.6, 1.6))
 				var peb := ["Pebble_Round_1", "Pebble_Round_2", "Pebble_Round_3", "Pebble_Round_4", "Pebble_Round_5",
 						"Pebble_Square_1", "Pebble_Square_2", "Pebble_Square_3", "Pebble_Square_4"]
-				add(_named(peb[rng.randi() % peb.size()]), _ground_xform(e.x, e.y, rng.randf_range(0.6, 1.3), rng.randf() * TAU, 0.02, 1.0), Color(rng.randf(), rng.randf(), 0, 0), "small")
+				add(_named(peb[rng.randi() % peb.size()]), _ground_xform(e.x, e.y, rng.randf_range(0.6, 1.3), rng.randf() * TAU, 0.02, 1.0), Color(rng.randf(), rng.randf(), 0.015, 0), "small")
 
 
 static func _nearest_index(pts: PackedVector2Array, p: Vector2) -> int:
@@ -833,7 +882,7 @@ func _place_undergrowth() -> void:
 			var z := -ForestLayout.HALF - 3.0 + (iz + rng.randf()) * step
 			var path := terrain.path_distance(x, z)
 			var water := terrain.water_distance(x, z)
-			if path < 1.0 or water < 0.15:
+			if water < 0.15 or ground.path_edge(x, z) < 0.12 or ground.sample(x, z).a > 0.6:
 				continue
 			var p := Vector2(x, z)
 			var tree := _near_tree(p, 0.15)
@@ -951,8 +1000,7 @@ func _place_flora() -> void:
 			var x := -lim + (ix + rng.randf()) * step
 			var z := -lim + (iz + rng.randf()) * step
 			var water := terrain.water_distance(x, z)
-			var path := terrain.path_distance(x, z)
-			if path < 0.9:
+			if ground.path_edge(x, z) < 0.08 or ground.sample(x, z).a > 0.65:
 				continue
 			var slope := terrain.slope_at(x, z)
 			if slope > 36.0:
@@ -1013,6 +1061,7 @@ func _place_flora() -> void:
 		var sc := rng.randf_range(0.7, 1.4)
 		var xf := _ground_xform(p.x, p.y, sc, rng.randf() * TAU, 0.0, 0.5)
 		add(stumps[placed % 3], xf, Color(rng.randf(), rng.randf(), rng.randf(), 0.0), "rock")
+		ground.stamp(ForestGround.Foot.TREE, p, 0.3 * sc)
 		var shape := CylinderShape3D.new()
 		shape.radius = 0.36 * sc
 		shape.height = 0.8 * sc
@@ -1024,17 +1073,20 @@ func _place_flora() -> void:
 		placed += 1
 
 
+var _tufts: Array[ArrayMesh] = []
+var _tall: Array[ArrayMesh] = []
+
+
 func _place_grass() -> void:
-	var tufts: Array[ArrayMesh] = []
 	for v in 4:
 		var m := kit.grass_tuft(ForestLayout.SEED + v * 13, 9 + v, 0.55, 0.22)
 		m.resource_name = "GrassTuft_%d" % v
-		tufts.append(m)
-	var tall: Array[ArrayMesh] = []
+		_tufts.append(m)
 	for v in 3:
 		var m := kit.grass_tuft(ForestLayout.SEED + 500 + v * 7, 7 + v * 2, 1.05, 0.3, "tall")
 		m.resource_name = "TallGrass_%d" % v
-		tall.append(m)
+		_tall.append(m)
+	var clover: Array[ArrayMesh] = [_named("Clover_1"), _named("Clover_2")]
 	var step := 0.36
 	var lim := ForestLayout.HALF + 6.0
 	var n := int(lim * 2.0 / step)
@@ -1048,13 +1100,21 @@ func _place_grass() -> void:
 			# Nearest-sample lookups: this loop runs ~70k times.
 			var gi := clampi(int((z + ext) * inv + 0.5), 0, N - 1) * N + clampi(int((x + ext) * inv + 0.5), 0, N - 1)
 			var water := terrain.water_dist[gi]
-			if water < 0.25:
+			if water < 0.25 or terrain.water_level[gi] > terrain.heights[gi] - 0.03:
 				continue
-			var path := terrain.path_dist[gi]
+			# Grass grows right up to the dirt edge the terrain shader draws, and
+			# never out of a trunk or a boulder.
+			var g := ground.sample(x, z)
+			var edge := ForestGround.edge_of(g)
+			if edge < 0.03 or g.a > 0.72:
+				continue
 			var shade := terrain.shade[gi]
 			var density := (1.0 - shade * 0.72)
-			density *= ForestLayout.sstep(0.55, 1.6, path)
+			density *= ForestLayout.sstep(0.03, 0.3, edge)
 			density *= ForestLayout.sstep(0.77, 0.9, terrain.normals[gi].y)
+			# Thicker in the untrodden ring round a footprint, gone under it.
+			var rim := ForestLayout.sstep(0.06, 0.3, g.a) * (1.0 - ForestLayout.sstep(0.45, 0.72, g.a))
+			density *= (1.0 + rim * 0.5) * (1.0 - ForestLayout.sstep(0.5, 0.72, g.a))
 			if density <= 0.0:
 				continue
 			if Vector2(x, z).distance_squared_to(ForestLayout.OVERLOOK) < 30.0:
@@ -1064,11 +1124,82 @@ func _place_grass() -> void:
 			if rng.randf() > density:
 				continue
 			var wet := 1.0 - ForestLayout.sstep(-0.2, 2.2, water)
-			var custom := Color(shade, wet, rng.randf(), 0.0)
-			# Tall wispy grass along the water and in sunny meadow patches.
-			if (wet > 0.35 and rng.randf() < 0.18) or (p > 0.35 and shade < 0.3 and rng.randf() < 0.05):
-				var m: ArrayMesh = tall[rng.randi() % tall.size()]
-				add(m, _ground_xform(x, z, rng.randf_range(0.75, 1.15), rng.randf() * TAU, 0.0, 0.7), custom, "grass")
+			# Feet flatten the verge: short, splayed grass, then clover.
+			var trample := 1.0 - ForestLayout.sstep(0.0, 1.35, edge)
+			var custom := Color(shade, wet, rng.randf(), trample)
+			if trample > 0.35 and shade < 0.6 and _grng.randf() < 0.045:
+				var cx := _ground_xform(x, z, _grng.randf_range(0.4, 0.6), _grng.randf() * TAU, 0.0, 1.0)
+				add(clover[_grng.randi() % 2], cx, Color(shade, wet, _grng.randf(), 0.0), "plant")
 				continue
-			var s := rng.randf_range(0.75, 1.25) * lerpf(1.0, 0.7, shade)
-			add(tufts[rng.randi() % tufts.size()], _ground_xform(x, z, s, rng.randf() * TAU, 0.0, 0.8), custom, "grass")
+			# Tall wispy grass along the water, in sunny meadow patches and
+			# round the feet of trees and stones.
+			var tall_odds := 0.18 if wet > 0.35 else (0.05 if p > 0.35 and shade < 0.3 else 0.0)
+			tall_odds = maxf(tall_odds, rim * 0.3 * (1.0 - shade)) * (1.0 - trample)
+			var xf: Transform3D
+			var m: ArrayMesh
+			if rng.randf() < tall_odds:
+				m = _tall[rng.randi() % _tall.size()]
+				xf = _ground_xform(x, z, rng.randf_range(0.75, 1.15), rng.randf() * TAU, 0.0, 0.7)
+			else:
+				var s := rng.randf_range(0.75, 1.25) * lerpf(1.0, 0.7, shade) * lerpf(1.0, 0.42, trample)
+				m = _tufts[rng.randi() % _tufts.size()]
+				xf = _ground_xform(x, z, s, rng.randf() * TAU, 0.0, 0.8)
+			if trample > 0.05:
+				xf.basis = _lean_from_path(x, z, trample * 0.5) * xf.basis
+			add(m, xf, custom, "grass")
+
+
+## Tilts something away from the nearest footpath, the way trodden grass splays.
+func _lean_from_path(x: float, z: float, angle: float) -> Basis:
+	var e := 0.3
+	var d := Vector3(terrain.path_distance(x + e, z) - terrain.path_distance(x - e, z), 0.0,
+			terrain.path_distance(x, z + e) - terrain.path_distance(x, z - e))
+	if d.length_squared() < 1.0e-6:
+		return Basis()
+	return Basis(Vector3.UP.cross(d.normalized()).normalized(), angle)
+
+
+## Lush rings at the feet of trunks, boulders and logs: taller grass where no
+## foot tramples it, ferns and clover in the shade, a scatter of small stones
+## round the boulders.
+func _place_collars() -> void:
+	var clover: Array[ArrayMesh] = [_named("Clover_1"), _named("Clover_2")]
+	var fern := _named("Fern_1")
+	var pebbles := ["Pebble_Round_1", "Pebble_Round_2", "Pebble_Round_3", "Pebble_Round_4", "Pebble_Square_1", "Pebble_Square_2"]
+	for f in ground.feet:
+		var kind: ForestGround.Foot = f.kind
+		if kind == ForestGround.Foot.STONE:
+			continue
+		var c: Vector2 = f.pos
+		if maxf(absf(c.x), absf(c.y)) > ForestLayout.HALF + 2.0:
+			continue
+		var r: float = f.radius
+		# Just outside the bare soil: tree stamps keep a wider plateau clear.
+		var ring := r * 1.05 + 0.12 if kind == ForestGround.Foot.ROCK else r * 1.95 + 0.3
+		var count := int(clampf(TAU * ring / 0.36, 5.0, 44.0))
+		for k in count:
+			if _grng.randf() < 0.3:
+				continue
+			var a := TAU * (k + _grng.randf() * 0.7) / count
+			var q := c + Vector2(cos(a), sin(a)) * ring * _grng.randf_range(0.95, 1.45)
+			var water := terrain.water_distance(q.x, q.y)
+			if water < 0.3 or terrain.is_under_water(q.x, q.y) or ground.path_edge(q.x, q.y) < 0.12 or ground.sample(q.x, q.y).a > 0.8:
+				continue
+			if terrain.slope_at(q.x, q.y) > 38.0:
+				continue
+			var shade := terrain.shade_at(q.x, q.y)
+			var wet := 1.0 - ForestLayout.sstep(-0.2, 2.2, water)
+			var custom := Color(shade, wet, _grng.randf(), 0.0)
+			var pick := _grng.randf()
+			var yaw := _grng.randf() * TAU
+			if kind == ForestGround.Foot.ROCK and pick < 0.22:
+				add(_named(pebbles[_grng.randi() % pebbles.size()]), _ground_xform(q.x, q.y, _grng.randf_range(0.7, 1.5), yaw, 0.02, 1.0),
+						Color(_grng.randf(), _grng.randf(), 0.015, 0.0), "small")
+			elif shade > 0.5 and pick < 0.42:
+				add(fern, _ground_xform(q.x, q.y, _grng.randf_range(0.2, 0.3), yaw, 0.0, 0.5), custom, "plant")
+			elif shade > 0.3 and pick < 0.55:
+				add(clover[_grng.randi() % 2], _ground_xform(q.x, q.y, _grng.randf_range(0.45, 0.7), yaw, 0.0, 0.8), custom, "plant")
+			elif shade < 0.6 and pick > 0.5:
+				add(_tall[_grng.randi() % _tall.size()], _ground_xform(q.x, q.y, _grng.randf_range(0.7, 1.05), yaw, 0.0, 0.7), custom, "grass")
+			else:
+				add(_tufts[_grng.randi() % _tufts.size()], _ground_xform(q.x, q.y, _grng.randf_range(0.85, 1.3), yaw, 0.0, 0.8), custom, "grass")

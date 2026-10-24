@@ -242,6 +242,7 @@ func bark_material(kind: String) -> ShaderMaterial:
 	mat.set_shader_parameter("moss_amount", b[3])
 	if kind == "Bark_TwistedTree":
 		mat.set_shader_parameter("stiffness", 1.6)
+	_apply_ground(mat)
 	wind_materials.append(mat)
 	_bark[kind] = mat
 	return mat
@@ -332,6 +333,7 @@ func rock_material(tex: String, moss: float) -> ShaderMaterial:
 	mat.set_shader_parameter("albedo_tex", texture(tex))
 	mat.set_shader_parameter("noise_tex", NOISE)
 	mat.set_shader_parameter("moss_amount", moss)
+	_apply_ground(mat)
 	_plain[k] = mat
 	return mat
 
