@@ -121,6 +121,12 @@ func _touch() -> bool:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"weed HUD", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if weed == null:
 		return
 	_t += delta
@@ -166,7 +172,12 @@ func _inset() -> Vector4:
 
 func _pouch_rect() -> Rect2:
 	var ins := _inset()
-	return Rect2(Vector2(22.0 + ins.x, 104.0 + ins.y), Vector2(_pouch_width(), 50.0))
+	var y := 104.0 + ins.y
+	# Make way for the frame-time readout under the FPS counter when it's open.
+	var perf := get_tree().get_first_node_in_group("hud_perf") as Control
+	if perf and perf.is_visible_in_tree():
+		y = maxf(y, perf.position.y + perf.size.y + 10.0)
+	return Rect2(Vector2(22.0 + ins.x, y), Vector2(_pouch_width(), 50.0))
 
 
 func _pouch_width() -> float:

@@ -1,11 +1,16 @@
 # Patch notes
 
-## 24 Oct 2026 · 16:55 UTC
+## 24 Oct 2026 · 16:54 UTC
 - **Rolling, up close.** When you roll a joint the camera now swings round to the front and leans in on your Keling's hands, then glides back to where you had it once the joint is ready. Move the camera yourself and it stays where you put it.
 - **Real hands at work.** Your Keling now rolls with every finger: it reaches out properly, pinches the paper by its corners between finger and thumb, crumbles the bud with little rubs, walks its fingers along as it rolls, presses the seam and twists the tip, then taps the joint down and shows it off with a jazz hand.
 - **A proper little ritual.** It takes out a bud and gives it a good sniff (hearts!), breaks it up chunk by chunk onto the paper, dusts off its fingers, folds the paper into a taco round the filling, tucks and rolls it shut, gives the gum strip a lick with a cute pink tongue, and a shine runs along the seam as it seals. Ta-da! The finished joint twinkles at its tip.
 - **Paper that curls.** The rolling paper is bigger and bends for real, curling round a log of crumbled bud in the strain's colour, and the glue strip goes glossy once it's licked. Joints read crisp and white in your hand, even in the shade.
 - **Every step sounds right.** New sounds for the pouch, the crinkly paper, the sniff, the crumbling bud, the rolling, the lick, the twist, the tap-taps and the ta-da. Walk off before the lick and you still keep your bud.
+
+## 24 Oct 2026 · 16:50 UTC
+- **No more flickering.** Trees, bushes and grass no longer flash or jump for a frame while you walk or turn the camera. The forest was smoothing its own detail swaps between frames, which briefly drew plants in the wrong spot; it now swaps them cleanly.
+- **Lighter leafy views.** Looking across the forest costs the graphics card less: nearby plants are drawn before the ones behind them, and leaves on each tree are drawn from the outside in, so hidden leaves are skipped instead of painted over and over.
+- **See where the time goes.** Tap the FPS counter (or press 0 or F3) and a panel under it shows how many milliseconds each frame takes, whether the graphics card, the processor or vsync is setting the pace, and how long each part of the game spends thinking. Tap the panel (or press 9) and it measures what each part of the world costs to draw (shadows, trees, grass, water, sky and more) by switching them off one at a time for a moment. On PC, 8 turns vsync on and off.
 
 ## 24 Oct 2026 · 16:05 UTC
 - **A much lighter forest.** The Whispering Glade now draws well under half the triangles it used to from any spot in the valley, so it runs smoother on phones and laptops alike, without losing its look. Every tree, bush, flower and tuft of grass now picks its own level of detail by how far it is from you, instead of whole patches of forest switching at once, and plants stop drawing the moment they have faded away.

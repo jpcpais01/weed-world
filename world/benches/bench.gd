@@ -246,6 +246,12 @@ func _build_sparkles(color: Color) -> void:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"benches", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if Engine.is_editor_hint() or seats.is_empty():
 		return
 	var occupied := is_occupied()

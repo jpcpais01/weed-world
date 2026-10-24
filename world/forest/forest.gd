@@ -169,6 +169,12 @@ func _notification(what: int) -> void:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"forest", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if Engine.is_editor_hint() or kit == null:
 		return
 	_interactors.clear()

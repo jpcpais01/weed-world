@@ -366,6 +366,12 @@ func progress() -> float:
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_physics_process_timed(delta)
+	PerfMeter.add(&"weed actions", Time.get_ticks_usec() - t0)
+
+
+func _physics_process_timed(delta: float) -> void:
 	if keling == null:
 		return
 	if act != Act.NONE:

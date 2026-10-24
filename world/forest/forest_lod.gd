@@ -121,6 +121,8 @@ var _imp_cells: Array[ImpCell] = []
 var batches: Array[Batch] = []
 var _task := -1
 var _task_eye := Vector3.ZERO
+var _task_usec := 0
+var _hidden := {}            # groups hidden by set_group_hidden()
 var _results: Array = []
 var _last_eye := Vector3(INF, INF, INF)
 var _chains := {}
@@ -257,6 +259,10 @@ func _band(b: Batch, level: Dictionary, shadow: bool) -> Band:
 	mmi.multimesh = mm
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY if shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mmi.visible = false
+	# The buffer is refilled with different copies as bands change; physics
+	# interpolation would blend each slot from the copy that held it before,
+	# so trees and plants smeared and flickered as the camera moved.
+	mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	band.mmi = mmi
 	add_child(mmi)
 	return band
@@ -327,6 +333,7 @@ func _imp_mmi(capacity: int, node_name: String, shadow: bool) -> MultiMeshInstan
 	mmi.multimesh = mm
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY if shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mmi.visible = false
+	mmi.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(mmi)
 	return mmi
 
@@ -477,7 +484,7 @@ static func _make_chain(src: Dictionary, px_scale: float, shadow: bool, reach: f
 static func _finish_chain(src: Dictionary, chain: Array) -> Array:
 	for level in chain:
 		var levels: PackedInt32Array = level.levels
-		level.mesh = src.mesh if levels.count(0) == levels.size() else _level_mesh(src, levels)
+		level.mesh = src.mesh if levels.count(0) == levels.size() and not src.reordered else _level_mesh(src, levels)
 	return chain
 
 
@@ -505,6 +512,7 @@ static func _raw_surfaces(mesh: Mesh) -> Array:
 static func _make_source(mesh: Mesh, raw: Array) -> Dictionary:
 	var im := ImporterMesh.new()
 	var surfaces := []
+	var reordered := false
 	for s in raw.size():
 		var arrays: Array = raw[s].arrays
 		if arrays[Mesh.ARRAY_INDEX] == null or (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).is_empty():
@@ -521,6 +529,12 @@ static func _make_source(mesh: Mesh, raw: Array) -> Dictionary:
 			var comps := _components(arrays)
 			if comps.size() >= (24 if shader == NatureKit.SH_CANOPY else 6):
 				sf.kind = "cards" if shader == NatureKit.SH_CANOPY else "blades"
+				if sf.kind == "cards":
+					var sorted := _outer_first(arrays, comps)
+					arrays = sorted[0]
+					comps = sorted[1]
+					sf.arrays = arrays
+					reordered = true
 				sf.comps = comps
 				sf.card = _median_size(arrays, comps)
 		surfaces.append(sf)
@@ -533,7 +547,7 @@ static func _make_source(mesh: Mesh, raw: Array) -> Dictionary:
 			for c in sf.comps:
 				var cb := AABB(c.center, Vector3.ZERO).grow(c.size * 0.5)
 				crown = cb if crown.size == Vector3.ZERO else crown.merge(cb)
-	return {"im": im, "mesh": mesh, "surfaces": surfaces, "crown": crown}
+	return {"im": im, "mesh": mesh, "surfaces": surfaces, "crown": crown, "reordered": reordered, "meshes": {}}
 
 
 ## Each surface's arrays at the given level, unused vertices dropped so the
@@ -561,6 +575,9 @@ static func _level_arrays(src: Dictionary, levels: PackedInt32Array) -> void:
 
 
 static func _level_mesh(src: Dictionary, levels: PackedInt32Array) -> ArrayMesh:
+	var key := str(levels)
+	if src.meshes.has(key):
+		return src.meshes[key]
 	_level_arrays(src, levels)
 	var out := ArrayMesh.new()
 	var surfaces: Array = src.surfaces
@@ -569,7 +586,37 @@ static func _level_mesh(src: Dictionary, levels: PackedInt32Array) -> ArrayMesh:
 		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sf.levels[levels[s]])
 		out.surface_set_material(s, sf.material)
 	out.resource_name = "%s@%s" % [(src.mesh as Mesh).resource_name, ",".join(Array(levels).map(str))]
+	src.meshes[key] = out
 	return out
+
+
+## The crown's cards reordered outermost first. From wherever you look, the
+## outer cards are mostly the ones in front, so drawing them first lets the
+## depth test throw away the hidden inner ones before they are shaded.
+## Returns [arrays, comps] with each piece's triangles renumbered.
+static func _outer_first(arrays: Array, comps: Array) -> Array:
+	var mid := Vector3.ZERO
+	for c in comps:
+		mid += c.center
+	mid /= comps.size()
+	var keyed: Array[Vector2] = []
+	for i in comps.size():
+		keyed.append(Vector2(-((comps[i].center as Vector3) - mid).length(), i))
+	keyed.sort()
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var out_idx := PackedInt32Array()
+	var out_comps := []
+	for v in keyed:
+		var c: Dictionary = (comps[int(v.y)] as Dictionary).duplicate()
+		var tris := PackedInt32Array()
+		for t in c.tris:
+			tris.append(out_idx.size())
+			out_idx.append_array([idx[t], idx[t + 1], idx[t + 2]])
+		c.tris = tris
+		out_comps.append(c)
+	var a := arrays.duplicate()
+	a[Mesh.ARRAY_INDEX] = out_idx
+	return [a, out_comps]
 
 
 ## Bark with the branches inside the crown left out, then simplified to the
@@ -693,7 +740,10 @@ static func _thin_cards(arrays: Array, comps: Array, keep: float) -> Array:
 	var verts: PackedVector3Array = (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).duplicate()
 	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 	var out_idx := PackedInt32Array()
-	for ci in _survivors(comps, keep):
+	# Survivors in the crown's own (outer-first) order.
+	var keep_ids := _survivors(comps, keep)
+	keep_ids.sort()
+	for ci in keep_ids:
 		var c: Dictionary = comps[ci]
 		var center: Vector3 = c.center
 		for v in c.verts:
@@ -819,8 +869,11 @@ func _process(_delta: float) -> void:
 			return
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
+		var t0 := Time.get_ticks_usec()
 		_apply(_results)
 		_results = []
+		PerfMeter.add(&"forest LOD", Time.get_ticks_usec() - t0)
+		PerfMeter.add(&"forest LOD (background)", _task_usec)
 	var cam := get_viewport().get_camera_3d()
 	if cam == null:
 		return
@@ -843,7 +896,9 @@ func update_now(eye: Vector3) -> void:
 
 
 func _evaluate_task() -> void:
+	var t0 := Time.get_ticks_usec()
 	_results = _evaluate(_task_eye)
+	_task_usec = Time.get_ticks_usec() - t0
 
 
 ## Works out the new band of every sub-cell and builds the buffers for each
@@ -865,13 +920,13 @@ func _evaluate(eye: Vector3) -> Array:
 		var change := {"batch": b}
 		if not main.is_empty():
 			change["state"] = main
-			change["bands"] = _buffers(b, main, b.bands.size(), b.imp_band)
+			change["bands"] = _buffers(b, eye, main, b.bands.size(), b.imp_band)
 			if b.imp_band >= 0:
 				next[bi] = main
 				_mark(b, b.state, main, b.imp_band, dirty)
 		if not shadow.is_empty():
 			change["shadow_state"] = shadow
-			change["shadow_bands"] = _buffers(b, shadow, b.shadow_bands.size(), b.imp_shadow_band)
+			change["shadow_bands"] = _buffers(b, eye, shadow, b.shadow_bands.size(), b.imp_shadow_band)
 			if b.imp_shadow_band >= 0:
 				next_shadow[bi] = shadow
 				_mark(b, b.shadow_state, shadow, b.imp_shadow_band, dirty_shadow)
@@ -963,8 +1018,12 @@ func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: Pa
 	return out
 
 
-func _buffers(b: Batch, state: PackedInt32Array, nb: int, skip: int) -> Array:
+## Each band's instances, nearest sub-cell first: leaves and blades in front
+## then hide what's behind them before it is shaded (foliage that discards
+## gets no other help against overdraw on the Mobile renderer).
+func _buffers(b: Batch, eye: Vector3, state: PackedInt32Array, nb: int, skip: int) -> Array:
 	var out := []
+	var order := PackedInt32Array()
 	for k in nb:
 		if k == skip:
 			out.append({"count": 0})
@@ -993,7 +1052,9 @@ func _buffers(b: Batch, state: PackedInt32Array, nb: int, skip: int) -> Array:
 		if all:
 			buf = b.data
 		else:
-			for i in state.size():
+			if order.is_empty():
+				order = _near_first(b, eye)
+			for i in order:
 				if state[i] == k:
 					buf.append_array(b.data.slice(b.sub_start[i] * 16, (b.sub_start[i] + b.sub_count[i]) * 16))
 			buf.resize(b.count * 16)
@@ -1037,8 +1098,36 @@ func _show(mmi: MultiMeshInstance3D, d: Dictionary) -> void:
 	mm.buffer = d.buffer
 	mm.visible_instance_count = count
 	mmi.custom_aabb = d.aabb
-	mmi.visible = true
+	mmi.visible = not _hidden.has(_group_of(mmi))
 	_uploads += 1
+
+
+## Hides (or shows again) every band of one scatter group ("tree", "grass",
+## ..., or "Impostors"), for the frame-time readout's per-part measurement.
+func set_group_hidden(group: String, hidden: bool) -> void:
+	if hidden:
+		_hidden[group] = true
+	else:
+		_hidden.erase(group)
+	for child in get_children():
+		var mmi := child as MultiMeshInstance3D
+		if mmi and _group_of(mmi) == group:
+			mmi.visible = not hidden and mmi.multimesh.visible_instance_count > 0
+
+
+static func _group_of(mmi: MultiMeshInstance3D) -> String:
+	return String(mmi.name).get_slice("~", 0).get_slice("_", 0)
+
+
+static func _near_first(b: Batch, eye: Vector3) -> PackedInt32Array:
+	var keyed: Array[Vector2] = []
+	for i in b.sub_start.size():
+		keyed.append(Vector2(_dist(eye, b.sub_lo[i], b.sub_hi[i]), i))
+	keyed.sort()
+	var order := PackedInt32Array()
+	for v in keyed:
+		order.append(int(v.y))
+	return order
 
 
 static func _band_of(bands: Array[Band], nb: int, d: float) -> int:
