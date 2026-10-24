@@ -3,6 +3,7 @@
 ## 24 Oct 2026 · 14:00 UTC
 - **A better view.** The camera sits a little higher and frames your Keling on the lower third of the screen, so you can see more of the forest ahead.
 - **Turn and go.** Push the stick the other way and your Keling now pivots and starts running in the same move, instead of finishing a turn on the spot first. A gentle push still turns on the spot.
+- **Grass that bows, not balloons.** Walk into a meadow and the grass and flowers right under your Keling now tip over in one piece and lie down around your feet, keeping their shape. They used to stretch out to every side at once and puff up into long spiky shards.
 
 ## 24 Oct 2026 · 13:00 UTC
 - **Trees that grow out of the ground.** Trunks now splay into mossy surface roots that dive into the soil, standing in a ring of bare earth and moss with a soft shadow where they meet the floor. Ferns, clover and taller grass gather round their feet instead of growing straight through the bark.
