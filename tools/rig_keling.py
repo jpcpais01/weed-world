@@ -71,8 +71,10 @@ CHAINS = [
 ]
 
 # Head seam: below HEAD_SEAM[0] the body, above HEAD_SEAM[1] the rigid head.
-HEAD_SEAM = (0.90, 1.00)
-NECK_BAND = (0.82, 0.93)
+# The face reaches down to the chin at ~0.84 (mouth ~0.87, nose ~0.95), so the
+# seam sits below it: anything above moves as one piece with the head.
+HEAD_SEAM = (0.77, 0.85)
+NECK_BAND = (0.67, 0.80)
 HEAD_CENTER = np.array([0.0, 1.15, 0.05])
 
 
@@ -402,7 +404,11 @@ def main(src, dst):
             out[m, i] += 1 - t; out[m, i + 1] += t
         return [col_of[k[0]] for k in knots], out
 
-    head_mask = smoothstep(*HEAD_SEAM, y)
+    # Shoulders stay with the arms even where they rise past the seam.
+    # (Meshy also smears arm weight over the cheeks, so only trust it low down.)
+    arm_w = sum(Wd[:, chain_cols(s_, ARM_CHAIN)].sum(1) for s_ in ("Left", "Right"))
+    shoulder = smoothstep(0.55, 0.9, arm_w) * smoothstep(0.92, 0.86, y)
+    head_mask = smoothstep(*HEAD_SEAM, y) * (1 - shoulder)
 
     # Arms and legs keep only their own geometry: Meshy marks the limb itself
     # with ~full weight and smears the rest across the body. Everything a limb
@@ -485,10 +491,34 @@ def main(src, dst):
         c = col_of[name]
         tgt = col_of["Head"] if name == "HeadTop" else upper_chest
         Wd[:, tgt] += Wd[:, c]; Wd[:, c] = 0.0
-    neck_mask = smoothstep(*NECK_BAND, y) * (1 - head_mask)
+    neck_mask = smoothstep(*NECK_BAND, y) * (1 - head_mask) * (1 - shoulder)
     Wd *= (1 - head_mask - neck_mask)[:, None]
     Wd[:, col_of["Head"]] += head_mask
     Wd[:, col_of["Neck"]] += neck_mask
+
+    # Body profile for the animation retargeter: per height, the trunk's
+    # half-width and front/back extent (beard included, limbs excluded), so it
+    # can keep hands and forearms from sinking into the belly.
+    kept = np.zeros(nv, bool)
+    kept[I[~remove_tri].reshape(-1)] = True
+    limb_w = sum(Wd[:, chain_cols(s_, ARM_CHAIN + LEG_CHAIN)].sum(1) for s_ in ("Left", "Right"))
+    trunk = kept & (limb_w < 0.15) & ((vert_comp == main_comp) | is_foliage)
+    profile = []
+    for h in np.arange(0.16, 1.0, 0.02):
+        m = trunk & (np.abs(y - h) < 0.015)
+        if m.sum() < 8:
+            continue
+        profile.append([round(float(h), 3), round(float(np.percentile(np.abs(x[m]), 97)), 4),
+                        round(float(np.percentile(z[m], 97)), 4), round(float(np.percentile(z[m], 3)), 4)])
+    # Smooth over neighbouring slices; the back is mostly leg-weighted bark, so
+    # it only bounds the profile loosely.
+    prof = np.array(profile)
+    for c in (1, 2, 3):
+        prof[:, c] = [np.median(prof[max(0, i - 2):i + 3, c]) for i in range(len(prof))]
+    prof[:, 3] = np.minimum(prof[:, 3], -0.12)
+    profile = np.round(prof, 4).tolist()
+    with open(dst.rsplit(".", 1)[0] + "_body.json", "w") as fh:
+        json.dump({"columns": ["y", "half_width", "front_z", "back_z"], "rows": profile}, fh, indent=0)
 
     # Leafy crown + flower stalks: foliage only, never the face.
     front = smoothstep(0.15, 0.30, z)

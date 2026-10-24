@@ -21,7 +21,7 @@ Every merge to `main` publishes a [release](../../releases/latest) with:
 | Camera | Drag on the right, pinch to zoom | Click to capture, mouse, wheel | Right stick, LB/RB |
 | Emotes | Smiley button | 1 dance, 2 cheer, 3 sit, 4 nod | D-pad |
 
-F3 shows a debug readout, F11 toggles fullscreen.
+The top-left corner shows FPS and triangles drawn. Tap it, or press 0 (Back on a gamepad), for the debug readout. F11 toggles fullscreen.
 
 ## Project layout
 

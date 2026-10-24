@@ -45,6 +45,23 @@ const TORSO_FOLLOW := Vector3(0.45, 0.85, 0.7)  # pitch, yaw, roll
 ## shoulder, so elevation is capped (the forearm still reaches up).
 const ARM_MAX_ELEVATION_DEG := 35.0
 
+## Trunk profile written by tools/rig_keling.py: hands, forearms and elbows are
+## pushed out of it so the arms rest on the round belly instead of sinking in.
+const BODY_PROFILE := "res://assets/characters/keling/keling_body.json"
+## Collision radius of each arm part (metres) and how its fix is shared out:
+## [bone that rotates, [[point bone, along-bone fraction or -1 for origin, radius, weight]...]]
+## The library's folded arms need a slim chest; the Keling's arms are far too
+## short to cross over its belly, so they rest on top of it instead: collarbones
+## forward, forearms laid over the upper belly, hands patting the middle.
+const BELLY_WRIST := Vector3(0.205, 0.665, 0.0)  # z found on the belly surface
+const BELLY_FINGERS := Vector3(0.10, 0.63, 0.0)
+const BELLY_PROTRACT_DEG := 20.0
+const ARM_COLLIDERS := [
+	["UpperArm", [["LowerArm", -1.0, 0.04, 1.0], ["UpperArm", 0.5, 0.045, 1.0], ["Hand", -1.0, 0.035, 0.5]]],
+	["LowerArm", [["Hand", -1.0, 0.035, 1.0], ["LowerArm", 0.5, 0.04, 1.0], ["MiddleProximal", -1.0, 0.025, 0.7]]],
+	["Hand", [["MiddleProximal", -1.0, 0.025, 1.0], ["MiddleTip", -1.0, 0.012, 1.0], ["IndexTip", -1.0, 0.012, 1.0], ["RingTip", -1.0, 0.012, 1.0]]],
+]
+
 ## source clip -> [output name, loop, extract root motion, (gait amplify, arm amplify)]
 const CLIPS := {
 	"Idle_Loop": ["Idle", true, false],
@@ -113,6 +130,8 @@ var align := {}  # target bone idx -> Quaternion
 var tgt_to_src := {}  # target bone idx -> source bone idx
 var leg_scale := 1.0
 var arm_side := {}  # target bone idx (upper arm and below) -> +1 left / -1 right
+var body_rows := []  # [y, half_width, front_z, back_z]
+var descendants := {}  # target bone idx -> [self and every bone below it]
 
 
 func _init() -> void:
@@ -150,6 +169,14 @@ func _init() -> void:
 			var is_limb := name.contains("Left") or name.contains("Right")
 			align[ti] = align[p] if (p != -1 and is_limb) else Quaternion.IDENTITY
 
+	body_rows = JSON.parse_string(FileAccess.get_file_as_string(BODY_PROFILE))["rows"]
+	for i in tgt_skel.get_bone_count():
+		descendants[i] = [i]
+	for i in range(tgt_skel.get_bone_count() - 1, -1, -1):
+		var p := tgt_skel.get_bone_parent(i)
+		if p != -1:
+			descendants[p].append_array(descendants[i])
+
 	for i in tgt_skel.get_bone_count():
 		var b := i
 		while b != -1:
@@ -171,7 +198,7 @@ func _init() -> void:
 	for clip in CLIPS:
 		var cfg: Array = CLIPS[clip]
 		var amp := Vector2(cfg[3], cfg[4]) if cfg.size() > 3 else Vector2.ONE
-		var anim := _bake(player.get_animation(clip), skel_path, cfg[1], cfg[2], amp, HEAD_FOLLOW_CLIP.get(cfg[0], HEAD_FOLLOW))
+		var anim := _bake(player.get_animation(clip), skel_path, cfg[1], cfg[2], amp, HEAD_FOLLOW_CLIP.get(cfg[0], HEAD_FOLLOW), cfg[0] == "IdleFoldArms")
 		lib.add_animation(StringName(cfg[0]), anim)
 		print("baked %-22s -> %-15s %.2fs" % [clip, cfg[0], anim.length])
 	var err := ResourceSaver.save(lib, OUTPUT, ResourceSaver.FLAG_COMPRESS)
@@ -212,7 +239,7 @@ func _stable_head(src_delta: Quaternion, follow: float) -> Quaternion:
 	return Quaternion.from_euler(Vector3(pitch, yaw, roll))
 
 
-func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp: Vector2, head_follow: float) -> Animation:
+func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp: Vector2, head_follow: float, belly_rest := false) -> Animation:
 	var amplify := {}
 	for b in GAIT_BONES:
 		amplify[src_skel.find_bone(b)] = amp.x
@@ -308,7 +335,7 @@ func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp
 					q = (head_delta if ti == head else chest_delta.slerp(head_delta, 0.5)) * rest_q
 				if torso.has(ti):
 					var e := (q * rest_q.inverse()).get_euler()
-					q = Quaternion.from_euler(e * TORSO_FOLLOW) * rest_q
+					q = Quaternion.from_euler(e * TORSO_FOLLOW * (0.3 if belly_rest else 1.0)) * rest_q
 				if arm_side.has(ti):
 					# Swing the whole arm outwards, in the chest's frame.
 					var abd := Quaternion(Vector3.BACK, deg_to_rad(ARM_ABDUCTION_DEG) * arm_side[ti])
@@ -320,7 +347,6 @@ func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp
 						var axis := d.cross(Vector3.UP).normalized()
 						q = Quaternion(axis, -over) * q
 				tg[ti] = q.normalized()
-				out.rotation_track_insert_key(out_rot[ti], t, (parent_q.inverse() * tg[ti]).normalized())
 			else:
 				tg[ti] = (parent_q * tgt_skel.get_bone_rest(ti).basis.get_rotation_quaternion()).normalized()
 			if ti == upper_chest:
@@ -330,7 +356,162 @@ func _bake(src: Animation, skel_path: String, loop: bool, root_motion: bool, amp
 		var src_off: Vector3 = g[src_pelvis].origin - src_rest_global[src_pelvis].origin
 		var hp: Vector3 = tgt_skel.get_bone_rest(hips).origin + src_off * leg_scale
 		out.position_track_insert_key(hips_pos, t, hp)
+
+		if belly_rest:
+			_rest_arms_on_belly(tg, hips, hp, t)  # already placed on the surface
+		else:
+			_keep_arms_out_of_body(tg, hips, hp)
+		for ti in tgt_to_src:
+			var p := tgt_skel.get_bone_parent(ti)
+			var parent_q: Quaternion = tg[p] if p != -1 else Quaternion.IDENTITY
+			out.rotation_track_insert_key(out_rot[ti], t, (parent_q.inverse() * tg[ti]).normalized())
 		if root_motion:
 			out.position_track_insert_key(root_pos, t, motion.origin)
 			out.rotation_track_insert_key(root_rot, t, motion.basis.get_rotation_quaternion())
 	return out
+
+
+## Model-space bone positions for a pose given as global rotations.
+func _positions(tg: Dictionary, hips: int, hips_pos: Vector3) -> Dictionary:
+	var pos := {}
+	for ti in tgt_skel.get_bone_count():
+		var p := tgt_skel.get_bone_parent(ti)
+		var local := hips_pos if ti == hips else tgt_skel.get_bone_rest(ti).origin
+		pos[ti] = (pos[p] + tg[p] * local) if p != -1 else local
+	return pos
+
+
+## How deep a sphere at p sinks into the trunk, and the way out: [depth, normal].
+func _body_depth(p: Vector3, radius: float) -> Array:
+	if p.y <= body_rows[0][0] or p.y >= body_rows[-1][0]:
+		return [0.0, Vector3.ZERO]
+	var k := 0
+	while body_rows[k + 1][0] < p.y:
+		k += 1
+	var a: Array = body_rows[k]
+	var b: Array = body_rows[k + 1]
+	var f: float = (p.y - a[0]) / (b[0] - a[0])
+	var rx: float = lerpf(a[1], b[1], f)
+	var front: float = lerpf(a[2], b[2], f)
+	var back: float = lerpf(a[3], b[3], f)
+	var cz := (front + back) * 0.5
+	var rz := (front - back) * 0.5
+	var v := Vector2(p.x, p.z - cz)
+	if v.length() < 1e-4:
+		return [minf(rx, rz) + radius, Vector3.BACK]
+	var d := Vector2(v.x / rx, v.y / rz).length()
+	var dir := v.normalized()
+	var rad := 1.0 / Vector2(dir.x / rx, dir.y / rz).length()
+	var n := Vector3(v.x / (rx * rx), 0.0, v.y / (rz * rz)).normalized()
+	return [(1.0 - d) * rad + radius, n]
+
+
+## Swings the upper arm, then the forearm, then the hand out of the trunk
+## wherever the library pose (made for a slim mannequin) buries them in it.
+func _keep_arms_out_of_body(tg: Dictionary, hips: int, hips_pos: Vector3) -> void:
+	for side in ["Left", "Right"]:
+		for entry in ARM_COLLIDERS:
+			var bone := tgt_skel.find_bone(side + entry[0])
+			for _iter in 6:
+				var pos := _positions(tg, hips, hips_pos)
+				var joint: Vector3 = pos[bone]
+				var best_depth := 0.0
+				var axis := Vector3.ZERO
+				var angle := 0.0
+				for c in entry[1]:
+					var pb := tgt_skel.find_bone(side + c[0])
+					var pt: Vector3 = pos[pb]
+					if c[1] >= 0.0:
+						var child := tgt_skel.find_bone(side + ("LowerArm" if c[0] == "UpperArm" else "Hand"))
+						pt = pt.lerp(pos[child], c[1])
+					var hit := _body_depth(pt, c[2])
+					var depth: float = hit[0] * c[3]
+					var lever := pt - joint
+					if depth > best_depth and lever.length() > 0.02:
+						var ax: Vector3 = lever.cross(hit[1])
+						if ax.length() > 1e-5:
+							best_depth = depth
+							axis = ax.normalized()
+							angle = minf(depth / lever.length(), 0.35)
+				if best_depth < 0.002:
+					break
+				var r := Quaternion(axis, angle * 1.1)
+				for d in descendants[bone]:
+					tg[d] = (r * tg[d]).normalized()
+
+
+func _set_global(tg: Dictionary, bone: int, q: Quaternion) -> void:
+	var r: Quaternion = q * (tg[bone] as Quaternion).inverse()
+	for d in descendants[bone]:
+		tg[d] = (r * tg[d]).normalized()
+
+
+## A point on the belly surface (rest pose), lifted off it by `lift`.
+func _belly_point(x: float, y: float, lift: float) -> Vector3:
+	var k := 0
+	while body_rows[k + 1][0] < y:
+		k += 1
+	var a: Array = body_rows[k]
+	var b: Array = body_rows[k + 1]
+	var f: float = (y - a[0]) / (b[0] - a[0])
+	var rx: float = lerpf(a[1], b[1], f)
+	var front: float = lerpf(a[2], b[2], f)
+	var back: float = lerpf(a[3], b[3], f)
+	var cz := (front + back) * 0.5
+	var rz := (front - back) * 0.5
+	var z := cz + rz * sqrt(maxf(1.0 - pow(x / rx, 2.0), 0.0))
+	var n := Vector3(x / (rx * rx), 0.0, (z - cz) / (rz * rz)).normalized()
+	return Vector3(x, y, z) + n * lift
+
+
+func _rest_arms_on_belly(tg: Dictionary, hips: int, hips_pos: Vector3, t: float) -> void:
+	var chest := tgt_skel.find_bone("Chest")  # the belly rides on the chest bone
+	for side in ["Left", "Right"]:
+		var sgn := 1.0 if side == "Left" else -1.0
+		var sh := tgt_skel.find_bone(side + "Shoulder")
+		var ua := tgt_skel.find_bone(side + "UpperArm")
+		var la := tgt_skel.find_bone(side + "LowerArm")
+		var hand := tgt_skel.find_bone(side + "Hand")
+		var pos := _positions(tg, hips, hips_pos)
+		var chest_delta: Quaternion = tg[chest] * tgt_rest_global[chest].basis.get_rotation_quaternion().inverse()
+		var to_model := func(rest_p: Vector3) -> Vector3:
+			return pos[chest] + chest_delta * (rest_p - tgt_rest_global[chest].origin)
+		# A slow, contented pat: the hands lift and settle on the belly.
+		var pat := 0.012 * maxf(sin(t * TAU / 1.25 + (0.0 if sgn > 0.0 else 0.9)), 0.0)
+		var wrist: Vector3 = to_model.call(_belly_point(BELLY_WRIST.x * sgn, BELLY_WRIST.y, 0.032 + pat))
+		var tips: Vector3 = to_model.call(_belly_point(BELLY_FINGERS.x * sgn, BELLY_FINGERS.y, 0.02 + pat * 0.5))
+		var normal: Vector3 = chest_delta * (_belly_point(BELLY_WRIST.x * sgn, BELLY_WRIST.y, 1.0) - _belly_point(BELLY_WRIST.x * sgn, BELLY_WRIST.y, 0.0))
+		# Collarbone forward, from the chest's frame.
+		var protract := Quaternion(chest_delta * Vector3.UP, -sgn * deg_to_rad(BELLY_PROTRACT_DEG))
+		_set_global(tg, sh, protract * chest_delta * tgt_rest_global[sh].basis.get_rotation_quaternion())
+		pos = _positions(tg, hips, hips_pos)
+		# Two-bone IK, elbow out to the side and a little back.
+		var a: Vector3 = pos[ua]
+		var l1: float = a.distance_to(pos[la])
+		var l2: float = pos[la].distance_to(pos[hand])
+		var to_w: Vector3 = wrist - a
+		var dist := clampf(to_w.length(), absf(l1 - l2) + 0.002, (l1 + l2) * 0.999)
+		var dir := to_w.normalized()
+		var pole: Vector3 = chest_delta * Vector3(sgn, -0.6, -0.35)
+		pole = (pole - dir * pole.dot(dir)).normalized()
+		var cos_a := clampf((l1 * l1 + dist * dist - l2 * l2) / (2.0 * l1 * dist), -1.0, 1.0)
+		var elbow := a + dir * (cos_a * l1) + pole * (sqrt(1.0 - cos_a * cos_a) * l1)
+		var w2 := a + dir * dist
+		_set_global(tg, ua, Quaternion((pos[la] - a).normalized(), (elbow - a).normalized()) * tg[ua])
+		pos = _positions(tg, hips, hips_pos)
+		_set_global(tg, la, Quaternion((pos[hand] - pos[la]).normalized(), (w2 - pos[la]).normalized()) * tg[la])
+		pos = _positions(tg, hips, hips_pos)
+		# Hand flat on the belly: fingers towards the middle, palm onto it.
+		var knuckle := tgt_skel.find_bone(side + "MiddleProximal")
+		var thumb := tgt_skel.find_bone(side + "ThumbTip")
+		var fdir: Vector3 = (pos[knuckle] - pos[hand]).normalized()
+		var want_f: Vector3 = (tips - pos[hand])
+		want_f = (want_f - normal * want_f.dot(normal)).normalized()
+		var q1: Quaternion = Quaternion(fdir, want_f) * tg[hand]
+		_set_global(tg, hand, q1)
+		pos = _positions(tg, hips, hips_pos)
+		var palm: Vector3 = pos[thumb] - pos[knuckle]
+		palm = (palm - want_f * palm.dot(want_f)).normalized()
+		var want_p := -(normal - want_f * normal.dot(want_f)).normalized()
+		var twist := palm.signed_angle_to(want_p, want_f)
+		_set_global(tg, hand, Quaternion(want_f, twist) * tg[hand])
