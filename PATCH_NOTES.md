@@ -1,5 +1,11 @@
 # Patch notes
 
+## 24 Oct 2026 · 15:55 UTC
+- **A much lighter forest.** The Whispering Glade now draws well under half the triangles it used to from any spot in the valley, so it runs smoother on phones and laptops alike, without losing its look. Every tree, bush, flower and tuft of grass now picks its own level of detail by how far it is from you, instead of whole patches of forest switching at once, and plants stop drawing the moment they have faded away.
+- **Fuller leaves at a distance.** Faraway crowns and meadows keep their fullness as they simplify: some leaves and grass blades step aside and the rest grow a little to fill the gap, so a distant tree still looks like a leafy tree, not a lumpy blob.
+- **Distant trees, painted.** Trees more than about 60 m away swap to detailed pictures of themselves, photographed from eight sides and lit and tinted just like the real thing (autumn and magic trees included). The whole far forest now costs about as much to draw as a handful of nearby trees.
+- **Lighter shadows.** Shadows come from simpler stand-ins that look the same at shadow resolution: far trees cast from their trunks and a thinned crown, and the ground casts from a gentler copy of itself. On phones, distant trees cast their shadow from their picture.
+
 ## 24 Oct 2026 · 15:30 UTC
 - **Wild weed in the Whispering Glade.** Three strains grow in little patches beside the paths: warm Ember Kush, violet Starlit Haze and fresh Verdant Dream. The first patch grows just ahead of where you start. Walk up and press grab (E, X on gamepad, or the hand button) to pluck a glowing bud. The plant shivers, sheds a few leaves and slowly grows the bud back, and every new strain you find gets its own little fanfare.
 - **Roll your own.** With a bud in your pouch, press R (right trigger, or the new leaf button). A little forest magic floats the bud and a rolling paper up between your Keling's hands: the bud crumbles onto the paper, the paper curls itself up, gets a lick and a twist, and ten seconds later, ta-da, a joint ready to smoke. Walk off halfway and you keep your bud.
