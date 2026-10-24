@@ -3,9 +3,14 @@ extends Node3D
 ## Third-person orbit camera with smoothed follow, collision (SpringArm3D),
 ## mouse / touch / gamepad look, pinch and wheel zoom, gentle auto-recentre
 ## behind a moving character, sprint FOV kick and impact shake.
+## Framing follows the rule of thirds: the camera sits a little high and tilts
+## up off the arm so the character stands on the lower third of the screen,
+## leaving the view ahead open.
 
 @export var target_path: NodePath
-@export var target_height := 0.95
+@export var target_height := 0.7  ## orbit pivot above the feet (the Keling's middle)
+## Where the pivot lands on screen, as a fraction of the height from the bottom.
+@export_range(0.2, 0.5) var frame_height := 0.33
 @export var distance := 3.4
 @export var min_distance := 1.6
 @export var max_distance := 7.0
@@ -22,7 +27,7 @@ extends Node3D
 @onready var camera: Camera3D = $SpringArm3D/Camera3D
 
 var yaw := 0.0
-var pitch := deg_to_rad(-16.0)
+var pitch := deg_to_rad(-22.0)
 var _target: Node3D
 var _focus := Vector3.ZERO
 var _zoom := 3.4
@@ -157,7 +162,7 @@ func _process(delta: float) -> void:
 		var off := absf(wrapf(behind - yaw, -PI, PI))
 		var t := clampf(flat_speed / 3.0, 0.0, 1.0) * 1.1 * delta * smoothstep(deg_to_rad(115.0), deg_to_rad(60.0), off)
 		yaw = lerp_angle(yaw, behind, t)
-		pitch = lerpf(pitch, deg_to_rad(-14.0), t * 0.5)
+		pitch = lerpf(pitch, deg_to_rad(-20.0), t * 0.5)
 
 	if _view_active:
 		_frame_view(delta)
@@ -179,6 +184,7 @@ func _process(delta: float) -> void:
 	var sprinting := flat_speed > 2.0
 	var fov_target := base_fov + (6.0 if sprinting else 0.0) + 5.0 * smoothstep(0.0, 1.0, _view_blend)
 	camera.fov = lerpf(camera.fov, fov_target, 1.0 - exp(-(1.2 if _view_active else 3.0) * delta))
+	camera.rotation.x = _frame_tilt()
 
 	if _shake > 0.001:
 		_shake_t += delta * 40.0
@@ -190,6 +196,11 @@ func _process(delta: float) -> void:
 		camera.v_offset = 0.0
 
 
+## Upward tilt of the camera off the arm that puts the pivot at frame_height.
+func _frame_tilt() -> float:
+	return atan((1.0 - 2.0 * frame_height) * tan(deg_to_rad(camera.fov) * 0.5))
+
+
 func _frame_view(delta: float) -> void:
 	_view_blend = move_toward(_view_blend, 1.0, delta * 0.6)
 	# Swing round slowly and cinematically; hold off while the player looks
@@ -199,7 +210,8 @@ func _frame_view(delta: float) -> void:
 	if flat.length() < 0.5:
 		return
 	var want_yaw := atan2(-to.x, -to.z)
-	var want_pitch := clampf(atan2(to.y, flat.length()) - deg_to_rad(9.0), deg_to_rad(-30.0), deg_to_rad(10.0))
+	# The camera already tilts up by the framing angle, so the arm stays that much lower.
+	var want_pitch := clampf(atan2(to.y, flat.length()) - deg_to_rad(9.0) - _frame_tilt(), deg_to_rad(-40.0), deg_to_rad(0.0))
 	var rate := 1.5 if _since_manual > 3.5 else 0.0
 	var k := 1.0 - exp(-rate * delta)
 	yaw = lerp_angle(yaw, want_yaw, k)
