@@ -424,7 +424,60 @@ func build_meshes(material: Material) -> Array[MeshInstance3D]:
 			var mi := MeshInstance3D.new()
 			mi.name = "TerrainChunk_%d_%d" % [cx, cz]
 			mi.mesh = mesh
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			# build_shadow_meshes() casts the terrain's shadows, far cheaper.
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			out.append(mi)
+	return out
+
+
+## Shadow casters for the hills at half the grid resolution (a quarter of the
+## triangles). Each vertex takes the lowest height around it, so the coarse
+## surface always stays under the real one and never shadows it by mistake;
+## ridges still throw their long evening shadows across the valley.
+func build_shadow_meshes(material: Material) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	var cells := (N - 1) / CHUNKS / 2
+	var w := cells + 1
+	for cz in CHUNKS:
+		for cx in CHUNKS:
+			var verts := PackedVector3Array()
+			var norms := PackedVector3Array()
+			verts.resize(w * w)
+			norms.resize(w * w)
+			for lz in w:
+				for lx in w:
+					var gx := (cx * cells + lx) * 2
+					var gz := (cz * cells + lz) * 2
+					var h := INF
+					for oz in range(-1, 2):
+						for ox in range(-1, 2):
+							h = minf(h, heights[clampi(gz + oz, 0, N - 1) * N + clampi(gx + ox, 0, N - 1)])
+					verts[lz * w + lx] = Vector3(_gx(gx), h - 0.03, _gx(gz))
+					norms[lz * w + lx] = normals[gz * N + gx]
+			var idx := PackedInt32Array()
+			for lz in cells:
+				for lx in cells:
+					var a := lz * w + lx
+					idx.append_array([a, a + 1, a + w + 1, a, a + w + 1, a + w])
+			# Same vertex layout as the drawn chunks so it shares their shadow pipeline.
+			var cols := PackedColorArray()
+			cols.resize(w * w)
+			var uvs := PackedVector2Array()
+			uvs.resize(w * w)
+			var arrays := []
+			arrays.resize(Mesh.ARRAY_MAX)
+			arrays[Mesh.ARRAY_VERTEX] = verts
+			arrays[Mesh.ARRAY_NORMAL] = norms
+			arrays[Mesh.ARRAY_COLOR] = cols
+			arrays[Mesh.ARRAY_TEX_UV] = uvs
+			arrays[Mesh.ARRAY_INDEX] = idx
+			var mesh := ArrayMesh.new()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			mesh.surface_set_material(0, material)
+			var mi := MeshInstance3D.new()
+			mi.name = "TerrainShadow_%d_%d" % [cx, cz]
+			mi.mesh = mesh
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 			out.append(mi)
 	return out
 

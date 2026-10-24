@@ -1,5 +1,11 @@
 # Patch notes
 
+## 24 Oct 2026 · 16:05 UTC
+- **A much lighter forest.** The Whispering Glade now draws well under half the triangles it used to from any spot in the valley, so it runs smoother on phones and laptops alike, without losing its look. Every tree, bush, flower and tuft of grass now picks its own level of detail by how far it is from you, instead of whole patches of forest switching at once, and plants stop drawing the moment they have faded away.
+- **Fuller leaves at a distance.** Faraway crowns and meadows keep their fullness as they simplify: some leaves and grass blades step aside and the rest grow a little to fill the gap, so a distant tree still looks like a leafy tree, not a lumpy blob.
+- **Distant trees, painted.** Trees more than about 60 m away swap to detailed pictures of themselves, photographed from eight sides and lit and tinted just like the real thing (autumn and magic trees included). The whole far forest now costs about as much to draw as a handful of nearby trees.
+- **Lighter shadows.** Shadows come from simpler stand-ins that look the same at shadow resolution: far trees cast from their trunks and a thinned crown, and the ground casts from a gentler copy of itself. On phones, distant trees cast their shadow from their picture.
+
 ## 24 Oct 2026 · 16:00 UTC
 - **Play together.** Up to four Kelings can now share the Whispering Glade, on phones and PCs, over the internet with nothing to set up. Tap the new friends button under the scroll (or press P), choose Open my forest and send your friends the six-letter code. They type it in and pop out of a puff of leaves right beside you.
 - **Everyone in their own colours.** Each player's Keling wears its own crown of flowers (buttercup gold, coral, forget-me-not blue or lilac), matching its dot on the minimap and world map, with its name floating over its head. Pick your name in the Play together card, or roll the dice for a random one like Mossy Toes.

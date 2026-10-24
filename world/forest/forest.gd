@@ -86,6 +86,8 @@ func build() -> void:
 	var tmat := kit.terrain_material()
 	for chunk in terrain.build_meshes(tmat):
 		ground.add_child(chunk)
+	for chunk in terrain.build_shadow_meshes(tmat):
+		ground.add_child(chunk)
 	ground.add_child(terrain.build_outer_mesh(tmat))
 	ground.add_child(terrain.build_collision())
 
@@ -127,6 +129,9 @@ func build() -> void:
 
 	kit.set_wind(wind_direction, wind_strength)
 	_place_spawn()
+	# Band the vegetation for the opening view; it follows the camera after.
+	var view := get_spawn_transform(0)
+	scatter.lod.update_now(view.origin + Vector3.UP * 1.9 + view.basis.z * 3.2)
 	print("Forest grown in %d ms (%s) instances %s" % [Time.get_ticks_msec() - t0, ", ".join(laps), scatter.counts])
 	build_step = BUILD_STEPS
 	is_built = true
