@@ -21,7 +21,7 @@ TITLE = "Weed World"
 TAGLINE = "a cozy forest for Kelings and friends"
 # Title centre, as a fraction of the picture. Kept inside the middle 16:9
 # area so phones (20:9) and PCs (16:9) both show all of it.
-TITLE_AT = (0.64, 0.17)
+TITLE_AT = (0.5, 0.135)
 
 
 def font(px: int, weight: int) -> ImageFont.FreeTypeFont:

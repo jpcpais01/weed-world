@@ -7,6 +7,8 @@ extends Control
 
 ## 0..1, how far the vine has grown. Set it freely; the drawing eases towards it.
 var value := 0.0
+## How far the vine swings up and down, as a fraction of the control's height.
+var wave := 0.22
 
 const LEAVES := 22
 const STEM_DARK := Color(0.16, 0.36, 0.13)
@@ -65,6 +67,16 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+## How far the vine has visibly grown, 0..1 (eases behind `value`).
+func grown() -> float:
+	return _shown
+
+
+## Where along the vine a point at t (0..1) is, in this control's space.
+func point_at(t: float) -> Vector2:
+	return _point(t)
+
+
 func _leaf_t(i: int) -> float:
 	return (float(i) + 0.6) / float(LEAVES)
 
@@ -74,7 +86,7 @@ func _point(t: float) -> Vector2:
 	var w := size.x
 	var h := size.y
 	var x := t * w
-	var y := h * 0.5 + sin(t * TAU * 1.5 + 0.6) * h * 0.22 + sin(_time * 1.3 + t * 5.0) * h * 0.03
+	var y := h * 0.5 + sin(t * TAU * 1.5 + 0.6) * h * wave + sin(_time * 1.3 + t * 5.0) * h * 0.03
 	return Vector2(x, y)
 
 
