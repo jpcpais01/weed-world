@@ -60,7 +60,7 @@ func _make_views() -> void:
 		var focus := Vector3(p.x, _forest.ground_height(p.x, p.y) + CAM_HEIGHT, p.y)
 		var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, deg_to_rad(CAM_PITCH))
 		var eye := focus + basis.z * CAM_DIST
-		_views.append({"name": s[0], "xf": Transform3D(basis, eye)})
+		_views.append({"name": s[0], "xf": Transform3D(basis, eye), "focus": focus})
 
 
 func _report() -> void:
@@ -89,7 +89,7 @@ func _report() -> void:
 	for v in _views:
 		# Let the forest's level-of-detail streaming settle for this camera.
 		if _forest.scatter.lod:
-			_forest.scatter.lod.update_now(v.xf.origin)
+			_forest.scatter.lod.update_now(v.focus, CAM_DIST * ForestLod.ARM_SHARE)
 		var r := _measure(items, v.xf)
 		worst = maxi(worst, r.tris + r.shadow_tris)
 		print("render_budget: view %-9s main %8s tris %4d draws | shadow %8s tris %4d draws | total %8s" % [v.name, _n(r.tris), r.draws, _n(r.shadow_tris), r.shadow_draws, _n(r.tris + r.shadow_tris)])
