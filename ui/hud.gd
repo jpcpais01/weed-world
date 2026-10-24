@@ -597,9 +597,11 @@ func _refresh() -> void:
 			rows = [
 				[[[k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")], "move"],
 					[[k.call("sprint")], "sprint"], [[k.call("walk_toggle")], "walk"], [[k.call("weed")], "roll · smoke"]],
-				[[[k.call("jump")], "jump"], [[k.call("grab")], "grab"], [[k.call("map")], "map"], [[k.call("coop")], "play together"], [[k.call("character")], "change keling"], [["Esc"], "menu"]],
+				[[[k.call("jump")], "jump"], [[k.call("grab")], "grab"], [[k.call("map")], "map"], [["Esc"], "menu"]],
 				[[[k.call("emote_dance"), k.call("emote_cheer"), k.call("emote_sit"), k.call("emote_nod")], "dance · cheer · sit · nod"],
 					[[k.call("toggle_debug")], "debug"], [["F11"], "fullscreen"]],
+				# Kept short so the panel stays clear of the centred action prompt.
+				[[[k.call("coop")], "play together"], [[k.call("character")], "change keling"]],
 			]
 	for r in rows:
 		_hints_box.add_child(_hint_row(r, pad))
