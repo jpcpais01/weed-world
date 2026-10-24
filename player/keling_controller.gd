@@ -17,8 +17,11 @@ signal landed(impact_speed: float, kind: StringName)
 signal grabbed(target: Node)
 signal sat_down(bench: Node)
 signal stood_up(bench: Node)
+## Weed activity for co-op to mirror on this Keling's puppets: &"roll",
+## &"light", &"puff", &"hold" or &"idle" (see KelingWeed.play_remote).
+signal activity_changed(name: StringName, data: Dictionary)
 
-enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT }
+enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT, CRAFT }
 enum SitPhase { APPROACH, ALIGN, DOWN, SEATED, UP }
 
 ## Hop onto and off a bench seat (seconds).
@@ -65,6 +68,7 @@ var facing := 0.0  ## yaw of the body (0 = +Z)
 var procedural: KelingProcedural
 var grab: KelingGrab
 var sit: KelingSit
+var weed: KelingWeed
 var springs: SpringBoneSimulator3D
 
 var _skeleton: Skeleton3D
@@ -93,6 +97,7 @@ var _grab_target: Node3D
 var _grab_point := Vector3.ZERO
 var _grab_right := true
 var _sprig: Node3D
+var _held: Node3D  # whatever is in the fist after a pick: the sprig or a bud
 var _bench: Bench
 var _seat := -1
 var _sit_phase: int = SitPhase.APPROACH
@@ -159,6 +164,12 @@ func _setup_rig() -> void:
 	_sprig = Herb.build(0.16)
 	_sprig.visible = false
 	add_child(_sprig)
+	_held = _sprig
+
+	# Weed: the pouch, rolling and smoking (two-handed poses go on top).
+	weed = KelingWeed.new()
+	weed.setup(self, _skeleton)
+	add_child(weed)
 
 
 func _spring(i: int, root: String, end: String, tip: float, stiffness: float, drag: float, grav: float, radius: float) -> void:
@@ -183,6 +194,10 @@ func _physics_process(delta: float) -> void:
 		_check_emote_input()
 		if Input.is_action_just_pressed("grab"):
 			try_grab()
+		if Input.is_action_just_pressed("weed"):
+			weed.use()
+		if Input.is_action_just_pressed("weed_cycle"):
+			weed.cycle_strain()
 	_jump_held = Input.is_action_pressed("jump") and not GameInput.ui_locked
 
 	var on_floor := is_on_floor()
@@ -205,6 +220,8 @@ func _physics_process(delta: float) -> void:
 			_emote_mode(delta)
 		Mode.SIT:
 			_sit_mode(delta)
+		Mode.CRAFT:
+			_craft_mode(delta)
 
 	# On the seat the body is placed by hand: no gravity, no sliding.
 	if mode == Mode.SIT and _sit_phase >= SitPhase.DOWN:
@@ -348,6 +365,8 @@ func _land(delta: float) -> void:
 ## Reaches for the nearest herb in front (or just in front of the Keling).
 ## Next to a bench it sits down instead, and on a bench it stands back up.
 func try_grab() -> void:
+	if weed and weed.busy():
+		return
 	if mode == Mode.SIT:
 		stand_up()
 		return
@@ -414,8 +433,11 @@ func _on_gripped() -> void:
 	if _grab_target and is_instance_valid(_grab_target):
 		if _grab_target.has_method("on_grabbed"):
 			_grab_target.on_grabbed()
+		_held = _sprig
+		if _grab_target is WeedBud and weed:
+			_held = weed.fist_bud((_grab_target as WeedBud).strain)
 		grabbed.emit(_grab_target)
-		_sprig.visible = true
+		_held.visible = true
 	Input.vibrate_handheld(15)
 
 
@@ -453,6 +475,56 @@ func stand_up() -> void:
 
 func is_sitting() -> bool:
 	return mode == Mode.SIT and _sit_phase >= SitPhase.DOWN
+
+
+## The bench this Keling is sitting on, if any.
+func current_bench() -> Bench:
+	return _bench if is_sitting() and _sit_phase == SitPhase.SEATED else null
+
+
+# --- weed --------------------------------------------------------------------
+
+## Stops to roll or smoke: standing still on the ground, or seated on a bench.
+## Returns false when the Keling is busy (mid-air, grabbing, hopping up...).
+func begin_weed_act() -> bool:
+	if mode == Mode.SIT:
+		return _sit_phase == SitPhase.SEATED
+	if mode not in [Mode.GROUND, Mode.EMOTE, Mode.CRAFT] or not is_on_floor():
+		return false
+	mode = Mode.CRAFT
+	_emote = &""
+	animator.travel(&"Move")
+	animator.cancel_fidget()
+	return true
+
+
+func weed_act_allowed() -> bool:
+	return mode == Mode.CRAFT or (mode == Mode.SIT and _sit_phase == SitPhase.SEATED)
+
+
+## The bench power in play: the view tag of the bench we sit on, or none.
+func weed_element() -> StringName:
+	var b := current_bench()
+	return StringName(b.site.get("element", &"none")) if b else &"none"
+
+
+## Co-op: replays another player's weed activity on this (puppet) Keling.
+func play_remote_activity(activity: StringName, data: Dictionary) -> void:
+	if weed:
+		weed.play_remote(activity, data)
+
+
+func _craft_mode(delta: float) -> void:
+	_approach_velocity(Vector3.ZERO, braking, delta)
+	animator.update_locomotion(_flat_velocity().length(), false, delta)
+	# Walking off or jumping puts it away; the weed keeps the bud or the puff.
+	if _desired_speed() > 0.0 or _jump_buffer > 0.0:
+		weed.interrupt()
+		_back_to_ground()
+		_try_jump()
+		return
+	if not weed.busy():
+		_back_to_ground()
 
 
 func _sit_mode(delta: float) -> void:
@@ -793,7 +865,7 @@ func _update_visuals(delta: float) -> void:
 		procedural.exertion = _exertion
 		procedural.land_compression = maxf(_compression, 0.0)
 		procedural.space_state = get_world_3d().direct_space_state
-		var walking := mode in [Mode.GROUND, Mode.LAND, Mode.TURN, Mode.SKID, Mode.EMOTE, Mode.GRAB] or (mode == Mode.SIT and _sit_phase < SitPhase.DOWN)
+		var walking := mode in [Mode.GROUND, Mode.LAND, Mode.TURN, Mode.SKID, Mode.EMOTE, Mode.GRAB, Mode.CRAFT] or (mode == Mode.SIT and _sit_phase < SitPhase.DOWN)
 		procedural.ik_enabled = walking and is_on_floor()
 		procedural.ik_weight = 1.0 - clampf(inverse_lerp(jog_speed, sprint_speed, speed), 0.0, 0.7)
 		procedural.crouch = grab.crouch_amount() * 0.1 if grab else 0.0
@@ -803,10 +875,10 @@ func _update_visuals(delta: float) -> void:
 ## Places the picked sprig in the closed fist: stem through the fingers, bud up.
 ## Runs when the grab modifier has finished, so it follows the IK'd hand.
 func _update_sprig() -> void:
-	if _sprig == null:
+	if _held == null:
 		return
 	if grab == null or not grab.holding:
-		_sprig.visible = false
+		_held.visible = false
 		return
 	var s := "Right" if _grab_right else "Left"
 	var xf := _skeleton.global_transform
@@ -818,7 +890,7 @@ func _update_sprig() -> void:
 		up = Vector3.UP
 	var rot := Basis(fingers.cross(up).normalized(), up, fingers).orthonormalized()
 	var fist := knuckle.lerp(hand, 0.25) + fingers * 0.01
-	_sprig.global_transform = Transform3D(rot, fist - up * 0.07)
+	_held.global_transform = Transform3D(rot, fist - up * 0.07)
 
 
 func _update_look() -> void:
@@ -834,6 +906,8 @@ func _update_look() -> void:
 		target_pitch = clampf(-atan2(to.y, Vector2(to.x, to.z).length()) * 0.6, -0.12, 0.2)
 		if sin(Time.get_ticks_msec() * 0.00041) > 0.93:
 			target_yaw += 0.25
+	elif mode == Mode.CRAFT:
+		target_pitch = 0.14  # eyes on the hands
 	elif mode == Mode.GRAB:
 		var to := _grab_point - (global_position + Vector3(0, 1.1, 0))
 		target_yaw = wrapf(atan2(to.x, to.z) - facing, -PI, PI)
