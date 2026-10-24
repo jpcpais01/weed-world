@@ -239,7 +239,8 @@ func _new_code(relay: int) -> String:
 
 
 func _card() -> Dictionary:
-	return {"name": player_name, "ver": str(ProjectSettings.get_setting("application/config/version", "0"))}
+	var character: String = _local.character_id if _local and is_instance_valid(_local) else KelingCharacters.saved_id()
+	return {"name": player_name, "ver": str(ProjectSettings.get_setting("application/config/version", "0")), "char": character}
 
 
 func _relay_url() -> String:
@@ -454,6 +455,7 @@ func _on_peer_connected(id: int) -> void:
 	var slot := _peer.slot_of(id)
 	# Catch the newcomer up on what we're doing right now.
 	if _local:
+		_keling_event.rpc_id(id, &"character", [_local.character_id])
 		var bench := _local.current_bench_id()
 		if bench != "":
 			_keling_event.rpc_id(id, &"seat", [bench, _local.current_seat()])
@@ -487,7 +489,7 @@ func _spawn(id: int) -> void:
 	var scene := load(KELING_SCENE) as PackedScene
 	var k := scene.instantiate() as KelingController
 	k.name = "Keling_%d" % id
-	k.make_remote(id, _peer.slot_of(id), String(_peer.info_of(id).get("name", "Keling")))
+	k.make_remote(id, _peer.slot_of(id), String(_peer.info_of(id).get("name", "Keling")), String(_peer.info_of(id).get("char", KelingCharacters.DEFAULT)))
 	# Out of sight until the first snapshot puts it in place.
 	k.position = _local.global_position + Vector3(0, -50, 0)
 	k.visible = false

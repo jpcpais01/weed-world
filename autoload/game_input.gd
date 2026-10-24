@@ -50,6 +50,7 @@ func _enter_tree() -> void:
 	_add("map", [KEY_M, KEY_TAB], [JOY_BUTTON_Y], [])
 	_add("controls_help", [KEY_H, KEY_F1], [], [])
 	_add("coop", [KEY_P], [], [])
+	_add("character", [KEY_T], [], [])
 	_add("toggle_debug", [KEY_0, KEY_KP_0, KEY_F3], [JOY_BUTTON_BACK], [])
 	# Esc / Start: closes whatever panel is open, otherwise opens the pause
 	# menu. Panels listen for "toggle_mouse", the menu for "pause".

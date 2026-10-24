@@ -24,11 +24,13 @@ const KELING_LEG := 0.233  ## thigh + shin of the original (metres)
 
 var id := "keling"
 var landmarks := {}
-## [name, tip length] of each spring chain on the head.
+## [name, tip length, stiffness] of each spring chain on the head.
 var springs: Array = []
 var height := 1.7
 var leg_length := KELING_LEG
 var identity := true
+## Trunk profile rows: [height, half width, front z, back z].
+var rows: Array = []
 
 var _anchors: Array[Vector3] = []
 var _deltas: Array[Vector3] = []
@@ -45,6 +47,7 @@ static func load_id(p_id: String) -> KelingBody:
 			var v = lm.get(k)
 			b.landmarks[k] = Vector3(v[0], v[1], v[2]) if v is Array else KELING_LANDMARKS[k]
 		b.springs = data.get("springs", [])
+		b.rows = data.get("rows", [])
 		b.height = float(data.get("height", 1.7))
 		b.leg_length = float(data.get("leg_length", KELING_LEG))
 	else:
@@ -69,6 +72,20 @@ func fit(p: Vector3) -> Vector3:
 		sum += _deltas[i] * w
 		wsum += w
 	return p + sum / wsum
+
+
+## Half the trunk's width at a height (skeleton space), from the profile.
+func half_width(y: float) -> float:
+	if rows.is_empty():
+		return 0.25
+	if y <= rows[0][0]:
+		return rows[0][1]
+	for i in range(1, rows.size()):
+		if y <= rows[i][0]:
+			var a: Array = rows[i - 1]
+			var b: Array = rows[i]
+			return lerpf(a[1], b[1], inverse_lerp(a[0], b[0], y))
+	return rows[-1][1]
 
 
 func mouth() -> Vector3:

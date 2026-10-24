@@ -14,6 +14,11 @@ extends CharacterBody3D
 ## swims (KelingSwim poses it, KelingWater splashes), and jump hops it back
 ## out.
 ##
+## Any of the playable Kelings (KelingCharacters) can wear this controller:
+## they share one skeleton, so set_character() swaps the model, its clips and
+## its body measurements in place, and morph_to() does it with a
+## transformation (KelingMorph).
+##
 ## In co-op the same scene stands in for a friend's Keling: make_remote()
 ## strips the camera and input, and KelingSync plays their snapshots back
 ## through the same animation, lean, look and sit layers.
@@ -29,7 +34,7 @@ signal net_event(kind: StringName, args: Array)
 ## &"light", &"puff", &"hold" or &"idle" (see KelingWeed.play_remote).
 signal activity_changed(name: StringName, data: Dictionary)
 
-enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT, CRAFT, SWIM }
+enum Mode { GROUND, AIR, LAND, GRAB, SKID, TURN, EMOTE, SIT, CRAFT, SWIM, MORPH }
 
 const FLOWER_SHADER := preload("res://player/keling_flower.gdshader")
 ## Hue turn and saturation of the crown flowers for each co-op colour slot
@@ -97,6 +102,11 @@ var weed: KelingWeed
 var swim: KelingSwim
 var water: KelingWater
 var springs: SpringBoneSimulator3D
+## Which Keling this is (a KelingCharacters id) and its measurements.
+var character_id := KelingCharacters.DEFAULT
+var body: KelingBody
+## The transformation playing right now, if any.
+var morph: KelingMorph
 
 var _skeleton: Skeleton3D
 var _coyote := 0.0
@@ -147,6 +157,8 @@ var _remote_state: StringName = &""
 var _remote_grab_hit := false
 var _remote_grab_strain: StringName = &""
 var _flower_mats: Array[ShaderMaterial] = []
+var _leaf_colors: Gradient
+var _warmup: Node3D
 var _tag: Label3D
 
 
@@ -161,53 +173,19 @@ func _ready() -> void:
 		camera_rig.set_yaw(facing + PI)
 	animator.configure_speeds(walk_speed, jog_speed, sprint_speed)
 	animator.state_finished.connect(_on_state_finished)
-	_skeleton = model.find_child("Skeleton3D", true, false)
+	if is_local:
+		character_id = KelingCharacters.saved_id()
+	if character_id != KelingCharacters.DEFAULT:
+		_replace_model(character_id).free()
 	_setup_rig()
 	set_player(player_index, player_name)
+	if is_local:
+		_warmup = KelingMorph.make_warmup()
+		add_child(_warmup)
 
 
 func _setup_rig() -> void:
-	# The procedural layer (breathing, look, crouch, foot IK) runs first and the
-	# grab arm IK after it, so the hand lands on the target in the final pose.
-	procedural = KelingProcedural.new()
-	procedural.name = "Procedural"
-	_skeleton.add_child(procedural)
-	procedural.ray_exclude = [get_rid()]
-	# The bench sit pose goes on top of breathing and look, under the grab.
-	sit = KelingSit.new()
-	sit.name = "Sit"
-	_skeleton.add_child(sit)
-	# Swimming poses the whole body on top of breathing and look.
-	swim = KelingSwim.new()
-	swim.name = "Swim"
-	_skeleton.add_child(swim)
-	_hip_offset = _skeleton.get_bone_global_rest(_skeleton.find_bone("Hips")).origin
-	grab = KelingGrab.new()
-	grab.name = "Grab"
-	_skeleton.add_child(grab)
-	grab.gripped.connect(_on_gripped)
-	grab.modification_processed.connect(_update_sprig)
-
-	# Secondary motion: the leafy crown and its flower stalks bounce.
-	springs = SpringBoneSimulator3D.new()
-	springs.name = "Springs"
-	var chains := ["Crown_FrontR", "Crown_FrontC", "Crown_FrontL", "Crown_Top", "Crown_BackL", "Crown_SideR"]
-	springs.setting_count = chains.size()
-	for i in chains.size():
-		var tip_len := 0.16 if chains[i] != "Crown_Top" else 0.23
-		_spring(i, chains[i] + "_1", chains[i] + "_2", tip_len, 1.1 if chains[i] == "Crown_Top" else 1.5, 0.28, 0.04, 0.035)
-	_skeleton.add_child(springs)
-
-	# The flowers carry their colour in the vertices; each co-op player's
-	# Keling wears its own colour of them.
-	for mi in model.find_children("*", "MeshInstance3D", true, false):
-		for si in mi.mesh.get_surface_count():
-			var m: Material = mi.mesh.surface_get_material(si)
-			if m and m.resource_name == "Flower":
-				var fm := ShaderMaterial.new()
-				fm.shader = FLOWER_SHADER
-				mi.set_surface_override_material(si, fm)
-				_flower_mats.append(fm)
+	_rig_model()
 
 	# A sprig that appears in whichever hand just picked something.
 	_sprig = Herb.build(0.16)
@@ -224,6 +202,185 @@ func _setup_rig() -> void:
 	water = KelingWater.new()
 	water.setup(self)
 	add_child(water)
+
+
+## Everything that lives on the model's skeleton: pose layers, springs and
+## the crown flower colours. Runs again for each new model.
+func _rig_model() -> void:
+	body = KelingCharacters.body(character_id)
+	_skeleton = model.find_child("Skeleton3D", true, false)
+	animator.gait_scale = body.gait_scale()
+	# The procedural layer (breathing, look, crouch, foot IK) runs first and the
+	# grab arm IK after it, so the hand lands on the target in the final pose.
+	procedural = KelingProcedural.new()
+	procedural.name = "Procedural"
+	_skeleton.add_child(procedural)
+	procedural.ray_exclude = [get_rid()]
+	# The bench sit pose goes on top of breathing and look, under the grab.
+	sit = KelingSit.new()
+	sit.name = "Sit"
+	sit.leg_reach = body.gait_scale()
+	_skeleton.add_child(sit)
+	# Swimming poses the whole body on top of breathing and look; it measures
+	# its own waterline from each body's rest pose.
+	swim = KelingSwim.new()
+	swim.name = "Swim"
+	_skeleton.add_child(swim)
+	_hip_offset = _skeleton.get_bone_global_rest(_skeleton.find_bone("Hips")).origin
+	grab = KelingGrab.new()
+	grab.name = "Grab"
+	grab.body = body
+	_skeleton.add_child(grab)
+	grab.gripped.connect(_on_gripped)
+	grab.modification_processed.connect(_update_sprig)
+
+	# Secondary motion: the leafy crown and its flower stalks (or twigs,
+	# spikes, mushrooms...) bounce: [name, tip length, stiffness] per chain.
+	springs = SpringBoneSimulator3D.new()
+	springs.name = "Springs"
+	springs.setting_count = body.springs.size()
+	for i in body.springs.size():
+		var c: Array = body.springs[i]
+		_spring(i, c[0] + "_1", c[0] + "_2", c[1], c[2] if c.size() > 2 else 1.5, 0.28, 0.04, 0.035)
+	_skeleton.add_child(springs)
+
+	# The flowers carry their colour in the vertices; each co-op player's
+	# Keling wears its own colour of them.
+	_flower_mats.clear()
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		for si in mi.mesh.get_surface_count():
+			var m: Material = mi.mesh.surface_get_material(si)
+			if m and m.resource_name == "Flower":
+				var fm := ShaderMaterial.new()
+				fm.shader = FLOWER_SHADER
+				mi.set_surface_override_material(si, fm)
+				_flower_mats.append(fm)
+	# The leaves kicked up by landings come off this Keling.
+	if leaf_puff:
+		if _leaf_colors == null:
+			_leaf_colors = leaf_puff.color_initial_ramp
+		if character_id == KelingCharacters.DEFAULT:
+			leaf_puff.color_initial_ramp = _leaf_colors
+		else:
+			var cols: Array = KelingCharacters.get_info(character_id).colors
+			var ramp := Gradient.new()
+			ramp.colors = PackedColorArray([cols[0], cols[0].lerp(cols[1], 0.5), cols[1]])
+			ramp.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+			leaf_puff.color_initial_ramp = ramp
+
+
+## Puts another character's model under Visual in place of the current one,
+## with its clips on the animation tree. Returns the old model, still in the
+## tree (renamed), for the caller to keep for an effect or free.
+func _replace_model(id: String) -> Node3D:
+	var old := model
+	var fresh: Node3D = KelingCharacters.scene(id).instantiate()
+	old.name = "ModelOld"
+	fresh.name = "Model"
+	visual.add_child(fresh)
+	visual.move_child(fresh, old.get_index())
+	fresh.transform = old.transform
+	model = fresh
+	character_id = id
+	animator.set_library(KelingCharacters.animations(id))
+	return old
+
+
+## Turns this Keling into another character on the spot (no effect): the
+## pose layers, springs, hands and props move to the new skeleton. Returns
+## the old model, still in the tree, or null if nothing changed.
+func set_character(id: String) -> Node3D:
+	if not KelingCharacters.valid(id) or id == character_id:
+		return null
+	if grab and grab.grabbing:
+		grab.cancel()
+	var keep_pose := {"amount": sit.amount, "legs": sit.legs, "hop": sit.hop, "hip": sit.hip_world}
+	var ray_exclude := procedural.ray_exclude
+	var old := _replace_model(id)
+	# The old model keeps its own pose layers for as long as it is shown.
+	_rig_model()
+	procedural.ray_exclude = ray_exclude
+	sit.amount = keep_pose.amount
+	sit.legs = keep_pose.legs
+	sit.hop = keep_pose.hop
+	sit.hip_world = keep_pose.hip
+	_hip_offset = _skeleton.get_bone_global_rest(_skeleton.find_bone("Hips")).origin
+	weed.rebind(_skeleton, body)
+	set_player(player_index, player_name)
+	return old
+
+
+## Transforms into another Keling with the full effect (KelingMorph), and
+## tells friends to watch it happen. Only when standing about.
+func morph_to(id: String) -> bool:
+	if not can_morph() or not KelingCharacters.valid(id) or id == character_id:
+		return false
+	_start_morph(id)
+	if is_local:
+		KelingCharacters.save_id(id)
+	net_event.emit(&"morph", [id])
+	return true
+
+
+## Standing on the ground with empty hands (not mid-jump, grab, seat or roll).
+func can_morph() -> bool:
+	if morph != null or not is_inside_tree():
+		return false
+	if not is_local:
+		return true
+	if weed and weed.busy():
+		return false
+	return mode in [Mode.GROUND, Mode.EMOTE] and is_on_floor() and animator.current_state() not in [&"SitDown", &"SitIdle", &"SitUp"]
+
+
+func _start_morph(id: String) -> void:
+	cancel_morph()
+	if is_local:
+		mode = Mode.MORPH
+		_emote = &""
+		animator.travel(&"Move")
+	morph = KelingMorph.new()
+	morph.name = "Morph"
+	add_child(morph)
+	morph.revealed.connect(_on_morph_revealed, CONNECT_ONE_SHOT)
+	morph.finished.connect(_on_morph_finished, CONNECT_ONE_SHOT)
+	morph.begin(self, id)
+
+
+func cancel_morph() -> void:
+	if morph and is_instance_valid(morph):
+		morph.finish_now()
+	morph = null
+
+
+## The new Keling is out: it lands and cheers (the sparkles play on).
+func _on_morph_revealed() -> void:
+	if is_local and mode == Mode.MORPH:
+		mode = Mode.EMOTE
+		_emote = &"Cheer"
+		animator.travel(&"Cheer")
+
+
+func _on_morph_finished() -> void:
+	morph = null
+
+
+## The bump of landing at the end of a transformation.
+func morph_landed() -> void:
+	_kick_squash(-0.1)
+	_kick_compression(0.045)
+	_puff(1.0)
+	if is_local:
+		Input.vibrate_handheld(25)
+		if camera_rig:
+			camera_rig.shake(0.16)
+
+
+func _morph_mode(delta: float) -> void:
+	_approach_velocity(Vector3.ZERO, braking, delta)
+	animator.update_locomotion(_flat_velocity().length(), false, delta)
+	if morph == null:
+		_back_to_ground()
 
 
 func _spring(i: int, root: String, end: String, tip: float, stiffness: float, drag: float, grav: float, radius: float) -> void:
@@ -246,6 +403,9 @@ func _physics_process(delta: float) -> void:
 
 
 func _physics_process_timed(delta: float) -> void:
+	if _warmup:
+		_warmup.queue_free()
+		_warmup = null
 	if not is_local:
 		_puppet_physics(delta)
 		return
@@ -289,6 +449,8 @@ func _physics_process_timed(delta: float) -> void:
 			_craft_mode(delta)
 		Mode.SWIM:
 			_swim(delta)
+		Mode.MORPH:
+			_morph_mode(delta)
 
 	# On the seat the body is placed by hand: no gravity, no sliding.
 	if mode == Mode.SIT and _sit_phase >= SitPhase.DOWN:
@@ -614,7 +776,7 @@ func _craft_mode(delta: float) -> void:
 ## Switches to swimming once the water is too deep to stand in, or when a
 ## jump or a fall drops the Keling into the deep.
 func _check_water() -> void:
-	if mode == Mode.SWIM or mode == Mode.SIT or water.surface == -INF:
+	if mode == Mode.SWIM or mode == Mode.SIT or mode == Mode.MORPH or water.surface == -INF:
 		return
 	if mode == Mode.AIR:
 		var deep := water.bed_depth >= KelingWater.SWIM_DEPTH * water.body_scale()
@@ -998,7 +1160,7 @@ func _puff(strength: float) -> void:
 
 
 func _update_visuals(delta: float) -> void:
-	visual.rotation.y = facing
+	visual.rotation.y = facing + (morph.spin if morph else 0.0)
 	var speed := _flat_velocity().length()
 
 	# Bank into turns (pivoting at the feet), more at speed.
@@ -1027,7 +1189,7 @@ func _update_visuals(delta: float) -> void:
 		var age := SHAKE_TIME - _water_shake
 		var wob := sin(age * 44.0) * sin(_water_shake / SHAKE_TIME * PI)
 		shake = Basis(Vector3.UP, wob * 0.32) * Basis(Vector3.BACK, wob * 0.1)
-	model.transform = Transform3D(shake * Basis(Vector3.BACK, _bank).scaled(Vector3(sxz, sy, sxz)), Vector3.ZERO)
+	model.transform = Transform3D(shake * Basis(Vector3.BACK, _bank).scaled(Vector3(sxz, sy, sxz)), Vector3.UP * (morph.lift if morph else 0.0))
 
 	# Landing compression of the hips (spring back up).
 	_compression_vel += (-_compression * 220.0 - _compression_vel * 18.0) * delta
@@ -1142,7 +1304,7 @@ func set_player(slot: int, display_name: String) -> void:
 		_tag.font = HudTheme.title_font(600)
 		_tag.font_size = 44
 		_tag.outline_size = 14
-		_tag.position = Vector3(0, 1.58, 0)
+		_tag.position = Vector3(0, tag_height(), 0)
 		_tag.render_priority = 5
 		_tag.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
 		add_child(_tag)
@@ -1153,11 +1315,12 @@ func set_player(slot: int, display_name: String) -> void:
 
 ## Turns this Keling into a friend's: no camera, no input, no physics of its
 ## own. Call before it enters the tree.
-func make_remote(id: int, slot: int, display_name: String) -> void:
+func make_remote(id: int, slot: int, display_name: String, character := KelingCharacters.DEFAULT) -> void:
 	is_local = false
 	peer_id = id
 	player_index = slot
 	player_name = display_name
+	character_id = character if KelingCharacters.valid(character) else KelingCharacters.DEFAULT
 	remote = KelingSync.new()
 	var rig := get_node_or_null("CameraRig")
 	if rig:
@@ -1229,6 +1392,25 @@ func apply_net_event(kind: StringName, args: Array) -> void:
 			_seat = -1
 		&"away":
 			_set_away(bool(args[0]) if args.size() > 0 else false)
+		&"morph":
+			if args.size() > 0 and KelingCharacters.valid(String(args[0])):
+				if is_inside_tree() and visible:
+					_start_morph(String(args[0]))
+				else:
+					_switch_quietly(String(args[0]))
+		&"character":
+			if args.size() > 0:
+				_switch_quietly(String(args[0]))
+
+
+## Becomes another character with no effect (a friend who changed before we
+## joined, or a puppet we can't see yet).
+func _switch_quietly(id: String) -> void:
+	if morph != null or id == character_id:
+		return
+	var old := set_character(id)
+	if old:
+		old.queue_free()
 
 
 ## A friend has their menu open: a little "taking a break" under their name.
@@ -1251,7 +1433,7 @@ func _set_away(away: bool) -> void:
 	note.outline_size = 10
 	note.modulate = Color(HudTheme.CREAM, 0.85)
 	note.outline_modulate = Color(0.04, 0.08, 0.05, 0.75)
-	note.position = Vector3(0, 1.58, 0)
+	note.position = Vector3(0, tag_height(), 0)
 	note.offset = Vector2(0, -46)
 	note.render_priority = 5
 	add_child(note)
@@ -1332,7 +1514,15 @@ func _update_tag() -> void:
 	_tag.visible = a > 0.01
 	_tag.modulate.a = a
 	_tag.outline_modulate.a = 0.85 * a
-	_tag.position.y = 1.58 * visual.scale.y + (0.12 if is_sitting() or sit.amount > 0.5 else 0.0)
+	_tag.position.y = tag_height() * visual.scale.y + (0.12 if is_sitting() or sit.amount > 0.5 else 0.0)
+	var note := get_node_or_null("AwayTag") as Node3D
+	if note:
+		note.position.y = _tag.position.y
+
+
+## Where a name floats: just under the top of this Keling's crown.
+func tag_height() -> float:
+	return 1.58 + ((body.height if body else 1.7) - 1.7) * 0.8
 
 
 ## For HUD/debug.

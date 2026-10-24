@@ -17,6 +17,9 @@ var hip_world := Vector3.ZERO
 var hop := 0.0
 ## How far the legs have swung up onto the seat, 0..1 (lags the hips a touch).
 var legs := 0.0
+## Leg length against the original Keling's: long legs rest further out
+## over the edge so their feet clear the ground.
+var leg_reach := 1.0
 
 var _bones := {}
 var _t := 0.0
@@ -80,7 +83,7 @@ func _process_modification_with_delta_timed(delta: float) -> void:
 		var side: float = leg[4]
 		# Alternating kicks: one shin swings forward as the other tucks back.
 		var phase := _t * 6.2 + (0.0 if side > 0.0 else PI)
-		var swing := 0.32 + sin(phase) * 0.42 * _kick + sin(_t * 0.9 + side) * 0.05
+		var swing := 0.32 + 0.5 * clampf(leg_reach - 1.0, 0.0, 1.0) + sin(phase) * 0.42 * _kick + sin(_t * 0.9 + side) * 0.05
 		var thigh := Vector3(side * 0.2, -0.06 + 0.06 * _kick * sin(phase), 1.0).normalized()
 		var shin := Vector3(side * 0.05, -cos(swing), sin(swing)).normalized()
 		var foot := Vector3(0.0, -cos(swing + 1.25), sin(swing + 1.25)).normalized()

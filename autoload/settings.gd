@@ -52,7 +52,7 @@ const PAD_BASE := 2.8
 const REBINDABLE := [
 	["move_forward", "Move forward"], ["move_back", "Move back"], ["move_left", "Move left"], ["move_right", "Move right"],
 	["jump", "Jump"], ["sprint", "Sprint"], ["walk_toggle", "Walk / run"], ["grab", "Grab · pick · sit"],
-	["weed", "Roll · light · smoke"], ["weed_cycle", "Change strain"], ["map", "Map"], ["coop", "Play together"],
+	["weed", "Roll · light · smoke"], ["weed_cycle", "Change strain"], ["map", "Map"], ["coop", "Play together"], ["character", "Change Keling"],
 	["emote_dance", "Dance"], ["emote_cheer", "Cheer"], ["emote_sit", "Sit down"], ["emote_nod", "Nod"],
 	["controls_help", "Show controls"], ["toggle_debug", "Frame-time readout"],
 ]

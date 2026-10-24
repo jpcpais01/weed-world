@@ -99,6 +99,16 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, s: float, col: Color
 			ci.draw_arc(b + Vector2(0, 1.05) * s, s * 0.7, PI * 1.12, PI * 1.88, 16, col, w * 0.9, true)
 			ci.draw_circle(b, s * 0.42, col, false, w * 0.9, true)
 			MapIcons.leaf(ci, b + Vector2(0, -0.42) * s, Vector2(0.5, -0.86), s * 0.55, s * 0.3, HudTheme.LEAF)
+		"swap":
+			# Two arrows chasing round a little leaf: change Keling.
+			ci.draw_arc(c, s * 0.95, deg_to_rad(200), deg_to_rad(330), 16, col, w * 0.8, true)
+			ci.draw_arc(c, s * 0.95, deg_to_rad(20), deg_to_rad(150), 16, col, w * 0.8, true)
+			for a: float in [deg_to_rad(330), deg_to_rad(150)]:
+				var out := Vector2(cos(a), sin(a))
+				var tip := c + out * s * 0.95
+				var tang := Vector2(-out.y, out.x)
+				ci.draw_colored_polygon(PackedVector2Array([tip + tang * s * 0.4, tip + out * s * 0.32, tip - out * s * 0.32]), col)
+			MapIcons.leaf(ci, c + Vector2(-0.22, 0.3) * s, Vector2(0.5, -0.86), s * 0.75, s * 0.4, HudTheme.LEAF)
 		"back":
 			ci.draw_line(c + Vector2(0.8, 0) * s, c + Vector2(-0.8, 0) * s, col, w, true)
 			ci.draw_line(c + Vector2(-0.8, 0) * s, c + Vector2(-0.2, -0.6) * s, col, w, true)
