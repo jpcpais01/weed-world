@@ -1,5 +1,12 @@
 # Patch notes
 
+## 24 Oct 2026 · 19:45 UTC
+- **Take a breather.** Press Esc, Start on a gamepad, the pause button in the top corner or your phone's back gesture for the new menu: the forest softly blurs and goes quiet behind it, with Resume, Settings, Play together, What's new and Quit. Playing alone, the world really stops. Playing together it never freezes for your friends; they just see "taking a break" under your name. Switching apps or windows pauses for you too.
+- **Make it look your way.** A Graphics tab with Low, Medium, High and Ultra presets, plus resolution scale (sharpened with FSR), shadow quality, tree detail, grass and flower density, anti-aliasing, bloom, vsync and a frame rate cap. Every change shows live behind the menu with your frame rate underneath, and High is exactly how the forest looked before.
+- **Turn it up, turn it down.** Separate Master, Music, Ambience and Effects volume bars, and an option to go quiet when you switch windows.
+- **Music in the glade.** Three gentle, original tunes now drift in every now and then between long stretches of birdsong: kalimba in the morning glade, slow piano under the Elder tree and a twinkling music box for the fireflies. Lighting up a joint brings one in sooner.
+- **Your controls.** Mouse, touch and gamepad look speed, invert up/down and left/right, field of view, whether the camera swings in behind you, and rebindable keyboard keys (taken keys swap over). The on-screen key hints follow your bindings. Everything saves by itself.
+
 ## 24 Oct 2026 · 19:25 UTC
 - **Sharper stutter hunting.** The frame-time panel now also times your Keling's hands and poses, the world map, the co-op card, the touch controls and the updater, so whatever causes a hitch gets named on the "slowest frame lately" line. Work that runs in the background (like the forest's level-of-detail sorting) no longer shows up there, since it can't cause a stutter.
 

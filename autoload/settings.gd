@@ -30,6 +30,11 @@ const PRESET_VALUES := {
 }
 const PRESET_KEYS := ["render_scale", "shadows", "trees", "grass", "aa", "bloom"]
 
+## Resolution scale the High preset (and a first launch) uses on desktop
+## screens taller than 1080 px, where the pixel count is the GPU's biggest
+## cost. 1.0 keeps full resolution everywhere; set e.g. 0.85 to switch on.
+const HI_RES_DEFAULT_SCALE := 1.0
+
 ## Shadow levels as [atlas size, distance m, soft filter quality]. High is
 ## the project's own setting on each platform (4096 / 2048).
 const SHADOW_DESKTOP := [[0, 0.0, 0], [1024, 45.0, 0], [2048, 60.0, 1], [4096, 75.0, 2], [4096, 75.0, 3]]
@@ -106,6 +111,7 @@ var _save_timer: SceneTreeTimer
 func _enter_tree() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	values = DEFAULTS.duplicate()
+	values["render_scale"] = default_scale()
 	_load()
 	_ensure_buses()
 
@@ -156,7 +162,7 @@ func apply_preset(name: String) -> void:
 		return
 	values["preset"] = name
 	for k in PRESET_VALUES[name]:
-		values[k] = PRESET_VALUES[name][k]
+		values[k] = preset_value(name, k)
 	apply_graphics()
 	changed.emit("preset")
 	for k in PRESET_KEYS:
@@ -164,12 +170,27 @@ func apply_preset(name: String) -> void:
 	_save_soon()
 
 
+## Full resolution, or HI_RES_DEFAULT_SCALE on big desktop screens.
+static func default_scale() -> float:
+	if OS.has_feature("mobile") or DisplayServer.get_name() == "headless":
+		return 1.0
+	var h := DisplayServer.screen_get_size().y
+	return HI_RES_DEFAULT_SCALE if h > 1080 else 1.0
+
+
+## One preset's value; High's resolution follows default_scale().
+static func preset_value(name: String, key: String) -> Variant:
+	if name == "high" and key == "render_scale":
+		return default_scale()
+	return PRESET_VALUES[name][key]
+
+
 ## The preset whose values match the current ones, or "custom".
 func _matching_preset() -> String:
 	for name in PRESETS:
 		var ok := true
 		for k in PRESET_VALUES[name]:
-			if not is_equal_approx(float(values[k]), float(PRESET_VALUES[name][k])):
+			if not is_equal_approx(float(values[k]), float(preset_value(name, k))):
 				ok = false
 				break
 		if ok:
@@ -180,7 +201,7 @@ func _matching_preset() -> String:
 ## Puts one section (graphics, audio, controls, interface) back to defaults.
 func reset_section(section: String) -> void:
 	for k in SECTIONS.get(section, []):
-		values[k] = DEFAULTS[k]
+		values[k] = default_scale() if k == "render_scale" else DEFAULTS[k]
 	if section == "controls":
 		bindings.clear()
 		_apply_bindings()
@@ -197,7 +218,7 @@ func _load() -> void:
 		return
 	for section in SECTIONS:
 		for k in SECTIONS[section]:
-			var v = cfg.get_value(section, k, DEFAULTS[k])
+			var v = cfg.get_value(section, k, values[k])
 			if typeof(v) == typeof(DEFAULTS[k]) or (typeof(DEFAULTS[k]) == TYPE_FLOAT and typeof(v) == TYPE_INT):
 				values[k] = v
 	var saved = cfg.get_value("controls", "keys", {})

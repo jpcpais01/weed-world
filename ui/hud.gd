@@ -417,8 +417,10 @@ func _build_pause() -> void:
 	# Last, so it hears Esc first (and lets open panels have it).
 	_pause = PauseMenu.new()
 	_pause.hud = self
+	# Not while the level is still loading (it doesn't process yet), nor over
+	# another panel: Esc closes that first.
 	_pause.blocked = func() -> bool:
-		return _world_map.is_open or _coop.is_open or _notes_panel.visible
+		return not can_process() or _world_map.is_open or _coop.is_open or _notes_panel.visible
 	_pause.opened.connect(func():
 		_touch.visible = false
 		_pause_btn.visible = false)

@@ -37,6 +37,7 @@ var _bump_dir := 0
 var _dragging := false
 var _hover := false
 var _t := 0.0
+var _last_stick := 0
 
 static var _quiet := false
 
@@ -224,13 +225,15 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _dragging:
 		_slide_to((event as InputEventMouseMotion).position.x)
 		accept_event()
-	elif event.is_action_pressed("ui_left", true):
-		nudge(-1)
+	elif event.is_action_pressed("ui_left", true) or event.is_action_pressed("ui_right", true):
+		# A held stick sends a stream of events: step at a steady pace.
+		var now := Time.get_ticks_msec()
+		if not (event is InputEventJoypadMotion) or now - _last_stick > 160:
+			_last_stick = now
+			nudge(-1 if event.is_action_pressed("ui_left", true) else 1)
 		accept_event()
-	elif event.is_action_pressed("ui_right", true):
-		nudge(1)
-		accept_event()
-	elif event.is_action_pressed("ui_accept"):
+	elif event.is_action_pressed("ui_accept") or (event is InputEventJoypadButton and event.pressed
+			and (event as InputEventJoypadButton).button_index == JOY_BUTTON_A):
 		activate()
 		accept_event()
 
@@ -265,6 +268,8 @@ func _track() -> Vector2:
 
 
 func _process(delta: float) -> void:
+	if not is_visible_in_tree():
+		return
 	_t += delta
 	var target := 1.0 if (has_focus() or _hover or _dragging) else 0.0
 	var before := _hl + _press + _knob + _bump
