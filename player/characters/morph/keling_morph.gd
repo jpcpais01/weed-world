@@ -208,7 +208,7 @@ func _animate() -> void:
 		var m: ShaderMaterial = d[3]
 		m.set_shader_parameter("cut", cut)
 		m.set_shader_parameter("base_y", feet)
-		m.set_shader_parameter("rim", 1.0 - smoothstep(REVEAL, END - 0.25, t))
+		m.set_shader_parameter("rim", 1.0 - smoothstep(REVEAL - 0.1, REVEAL + 0.4, t))
 
 	var a: Color = _old_info.colors[0]
 	var b: Color = _new_info.colors[0]

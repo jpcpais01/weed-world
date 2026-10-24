@@ -127,6 +127,12 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/settings.log"; then exit 1; fi
           grep -q "settings_check: PASS" "$RUNNER_TEMP/settings.log"
 
+      - name: Characters check
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s res://tools/character_check.gd 2>&1 | tee "$RUNNER_TEMP/characters.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/characters.log"; then exit 1; fi
+          grep -q "character_check: PASS" "$RUNNER_TEMP/characters.log"
+
       - name: Co-op check
         run: |
           timeout 300 ~/godot/godot --headless --path . -s res://tools/net_check.gd 2>&1 | tee "$RUNNER_TEMP/net.log"

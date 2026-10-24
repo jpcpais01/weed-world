@@ -90,7 +90,7 @@ void fragment() {
 
 	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.5);
 	vec3 glow = mix(edge_color.rgb, core_color.rgb, edge * edge * edge) * edge * edge * 6.0;
-	glow += rim_color.rgb * fres * rim * 1.3;
+	glow += rim_color.rgb * fres * rim * 0.85;
 	// Glints winking over the body while the magic is on.
 	float glint = step(0.992, hash(floor(world_pos * 55.0) + floor(TIME * 14.0)));
 	glow += rim_color.rgb * glint * rim * 3.0;

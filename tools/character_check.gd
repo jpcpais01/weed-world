@@ -12,7 +12,7 @@ extends SceneTree
 const ROLL_TIME := 10.0
 const ACT_NONE := 0
 const ACT_ROLL := 1
-const MORPH_MODE := 9
+const MORPH_MODE := 10
 const BONES := ["Root", "Hips", "Spine", "Chest", "UpperChest", "Neck", "Head", "LeftShoulder", "LeftHand",
 	"RightHand", "LeftThumbTip", "RightIndexTip", "LeftMiddleTip", "RightRingTip", "LeftFoot", "RightToes"]
 const CLIPS := [&"Idle", &"Walk", &"Jog", &"Sprint", &"Cheer", &"SitIdle", &"Fall", &"Turn90L", &"IdleFoldArms"]
@@ -139,7 +139,7 @@ func _inspect(id: String) -> void:
 		if not _k.animator.has_animation(c):
 			clips.append(c)
 	_check(clips.is_empty(), "%s: has every clip %s" % [id, clips])
-	_check(_k.procedural.get_skeleton() == skel and _k.sit.get_skeleton() == skel and _k.grab.get_skeleton() == skel,
+	_check(_k.procedural.get_skeleton() == skel and _k.sit.get_skeleton() == skel and _k.swim.get_skeleton() == skel and _k.grab.get_skeleton() == skel,
 		"%s: pose layers on the new skeleton" % id)
 	_check(_k.weed.hands.get_skeleton() == skel, "%s: the hands moved to the new skeleton" % id)
 	_check(_k.springs.get_skeleton() == skel and _k.springs.setting_count == _k.body.springs.size() and _k.springs.setting_count > 0,
