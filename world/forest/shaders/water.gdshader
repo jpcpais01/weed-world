@@ -30,6 +30,11 @@ uniform vec4 interactor_0 = vec4(0.0, -1000.0, 0.0, 0.0);
 uniform vec4 interactor_1 = vec4(0.0, -1000.0, 0.0, 0.0);
 uniform vec4 interactor_2 = vec4(0.0, -1000.0, 0.0, 0.0);
 uniform vec4 interactor_3 = vec4(0.0, -1000.0, 0.0, 0.0);
+// Splash ripples (WaterFX): x, z, age in seconds, strength (0 = free slot).
+uniform vec4 splashes[10];
+// Kelings in the water: x, surface y, z, strength / velocity x, z, swimming.
+uniform vec4 wake_pos[4];
+uniform vec4 wake_vel[4];
 
 varying vec3 v_wp;
 varying vec2 v_flow;
@@ -85,6 +90,59 @@ vec2 wake(vec4 it, vec2 p, float surface, float t) {
 	return to / max(d, 0.001) * cos(d * 16.0 - t * 7.0) * env * 0.35;
 }
 
+// A splash: a train of rings running out from where something hit the water,
+// with a puff of foam at its heart that breaks up as it spreads.
+vec3 splash_ring(vec2 p, vec4 s, float fn) {
+	if (s.w <= 0.0) return vec3(0.0);
+	vec2 to = p - s.xy;
+	float d = length(to);
+	float age = s.z;
+	float big = min(s.w, 1.0);
+	float radius = 0.08 + age * (0.42 + 0.3 * big);
+	if (d > radius + 0.7) return vec3(0.0);
+	vec2 dir = to / max(d, 0.001);
+	float x = d - radius;
+	// A leading crest with smaller ones trailing inside it.
+	float env = exp(-x * x * 22.0) + 0.55 * exp(-(x + 0.24) * (x + 0.24) * 30.0) * smoothstep(0.12, 0.35, radius);
+	vec2 g = dir * cos(x * 30.0) * env * s.w * 0.6;
+	// Foam churned up at the heart and flung out on the first crest.
+	float young = exp(-age * 2.2);
+	float heart = exp(-d * d / (0.03 + 0.22 * big)) * young;
+	float crest = exp(-x * x * 70.0) * exp(-age * 1.7);
+	float foam = (heart * 1.3 + crest * 0.75) * min(s.w * 1.8, 1.0) * smoothstep(0.25, 0.62, fn + young * 0.35);
+	return vec3(g, foam);
+}
+
+// The V of little waves fanning out behind a swimming (or wading) Keling,
+// pinned to it like a boat's wake, with a churn of foam at its chest.
+vec3 kelvin_wake(vec2 p, float surface, vec4 pos, vec4 vel, float fn) {
+	if (pos.w <= 0.0 || abs(surface - pos.y) > 0.35) return vec3(0.0);
+	vec2 to = p - pos.xz;
+	float d2 = dot(to, to);
+	if (d2 > 49.0) return vec3(0.0);
+	float speed = length(vel.xy);
+	vec2 fwd = speed > 0.05 ? vel.xy / speed : vec2(0.0, 1.0);
+	vec2 side = vec2(-fwd.y, fwd.x);
+	float s = -dot(to, fwd);
+	float l = dot(to, side);
+	float behind = max(s, 0.0);
+	float move = smoothstep(0.08, 0.6, speed);
+	// Two arms at the Kelvin angle (~19.5 degrees) with crests along them,
+	// and softer transverse waves rolling between them.
+	float arm = abs(l) - behind * 0.36 - 0.2;
+	vec2 out_dir = normalize(side * (l < 0.0 ? -1.0 : 1.0) - fwd * 0.36);
+	float reach = exp(-behind * (0.95 - 0.3 * min(speed, 1.5))) * smoothstep(-0.35, 0.15, s);
+	float arms = exp(-arm * arm * 16.0) * cos(arm * 26.0 - behind * 3.0);
+	float inside = smoothstep(0.1, -0.15, arm) * smoothstep(-0.2, 0.3, s);
+	float trans = sin(behind * 15.0) * inside * 0.35;
+	vec2 g = (out_dir * arms + fwd * trans) * reach * move * pos.w * min(speed, 1.4) * 0.6;
+	// Froth at the chest and a short trail of it behind.
+	float chest = exp(-d2 * 9.0) * (0.35 + 0.65 * vel.z);
+	float trail = exp(-l * l * 14.0) * exp(-behind * 1.3) * smoothstep(-0.1, 0.2, s) * move;
+	float foam = (chest * 0.6 + trail * 0.6) * pos.w * smoothstep(0.35, 0.75, fn + 0.15 * move);
+	return vec3(g, foam);
+}
+
 vec3 view_from_depth(vec2 uv, float raw, mat4 inv_proj) {
 	vec4 v = inv_proj * vec4(uv * 2.0 - 1.0, raw, 1.0);
 	return v.xyz / v.w;
@@ -124,6 +182,16 @@ void fragment() {
 	}
 	grad += wake(interactor_0, wp, v_wp.y, t) + wake(interactor_1, wp, v_wp.y, t)
 			+ wake(interactor_2, wp, v_wp.y, t) + wake(interactor_3, wp, v_wp.y, t);
+	// Splashes and swimmers' wakes; their foam joins the rest further down.
+	float fx_noise = fine.b * 0.6 + n.b * 0.4;
+	vec3 fx = vec3(0.0);
+	for (int i = 0; i < 10; i++) {
+		fx += splash_ring(wp, splashes[i], fx_noise);
+	}
+	for (int i = 0; i < 4; i++) {
+		fx += kelvin_wake(wp, v_wp.y, wake_pos[i], wake_vel[i], fx_noise);
+	}
+	grad += fx.xy;
 	vec3 n_world = normalize(vec3(-grad.x, 1.0, -grad.y));
 	vec3 nv = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 	NORMAL = nv;
@@ -184,7 +252,7 @@ void fragment() {
 	float shore = lap_line * smoothstep(0.3, 0.75, fn * 0.7 + soft * 0.5) * (flowing ? 0.7 : 0.42);
 	float stones = flowing ? (1.0 - smoothstep(0.0, 0.05 + fn * 0.1, vdepth0)) * smoothstep(0.35, 0.65, fn) * 0.6 : 0.0;
 	float rapids = smoothstep(0.3, 0.8, turb * (0.55 + fn * 0.9));
-	float foam = clamp(max(max(shore, stones), rapids * smoothstep(0.3, 0.62, fn + rapids * 0.35)), 0.0, 1.0);
+	float foam = clamp(max(max(shore, stones), max(rapids * smoothstep(0.3, 0.62, fn + rapids * 0.35), fx.z)), 0.0, 1.0);
 
 	// Screen-space reflection of whatever stands above the water.
 	float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(nv, VIEW), 0.0, 1.0), 5.0);

@@ -45,6 +45,8 @@ const BARK := {
 
 var wind_materials: Array[ShaderMaterial] = []
 var interactive_materials: Array[ShaderMaterial] = []
+## Every water surface's material (splash ripples and wakes are drawn there).
+var water_materials: Array[ShaderMaterial] = []
 var _meshes := {}
 var _textures := {}
 var _bark := {}
@@ -372,6 +374,7 @@ func water_material(flowing: bool) -> ShaderMaterial:
 		mat.set_shader_parameter("absorption", Vector3(0.5, 0.2, 0.16))
 		mat.set_shader_parameter("scatter_color", Color(0.09, 0.26, 0.2))
 	interactive_materials.append(mat)
+	water_materials.append(mat)
 	return mat
 
 

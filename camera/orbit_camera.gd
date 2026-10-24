@@ -248,6 +248,10 @@ func _process_timed(delta: float) -> void:
 	# Smooth follow: stiffer vertically when falling so we don't lose the player.
 	var cb := smoothstep(0.0, 1.0, _close_blend)
 	var focus_target := target_pos + Vector3.UP * lerpf(target_height, CLOSE_HEIGHT * _target_scale(), cb) + _close_fwd * CLOSE_AHEAD * _target_scale() * cb
+	# Swimming: look from a little above the waterline, not from the belly.
+	var surface := WaterLevel.surface_at(target_pos.x, target_pos.z)
+	if surface > target_pos.y + 0.3:
+		focus_target.y = maxf(focus_target.y, surface + 0.3 * _target_scale())
 	var k := 1.0 - exp(-follow_lag * delta)
 	var ky := 1.0 - exp(-(follow_lag * (2.0 if vel.y < -6.0 else 0.6)) * delta)
 	_focus.x = lerpf(_focus.x, focus_target.x, k)
@@ -256,6 +260,7 @@ func _process_timed(delta: float) -> void:
 
 	arm.spring_length = lerpf(arm.spring_length, _zoom, 1.0 - exp(-8.0 * delta))
 	global_position = _focus
+	_skim_water()
 	rotation = Vector3(pitch, yaw, 0.0)
 
 	var sprinting := flat_speed > 2.0
@@ -271,6 +276,20 @@ func _process_timed(delta: float) -> void:
 	else:
 		camera.h_offset = 0.0
 		camera.v_offset = 0.0
+
+
+## Keeps the lens out of the water: looking up from low over the pond, the
+## camera skims along just above the surface instead of diving under it.
+func _skim_water() -> void:
+	var reach := arm.spring_length
+	var probe := _focus + Basis.from_euler(Vector3(pitch, yaw, 0.0)).z * reach
+	var surface := WaterLevel.surface_at(probe.x, probe.z)
+	if surface == -INF or _focus.y <= surface or reach < 0.01:
+		return
+	var low := surface + 0.15
+	if probe.y < low:
+		# The camera sits at focus.y - sin(pitch) * reach.
+		pitch = minf(pitch, asin(clampf((_focus.y - low) / reach, -1.0, 1.0)))
 
 
 ## Upward tilt of the camera off the arm that puts the pivot at frame_height.

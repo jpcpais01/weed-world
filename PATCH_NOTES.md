@@ -1,5 +1,12 @@
 # Patch notes
 
+## 24 Oct 2026 · 21:09 UTC
+- **Go for a swim.** Walk out into the Lotus Pond and once your Keling can't touch the bottom it starts swimming: it tips forward, arches its back to keep its big head above water and doggy-paddles with alternating little paws while its legs flutter behind. Stop and it treads water, bobbing gently with its hands sculling. Sprint to paddle faster, press jump to hop up out of the water, and swim to the shore to wade back out. Holding a joint? It keeps it up high and dry while it paddles one-handed.
+- **Splash!** Every step in the shallows now sends out a ripple ring with a little splash and sound, bigger and wetter the faster you run and the deeper you wade (and wading past your knees slows you down). Land a jump in the water and it splashes; jump in where it's deep and you get a real cannonball, with a crown of droplets, a burst of white foam, spray and a big sploosh.
+- **A wake behind you.** Swimming Kelings leave a proper V-shaped wake fanning out across the pond, with a little froth at the chest, and every paddle stroke breaks the surface. The rings and wakes are drawn into the water itself, so they bend the reflections like the real thing and cost almost nothing on phones.
+- **Shake it off.** Climb out after a swim and your Keling drips for a while, and once it stops on dry land it gives itself a good puppy shake, spraying water everywhere.
+- **Swim together.** Your friends see you swim, splash, paddle and shake in co-op exactly as you do, and the camera now stays above the surface instead of dipping under the water when you look up from the pond.
+
 ## 24 Oct 2026 · 21:00 UTC
 - **A quarter fewer draw calls.** The processor spent the most time telling the graphics card what to draw. Rocks no longer cast shadows past 35 m (big boulders still cast further), where they were a few blurry pixels yet each patch of them cost a draw call. On PC, trees past 40 m now cast their shadow as a single card, as phones already did. In side-by-side renders the shadows look the same, with about 40% fewer shadow draws.
 - **No loading in the middle of play.** Music now loads in the background before a tune starts, and bird and frog calls load once instead of every time one sings, so neither can make a frame stall.
