@@ -17,7 +17,7 @@ var layout: ForestLayout
 var terrain: ForestTerrain
 var kit: NatureKit
 var rng := RandomNumberGenerator.new()
-var trees: Array[Dictionary] = []          # {pos: Vector2, r: float (spacing), trunk: float, canopy: float}
+var trees: Array[Dictionary] = []          # {pos: Vector2, r: float (spacing), trunk: float, canopy: float, kind: String, autumn: float}
 var colliders: Array[Dictionary] = []      # {shape: Shape3D, xform: Transform3D}
 var hero := {}                             # named landmark data for FX (elder canopy etc.)
 var _batches := {}
@@ -219,8 +219,9 @@ func _spot_free(p: Vector2, r: float) -> bool:
 	return true
 
 
-func _register(pos: Vector2, spacing: float, trunk: float, canopy: float, collide: bool, shade: float = 0.55) -> void:
-	trees.append({"pos": pos, "r": spacing, "trunk": trunk, "canopy": canopy, "shade": shade})
+func _register(pos: Vector2, spacing: float, trunk: float, canopy: float, collide: bool, shade: float = 0.55, kind := "", autumn := 0.0) -> void:
+	# kind and autumn only feed the painted world map (ui/map/).
+	trees.append({"pos": pos, "r": spacing, "trunk": trunk, "canopy": canopy, "shade": shade, "kind": kind, "autumn": autumn})
 	var k := Vector2i(int(floor(pos.x / 8.0)), int(floor(pos.y / 8.0)))
 	if not _hash.has(k):
 		_hash[k] = []
@@ -275,7 +276,7 @@ func plant_kit_tree(kind: String, model: String, pos: Vector2, scale: float, mag
 	# Gentle lean adds a lot of life to repeated models.
 	xf.basis = Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.06)) * xf.basis
 	add(_kit_tree_mesh(kind, model), xf, _tree_custom(magic, autumn), "tree")
-	_register(pos, dims[2] * scale, dims[0] * scale, dims[1] * scale, true)
+	_register(pos, dims[2] * scale, dims[0] * scale, dims[1] * scale, true, 0.55, kind, autumn)
 
 
 func plant_proc_tree(style: ProcTree.Style, variant: int, pos: Vector2, scale: float, magic: float, group: String = "tree", autumn := 0.0) -> Dictionary:
@@ -283,7 +284,8 @@ func plant_proc_tree(style: ProcTree.Style, variant: int, pos: Vector2, scale: f
 	var xf := _ground_xform(pos.x, pos.y, scale, rng.randf() * TAU, 0.0)
 	add(t.mesh, xf, _tree_custom(magic, autumn), group)
 	var canopy: float = t.canopy_radius * scale
-	_register(pos, canopy * 0.9, t.trunk_radius * scale * 1.2, canopy, group == "tree")
+	var kind: String = ProcTree.Style.keys()[style].to_lower()
+	_register(pos, canopy * 0.9, t.trunk_radius * scale * 1.2, canopy, group == "tree", 0.55, kind, autumn)
 	return t
 
 
@@ -293,7 +295,7 @@ func _place_hero_trees() -> void:
 	var elder_scale := 1.55
 	var xf := _ground_xform(e.x, e.y, elder_scale, deg_to_rad(200.0), 0.05)
 	add(_named("TwistedTree_3"), xf, Color(0.5, 0.75, 0.3, 0.82), "tree")
-	_register(e, 7.0, 1.1, 8.5, true, 0.75)
+	_register(e, 7.0, 1.1, 8.5, true, 0.75, "elder")
 	var crown := xf * Vector3(1.2, 10.5, -0.8)
 	hero["elder_crown"] = crown
 	hero["elder_base"] = xf.origin
@@ -316,12 +318,12 @@ func _place_hero_trees() -> void:
 	var d := ForestLayout.DEAD_TREE
 	var dx := _ground_xform(d.x, d.y, 0.9, 0.7, 0.05)
 	add(_named("DeadTree_1", "pale"), dx, Color(0.5, 0.5, 0.5, 0.0), "tree")
-	_register(d, 4.5, 0.55, 2.0, true, 0.2)
+	_register(d, 4.5, 0.55, 2.0, true, 0.2, "dead")
 
 	# A second, taller snag on the eastern ridge above the creek.
 	var d2 := Vector2(31.0, -37.0)
 	add(_named("DeadTree_2", "pale"), _ground_xform(d2.x, d2.y, 0.75, 2.2, 0.05), Color(0.5, 0.5, 0.5, 0.0), "tree")
-	_register(d2, 4.0, 0.5, 2.0, true, 0.15)
+	_register(d2, 4.0, 0.5, 2.0, true, 0.15, "dead")
 
 	# A grandmother tree for the hollow, crown tinged with teal.
 	plant_kit_tree("twisted", "TwistedTree_5", Vector2(38.0, -16.0), 1.15, 0.0, 1.0)

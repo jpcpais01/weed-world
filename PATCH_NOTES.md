@@ -1,5 +1,12 @@
 # Patch notes
 
+## 24 Oct 2026 · 02:00 UTC
+- **A map of the whole glade.** A round minimap now sits in the corner, painted from the forest itself: rolling hills with contour lines, worn footpaths, the pond, the creek and its waterfalls, and every tree crown in its own colour (pink blossoms, golden autumn leaves, dark pines and the lilac Elder). It turns with your camera, so up is always where you're looking, and a little N bead keeps north in sight. Scroll over it to zoom.
+- **The big map.** Press M (Y on a gamepad), or tap or click the minimap, and the map swoops out from your Keling to show the whole valley with every place named. Drag to look around, pinch or scroll to zoom, and tap the target button to find yourself again.
+- **Waypoints.** Tap any place or spot on the big map to set a waypoint. A golden beam of light rises from it in the forest, a dotted trail and the minimap point the way with the distance, and it clears itself when you arrive.
+- **Find named places.** Wander into the Blossom Grove, Glowshroom Hollow, the Sunset Overlook or seven other spots and their name drifts onto the screen. Where you are always shows under the minimap, and friends will appear on both maps as coloured Kelings once co-op arrives.
+- **A cozier HUD.** New rounded lettering, frosted glass panels, key-cap control hints that tuck away into a small chip (H brings them back), a leafy "What's new" scroll with a dot when there is news, and warmer touch buttons.
+
 ## 24 Oct 2026 · 01:00 UTC
 - **A face that holds together.** Your Keling's mouth, moustache and chin no longer squash and slide with the body when it runs, leans or turns. The whole face now moves as one piece.
 - **Hands on the tummy.** In the folded-arms idle your Keling rests its hands on its round belly and gives it a contented pat, instead of pushing its arms into it. In every other move the hands and forearms now stay outside the belly too.
