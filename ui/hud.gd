@@ -1,7 +1,8 @@
 extends CanvasLayer
 ## In-game HUD: the minimap and world map, place-name banners, touch controls
 ## on phones, key-cap control hints on desktop / gamepad, an FPS / triangle
-## counter (tap it, or press 0, for the debug readout) and a "What's new"
+## counter (tap it, or press 0, for where the frame time goes and the debug
+## readout) and a "What's new"
 ## scroll fed by PATCH_NOTES.md, and the "Play together" co-op button, card
 ## and join/leave toasts. Everything is built in code
 ## and laid out for a phone first: big touch targets, notch-safe margins.
@@ -19,6 +20,7 @@ var _hints_box: VBoxContainer
 var _hints_chip: PanelContainer
 var _debug: Label
 var _stats: Button
+var _perf: PerfReadout
 var _stats_timer := 0.0
 var _notes_btn: RoundIconButton
 var _notes_panel: PanelContainer
@@ -141,10 +143,23 @@ func _build_stats() -> void:
 	_stats.pressed.connect(_toggle_debug)
 	_root.add_child(_stats)
 
+	_perf = PerfReadout.new()
+	HudTheme.style_label(_perf, 13, Color(0.85, 1, 0.75, 0.95), HudTheme.body_font(700))
+	_perf.visible = false
+	_perf.mouse_filter = Control.MOUSE_FILTER_STOP
+	_perf.add_to_group("touch_blockers")
+	_perf.add_to_group("hud_perf")
+	_perf.gui_input.connect(func(e: InputEvent):
+		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed:
+			_perf.measure_parts())
+	_root.add_child(_perf)
+
 
 func _toggle_debug() -> void:
 	_debug_on = not _debug_on
 	_debug.visible = _debug_on
+	_perf.visible = _debug_on
+	_layout()
 
 
 ## 1234 -> "1234", 48210 -> "48.2k", 1250000 -> "1.25M"
@@ -408,7 +423,10 @@ func _layout() -> void:
 	_brand.position = Vector2(left, top)
 	_stats.reset_size()
 	_stats.position = Vector2(left, _brand.position.y + _brand.size.y + 4.0)
-	_debug.position = Vector2(left + 8.0, _stats.position.y + _stats.size.y + 4.0)
+	_perf.position = Vector2(left + 10.0, _stats.position.y + _stats.size.y + 2.0)
+	_perf.reset_size()
+	var below := _perf.position.y + _perf.size.y + 6.0 if _perf.visible else _stats.position.y + _stats.size.y + 4.0
+	_debug.position = Vector2(left + 8.0, below)
 
 	var mm := _minimap.size
 	_minimap.position = Vector2(s.x - right - mm.x + 8.0, top - 8.0)
@@ -477,6 +495,7 @@ func _find_forest() -> void:
 			_forest = _search_forest(scene, 3)
 	if _forest == null:
 		return
+	_perf.forest = _forest
 	map_state.places = MapLandmarks.all(_forest)
 	_minimap.visible = true
 	_area_pill.visible = true
@@ -602,6 +621,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"HUD", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	_clock += delta
 	# Hints fade away once you have had a good look, leaving a small chip.
 	if _hints_open:
@@ -625,7 +650,10 @@ func _process(delta: float) -> void:
 	if _stats_timer <= 0.0:
 		_stats_timer = 0.25
 		var tris := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
-		_stats.text = "%d FPS  ·  %s triangles" % [Engine.get_frames_per_second(), _short(tris)]
+		_stats.text = "%d FPS  ·  %s triangles  ·  %s" % [Engine.get_frames_per_second(), _short(tris), _perf.summary]
+		if _perf.visible:
+			_perf.reset_size()
+			_debug.position.y = _perf.position.y + _perf.size.y + 6.0
 	if _debug_on:
 		var player := get_tree().get_first_node_in_group("local_player")
 		if player and player.has_method("get_debug_text"):

@@ -134,6 +134,12 @@ func state_progress() -> float:
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_physics_process_timed(delta)
+	PerfMeter.add(&"player anim", Time.get_ticks_usec() - t0)
+
+
+func _physics_process_timed(delta: float) -> void:
 	_state_time += delta
 	if NEXT.has(_state) and _playback.get_current_node() == _state:
 		var length := _playback.get_current_length()

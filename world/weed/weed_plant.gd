@@ -89,6 +89,12 @@ func has_ripe_bud() -> bool:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"weed plants", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if Engine.is_editor_hint():
 		set_process(false)
 		return

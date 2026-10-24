@@ -214,6 +214,12 @@ func _spring(i: int, root: String, end: String, tip: float, stiffness: float, dr
 
 
 func _physics_process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_physics_process_timed(delta)
+	PerfMeter.add(&"player", Time.get_ticks_usec() - t0)
+
+
+func _physics_process_timed(delta: float) -> void:
 	if not is_local:
 		_puppet_physics(delta)
 		return

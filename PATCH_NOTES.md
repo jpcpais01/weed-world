@@ -1,5 +1,10 @@
 # Patch notes
 
+## 24 Oct 2026 · 16:50 UTC
+- **No more flickering.** Trees, bushes and grass no longer flash or jump for a frame while you walk or turn the camera. The forest was smoothing its own detail swaps between frames, which briefly drew plants in the wrong spot; it now swaps them cleanly.
+- **Lighter leafy views.** Looking across the forest costs the graphics card less: nearby plants are drawn before the ones behind them, and leaves on each tree are drawn from the outside in, so hidden leaves are skipped instead of painted over and over.
+- **See where the time goes.** Tap the FPS counter (or press 0 or F3) and a panel under it shows how many milliseconds each frame takes, whether the graphics card, the processor or vsync is setting the pace, and how long each part of the game spends thinking. Tap the panel (or press 9) and it measures what each part of the world costs to draw (shadows, trees, grass, water, sky and more) by switching them off one at a time for a moment. On PC, 8 turns vsync on and off.
+
 ## 24 Oct 2026 · 16:05 UTC
 - **A much lighter forest.** The Whispering Glade now draws well under half the triangles it used to from any spot in the valley, so it runs smoother on phones and laptops alike, without losing its look. Every tree, bush, flower and tuft of grass now picks its own level of detail by how far it is from you, instead of whole patches of forest switching at once, and plants stop drawing the moment they have faded away.
 - **Fuller leaves at a distance.** Faraway crowns and meadows keep their fullness as they simplify: some leaves and grass blades step aside and the rest grow a little to fill the gap, so a distant tree still looks like a leafy tree, not a lumpy blob.
