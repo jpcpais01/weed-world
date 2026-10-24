@@ -24,11 +24,13 @@ const PX_PER_M := 12.0
 ## Trees switch to impostors this far from the camera...
 const FROM := 60.0
 ## ...and cast their shadow as one from here. A card's shadow can't shade
-## the real crown it stands for, so on desktop real trees keep their own;
-## phones take the cheaper casters from 30 m, where the far shadow split is
-## soft anyway.
+## the real crown it stands for, but out in the far shadow split that self
+## shading is a soft blur anyway (side-by-side renders matched), and each
+## real tree's casters cost a draw call: desktop switches at 40 m, phones at
+## 30 m.
+const SHADOW_FROM_DESKTOP := 40.0
 const SHADOW_FROM_MOBILE := 30.0
-static var shadow_from := SHADOW_FROM_MOBILE if OS.has_feature("mobile") else FROM
+static var shadow_from := SHADOW_FROM_MOBILE if OS.has_feature("mobile") else SHADOW_FROM_DESKTOP
 ## Rows of the type table: frame rect, quad size, then the crown palette.
 const TABLE_W := 6
 

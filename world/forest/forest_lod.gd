@@ -169,10 +169,11 @@ var _uploads := 0
 ## gives the batch its own coarser shadow casters, Shadow.ONLY makes a batch
 ## of nothing but shadow casters. `px_scale` loosens the pixel budget (for
 ## silhouettes in the haze). `imp_type` is the batch's ForestImpostors type,
-## or -1 to keep the real mesh at every distance. Call build() once every
-## batch is in.
+## or -1 to keep the real mesh at every distance. `shadow_cut` is where its
+## own casters stop, for copies up to scale 1 (bigger ones cast further).
+## Call build() once every batch is in.
 func add_batch(key: String, mesh: Mesh, data: PackedFloat32Array, cut: float, sub: float, shadow: Shadow, px_scale := 1.0,
-		imp_type := -1) -> void:
+		imp_type := -1, shadow_cut := SHADOW_CUT) -> void:
 	var b := Batch.new()
 	b.key = key
 	b.mesh = mesh
@@ -180,12 +181,12 @@ func add_batch(key: String, mesh: Mesh, data: PackedFloat32Array, cut: float, su
 	b.cut = cut
 	b.shadow = shadow
 	b.px_scale = px_scale
-	b.shadow_cut = SHADOW_CUT
 	_split(b, mesh, data, sub)
+	b.shadow_cut = minf(SHADOW_CUT, shadow_cut * maxf(b.scale_hi, 1.0))
 	if impostors != null and imp_type >= 0:
 		b.imp_type = imp_type
 		b.imp_from = ForestImpostors.FROM if ForestImpostors.FROM < cut else INF
-		b.imp_shadow_from = ForestImpostors.shadow_from if ForestImpostors.shadow_from < SHADOW_CUT else INF
+		b.imp_shadow_from = ForestImpostors.shadow_from if ForestImpostors.shadow_from < shadow_cut else INF
 	b.state.resize(b.sub_start.size())
 	b.state.fill(-1)
 	b.shadow_state.resize(b.sub_start.size())
@@ -209,7 +210,7 @@ func build() -> void:
 		if b.shadow != Shadow.ONLY:
 			_want(job, b.px_scale, false, minf(b.cut, b.imp_from) / b.scale_lo)
 		if b.shadow == Shadow.PROXY or b.shadow == Shadow.ONLY:
-			_want(job, b.px_scale, true, minf(SHADOW_CUT, b.imp_shadow_from) / b.scale_lo)
+			_want(job, b.px_scale, true, minf(b.shadow_cut, b.imp_shadow_from) / b.scale_lo)
 	var list := jobs.values()
 	# Biggest first, so no core is left with a heavy mesh at the end.
 	for job in list:
@@ -263,7 +264,7 @@ func _make_bands(b: Batch) -> void:
 		b.imp_from = INF
 	if b.shadow == Shadow.PROXY or b.shadow == Shadow.ONLY:
 		for level in lod_chain(b.mesh, b.px_scale, true):
-			if level.from * b.scale_lo >= minf(SHADOW_CUT, b.imp_shadow_from):
+			if level.from * b.scale_lo >= minf(b.shadow_cut, b.imp_shadow_from):
 				break
 			b.shadow_bands.append(_band(b, level, true))
 	if not b.shadow_bands.is_empty() and b.imp_shadow_from < INF:
@@ -1285,6 +1286,9 @@ func _show(mmi: MultiMeshInstance3D, d: Dictionary) -> void:
 		mmi.multimesh.visible_instance_count = 0
 		return
 	var mm := mmi.multimesh
+	# A set bounding box spares the renderer a pass over every instance to
+	# work one out each time the buffer changes.
+	mm.custom_aabb = d.aabb
 	mm.buffer = d.buffer
 	mm.visible_instance_count = count
 	mmi.custom_aabb = d.aabb

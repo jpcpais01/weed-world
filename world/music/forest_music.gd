@@ -19,6 +19,7 @@ var _wait := 0.0
 var _last := -1
 var _rng := RandomNumberGenerator.new()
 var _local: Node
+var _streams := {}   # track index -> AudioStream, loaded off the main thread
 
 
 func _ready() -> void:
@@ -33,6 +34,10 @@ func _ready() -> void:
 	_wait = _rng.randf_range(FIRST_DELAY.x, FIRST_DELAY.y)
 	if DisplayServer.get_name() == "headless":
 		set_process(false)
+		return
+	# Opening an Ogg on the main thread hitched the frame a tune began on.
+	for path in TRACKS:
+		ResourceLoader.load_threaded_request(path)
 
 
 func _process(delta: float) -> void:
@@ -50,7 +55,17 @@ func play_next() -> void:
 	if i == _last:
 		i = (i + 1) % TRACKS.size()
 	_last = i
-	var stream := load(TRACKS[i]) as AudioStream
+	if not _streams.has(i):
+		match ResourceLoader.load_threaded_get_status(TRACKS[i]):
+			ResourceLoader.THREAD_LOAD_LOADED:
+				_streams[i] = ResourceLoader.load_threaded_get(TRACKS[i])
+			ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+				_wait = 2.0
+				return
+			_:
+				_wait = GAP.y
+				return
+	var stream := _streams[i] as AudioStream
 	if stream == null:
 		_wait = GAP.y
 		return

@@ -1,5 +1,10 @@
 # Patch notes
 
+## 24 Oct 2026 · 21:00 UTC
+- **A quarter fewer draw calls.** The processor spent the most time telling the graphics card what to draw. Rocks no longer cast shadows past 35 m (big boulders still cast further), where they were a few blurry pixels yet each patch of them cost a draw call. On PC, trees past 40 m now cast their shadow as a single card, as phones already did. In side-by-side renders the shadows look the same, with about 40% fewer shadow draws.
+- **No loading in the middle of play.** Music now loads in the background before a tune starts, and bird and frog calls load once instead of every time one sings, so neither can make a frame stall.
+- **Find the stutters.** The frame-time panel now picks out your slowest recent frame and splits it into scripts, physics (and how many physics steps it ran), and drawing and waiting, naming the busiest system in it. The first line now says what really limits the frame rate, including when neither the processor nor the graphics card is full and the time goes on a few slow frames.
+
 ## 24 Oct 2026 · 20:36 UTC
 - **Smoke that looks like smoke.** No more white blobs. A lit joint now sends up a thin thread of smoke that rises straight for a moment, then curls, spreads and drifts off on the breeze. Exhales leave your Keling's lips as a jet that opens into a soft, wispy cloud, tears into strands and fades away, with a little smoke trickling from the nose too. Smoke stays where you blew it while you walk on.
 - **Lighting up, properly.** Your Keling holds the joint out in front, flicks a fairy flame alight with its thumb and holds it under the tip for three short draws until the ember catches, then shakes the flame out and lets a first small puff go.
@@ -11,6 +16,7 @@
 - **About twice as fast on PC.** Windows now draws with Godot's Forward+ renderer, which works out what's in front before painting, so the thick leafy crowns no longer get painted over and over. On an RTX 4060 laptop at 1440p the graphics card went from 9.3 to 4.7 ms a frame (trees 6.4 to 3.3 ms, shadows 3.7 to 3.1 ms) with the same look. Phones keep the Mobile renderer.
 - **Which graphics card?** The frame-time panel now shows the graphics card the game is using, whether it's the dedicated or built-in one, the driver and the renderer.
 - **No more popping around you.** Grass and shadows near your Keling used to swap their detail level as the camera swung round you, so things seemed to "load" or flicker right next to you. Looking around now changes nothing, the swaps only happen as you walk, each patch holds its detail until well past the edge (no flipping back and forth), and the grass and leafy shadow swaps happen further away.
+
 ## 24 Oct 2026 · 19:45 UTC
 - **Take a breather.** Press Esc, Start on a gamepad, the pause button in the top corner or your phone's back gesture for the new menu: the forest softly blurs and goes quiet behind it, with Resume, Settings, Play together, What's new and Quit. Playing alone, the world really stops. Playing together it never freezes for your friends; they just see "taking a break" under your name. Switching apps or windows pauses for you too.
 - **Make it look your way.** A Graphics tab with Low, Medium, High and Ultra presets, plus resolution scale (sharpened with FSR), shadow quality, tree detail, grass and flower density, anti-aliasing, bloom, vsync and a frame rate cap. Every change shows live behind the menu with your frame rate underneath, and High is exactly how the forest looked before.
