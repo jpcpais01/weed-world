@@ -91,6 +91,8 @@ func build() -> void:
 	laps.append("undergrowth %d" % (Time.get_ticks_msec() - t0))
 	benches = BenchSet.new(layout, terrain, kit, scatter)
 	benches.decorate()
+	# Contact shade, soil, moss and path edges for every ground shader.
+	scatter.ground.publish()
 	build_step = 4
 	scatter.build(_generated)
 	laps.append("batches %d" % (Time.get_ticks_msec() - t0))
@@ -149,6 +151,11 @@ func get_spawn_transform(index: int) -> Transform3D:
 ## Height of the forest floor, for anything that needs to stand on it.
 func ground_height(x: float, z: float) -> float:
 	return terrain.height_at(x, z) if terrain else 0.0
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE and is_built:
+		ForestGround.withdraw()
 
 
 func _process(delta: float) -> void:

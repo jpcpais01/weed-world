@@ -1,5 +1,11 @@
 # Patch notes
 
+## 24 Oct 2026 · 13:00 UTC
+- **Trees that grow out of the ground.** Trunks now splay into mossy surface roots that dive into the soil, standing in a ring of bare earth and moss with a soft shadow where they meet the floor. Ferns, clover and taller grass gather round their feet instead of growing straight through the bark.
+- **Rocks that sit in the earth.** Boulders, stepping stones and path stones fade into the exact colour of the ground beneath them, with soil and moss creeping up their sides and a damp contact shadow at the base. Stones are a warmer, lighter grey, so they no longer look like black holes in the meadow.
+- **Paths you'd want to walk.** Footpaths have a crisp, wandering edge with a damp dark lip, a paler trodden middle and a few small stones that catch the sun. Grass grows right up to the dirt and is short, splayed and sun-bleached along the verge, with clover patches where feet have pressed it flat, instead of a tall green wall.
+- **One floor, everywhere.** Logs, stumps, roots and grass blades all share the ground's own soil, moss and dirt colours, steep ground shows earth and short turf instead of flat green, no grass grows under the water, and far meadows keep the colour of their grass after the blades fade with distance.
+
 ## 24 Oct 2026 · 12:00 UTC
 - **Weed World updates itself.** A few seconds into play, the game checks for a newer version. If there is one, a little sprouting badge slides down with the news, and tapping it shows everything new since your version. Tap Update now and a vine grows across the card as it downloads, with the size, speed and time left. Tap Keep playing and it carries on in the background while a small chip at the top tracks it.
 - **Safe and simple on every device.** Each download is checked against the release's fingerprint before anything installs. On Android, the system installer opens next and your progress stays put. The very first time, the card shows you the one switch Android asks for, then picks up by itself when you come back. On Windows, the game swaps in the new version and reopens on its own. After updating you're welcomed to the new version, and "Check for updates" sits at the bottom of the What's new scroll.

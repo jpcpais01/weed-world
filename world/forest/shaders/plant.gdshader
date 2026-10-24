@@ -1,6 +1,8 @@
 // Grass, flowers, ferns and ground plants. Blades take the exact colour of the
-// ground at their root and brighten towards the tips, ride the shared gust
+// ground at their root (trampled and sun-bleached beside the paths, mossy at
+// the feet of trees) and brighten towards the tips, ride the shared gust
 // fronts, part around nearby Kelings and melt into the ground with distance.
+// Anything growing in the shade of a trunk or boulder darkens to match.
 shader_type spatial;
 render_mode world_vertex_coords, cull_disabled, diffuse_lambert_wrap;
 
@@ -31,6 +33,8 @@ varying vec3 v_ground;
 varying float v_w;
 varying vec4 v_custom;
 varying float v_gust;
+varying float v_contact;
+varying float v_verge;
 
 vec3 hue_shift(vec3 c, float h) {
 	const vec3 k = vec3(0.57735);
@@ -74,7 +78,16 @@ void vertex() {
 	VERTEX = origin + local * fade;
 
 	NORMAL = normalize(mix(NORMAL, vec3(0.0, 1.0, 0.0), up_normal));
-	v_ground = ground_tint ? ground_grass(origin.xz, v_custom.r, v_custom.g) : vec3(1.0);
+	vec4 det = ground_detail_lod(origin.xz, 0.0);
+	v_contact = smoothstep(0.3, 0.9, det.a);
+	v_verge = smoothstep(0.03, 0.5, det.b);
+	v_ground = vec3(1.0);
+	if (ground_tint) {
+		v_ground = ground_grass(origin.xz, v_custom.r, v_custom.g);
+		v_ground = mix(v_ground, mix(v_ground, grass_dry * 0.85, 0.45), v_verge * 0.6);
+		v_ground = mix(v_ground, soil_dark * 1.3, det.r * smoothstep(0.03, 0.4, det.a) * 0.5);
+		v_ground = mix(v_ground, moss_ground, det.g * smoothstep(0.02, 0.3, det.a) * 0.4);
+	}
 }
 
 void fragment() {
@@ -87,6 +100,7 @@ void fragment() {
 	vec3 col;
 	if (ground_tint) {
 		vec3 tip = tip_color * (0.82 + 0.36 * v_custom.b);
+		tip = mix(tip, grass_dry * 1.15, v_verge * 0.45);
 		tip = mix(tip, v_ground * 1.25, v_custom.r * 0.6);
 		col = mix(v_ground, tip, smoothstep(0.0, 1.0, v_w) * tip_mix);
 		// Gusts comb the meadow and flash the paler undersides of the blades.
@@ -96,11 +110,12 @@ void fragment() {
 		col = hue_shift(col, (v_custom.b - 0.5) * hue_variation + v_custom.a);
 		col = mix(col, col * 0.62, v_custom.r * 0.5);
 	}
+	col *= 1.0 - v_contact * (0.4 - v_w * 0.2);
 	ALBEDO = col;
 	ROUGHNESS = 0.88;
 	SPECULAR = 0.12;
 	BACKLIGHT = col * translucency;
-	AO = mix(0.35, 1.0, v_w);
+	AO = mix(0.35, 1.0, v_w) * (1.0 - v_contact * 0.4);
 	AO_LIGHT_AFFECT = 0.3;
 	if (glow > 0.0) {
 		EMISSION = glow_color * glow * smoothstep(0.55, 0.95, v_w) * (0.7 + 0.3 * sin(TIME * 1.7 + v_custom.b * 40.0));
