@@ -30,6 +30,7 @@ var _scripts := 0.0           # peaks over the last second (Godot's monitors)
 var _physics := 0.0
 var _avg := {}               # last window's averages, in ms
 var _systems := {}           # last window's script time per system, ms per frame
+var _adapter := ""
 var _worst := ["", 0.0, -INF]  # slowest single frame of any system lately: [system, ms, when]
 
 # "Measure parts"
@@ -47,6 +48,22 @@ var _results: Array = []     # [name, gpu ms saved, cpu ms saved]
 func _ready() -> void:
 	_vp = get_viewport().get_viewport_rid()
 	RenderingServer.viewport_set_measure_render_time(_vp, true)
+	_adapter = adapter_text()
+
+
+## The graphics card the game draws with, its kind and driver API, and the
+## renderer, e.g. "NVIDIA GeForce RTX 4060 Laptop GPU (dedicated) · Vulkan
+## 1.3 · Forward Plus renderer". Laptops can quietly run games on the processor's
+## built-in graphics instead of the dedicated card.
+static func adapter_text() -> String:
+	var kinds := {RenderingDevice.DEVICE_TYPE_DISCRETE_GPU: "dedicated", RenderingDevice.DEVICE_TYPE_INTEGRATED_GPU: "built-in",
+			RenderingDevice.DEVICE_TYPE_VIRTUAL_GPU: "virtual", RenderingDevice.DEVICE_TYPE_CPU: "software"}
+	var kind: String = kinds.get(RenderingServer.get_video_adapter_type(), "unknown kind")
+	var method := RenderingServer.get_current_rendering_method().replace("_", " ").capitalize()
+	var driver := RenderingServer.get_current_rendering_driver_name()
+	var api: String = {"vulkan": "Vulkan", "d3d12": "Direct3D 12", "metal": "Metal"}.get(driver, driver)
+	return "%s (%s) · %s %s · %s renderer" % [RenderingServer.get_video_adapter_name(), kind, api,
+			RenderingServer.get_video_adapter_api_version(), method]
 
 
 func _process(delta: float) -> void:
@@ -120,6 +137,7 @@ func _panel() -> String:
 		lines.append("GPU-bound: the graphics card is busy %.1f of each %.1f ms" % [_avg.gpu, _avg.frame])
 	else:
 		lines.append("CPU-bound: the graphics card is busy only %.1f of each %.1f ms; the rest waits on the processor" % [_avg.gpu, _avg.frame])
+	lines.append(_adapter)
 	var sync := "vsync %s" % ("on" if vsync else "off")
 	if hz > 0.0:
 		sync += " · %d Hz screen" % roundi(hz)

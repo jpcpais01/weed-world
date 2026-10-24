@@ -51,19 +51,30 @@ const THIN_PX := [20.0, 10.0, 5.0]
 ## growing back only as far as those depths. Crowns thinner than that keep
 ## every card up close and thin as before. The cards were the bulk of the
 ## shadow pass: the shadow map is 16M texels and each one was drawn ~12
-## times, ~10 of them leaf cards.
-const SHADOW_THIN := [[0.0, 1.0, 12.0], [SHADOW_SPLIT, 0.25, 12.0], [30.0, 0.125, 8.0]]
+## times, ~10 of them leaf cards. The first thinning waits until the far
+## split, where texels are coarser and a changed dapple doesn't catch the eye.
+const SHADOW_CARDS_FROM := 20.0
+const SHADOW_THIN := [[0.0, 1.0, 12.0], [SHADOW_CARDS_FROM, 0.25, 12.0], [30.0, 0.125, 8.0]]
 ## Level id of the first shadow card set.
 const SHADOW_CARDS := 100
-## Grass blades turn into single triangles from here (they're ~20 px tall by
-## then and their curve is under a pixel)...
-const BLADE_TRI := 9.0
+## Grass blades turn into single triangles from here (they're ~15 px tall by
+## then and their curve is under a pixel; nearer, the swap caught the eye)...
+const BLADE_TRI := 12.0
 ## ...and from here a share of them goes, the rest widening to fill in.
-const BLADE_THIN := 16.0
+const BLADE_THIN := 20.0
 const BLADE_KEEP := 0.6
 ## A new level only earns a band if it switches this much further out.
 const BAND_RATIO := 1.3
 const MOVE_STEP := 0.5
+## Bands are measured from the orbit camera's pivot (the Keling) plus this
+## share of its arm, not from the eye: the eye swings round the Keling as the
+## player looks around, which used to re-band the ground right beside them.
+## Now only walking (or zooming) moves the band edges.
+const ARM_SHARE := 0.5
+## A sub-cell only goes coarser once it is this much (as a share of its
+## distance) past the edge, and finer once this much inside it, so walking to
+## and fro across an edge doesn't flip it back and forth.
+const HYSTERESIS := 0.1
 ## Casters past the sun's shadow distance (75 m) are dropped.
 const SHADOW_CUT := 80.0
 
@@ -141,11 +152,11 @@ var impostors: ForestImpostors
 var _imp_cells: Array[ImpCell] = []
 var batches: Array[Batch] = []
 var _task := -1
-var _task_eye := Vector3.ZERO
+var _task_view := Vector4.ZERO
 var _task_usec := 0
 var _hidden := {}            # groups hidden by set_group_hidden()
 var _results: Array = []
-var _last_eye := Vector3(INF, INF, INF)
+var _last_view := Vector4(INF, INF, INF, INF)
 var _chains := {}
 var _uploads := 0
 
@@ -970,9 +981,9 @@ func refresh() -> void:
 		b.state.fill(-2)
 	var cam := get_viewport().get_camera_3d()
 	if cam:
-		update_now(cam.global_position)
+		_update_view(view_of(cam))
 	else:
-		_last_eye = Vector3(INF, INF, INF)
+		_last_view = Vector4(INF, INF, INF, INF)
 
 
 func _process(_delta: float) -> void:
@@ -991,33 +1002,54 @@ func _process(_delta: float) -> void:
 	var cam := get_viewport().get_camera_3d()
 	if cam == null:
 		return
-	var eye := cam.global_position
-	if eye.distance_squared_to(_last_eye) < MOVE_STEP * MOVE_STEP:
+	var view := view_of(cam)
+	var last := Vector3(_last_view.x, _last_view.y, _last_view.z)
+	if Vector3(view.x, view.y, view.z).distance_squared_to(last) < MOVE_STEP * MOVE_STEP \
+			and absf(view.w - _last_view.w) < MOVE_STEP:
 		return
-	_last_eye = eye
-	_task_eye = eye
+	_last_view = view
+	_task_view = view
 	_task = WorkerThreadPool.add_task(_evaluate_task, false, "ForestLod")
 
 
-## Re-bands everything for a camera at `eye` right now, on this thread.
-func update_now(eye: Vector3) -> void:
+## Where `cam` is judged from: xyz the point bands are measured from, w how
+## far to add on (see ARM_SHARE). A camera on a SpringArm3D is the orbit
+## camera; any other is judged from its eye.
+static func view_of(cam: Camera3D) -> Vector4:
+	var arm := cam.get_parent() as SpringArm3D
+	if arm:
+		var p := arm.global_position
+		return Vector4(p.x, p.y, p.z, arm.spring_length * ARM_SHARE)
+	var e := cam.global_position
+	return Vector4(e.x, e.y, e.z, 0.0)
+
+
+## Re-bands everything right now, on this thread, for a camera at `eye`
+## (or for an orbit camera's pivot and the share of its arm to add on).
+func update_now(eye: Vector3, reach := 0.0) -> void:
+	_update_view(Vector4(eye.x, eye.y, eye.z, reach))
+
+
+func _update_view(view: Vector4) -> void:
 	if _task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 		_results = []
-	_last_eye = eye
-	_apply(_evaluate(eye))
+	_last_view = view
+	_apply(_evaluate(view))
 
 
 func _evaluate_task() -> void:
 	var t0 := Time.get_ticks_usec()
-	_results = _evaluate(_task_eye)
+	_results = _evaluate(_task_view)
 	_task_usec = Time.get_ticks_usec() - t0
 
 
 ## Works out the new band of every sub-cell and builds the buffers for each
 ## batch that changed. Touches no nodes, so it can run on a worker.
-func _evaluate(eye: Vector3) -> Array:
+func _evaluate(view: Vector4) -> Array:
+	var eye := Vector3(view.x, view.y, view.z)
+	var reach := view.w
 	var changes := []
 	# Impostor squares whose contents change, and the batches' new states.
 	var dirty := {}
@@ -1026,8 +1058,8 @@ func _evaluate(eye: Vector3) -> Array:
 	var next_shadow := {}
 	for bi in batches.size():
 		var b := batches[bi]
-		var main := _assign(b, eye, b.bands, b.cut, b.state, b.imp_band, b.imp_from * detail, 1.0 / detail)
-		var shadow := _assign(b, eye, b.shadow_bands, b.shadow_cut, b.shadow_state, b.imp_shadow_band, b.imp_shadow_from) \
+		var main := _assign(b, eye, reach, b.bands, b.cut, b.state, b.imp_band, b.imp_from * detail, 1.0 / detail)
+		var shadow := _assign(b, eye, reach, b.shadow_bands, b.shadow_cut, b.shadow_state, b.imp_shadow_band, b.imp_shadow_from) \
 				if not b.shadow_bands.is_empty() else PackedInt32Array()
 		if main.is_empty() and shadow.is_empty():
 			continue
@@ -1092,20 +1124,21 @@ func _imp_buffer(ci: int, next: Dictionary, shadow: bool) -> Dictionary:
 
 
 ## New band per sub-cell, or an empty array if nothing changed. Sub-cells at
-## `imp_from` or further go to band `imp` (if there is one).
-func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: PackedInt32Array, imp: int, imp_from: float,
-		k := 1.0) -> PackedInt32Array:
+## `imp_from` or further go to band `imp` (if there is one). Distances are
+## from `eye` plus `reach`.
+func _assign(b: Batch, eye: Vector3, reach: float, bands: Array[Band], cut: float, current: PackedInt32Array, imp: int,
+		imp_from: float, k := 1.0) -> PackedInt32Array:
 	var nb := bands.size()
 	if nb == 0:
 		return PackedInt32Array()
 	if imp >= 0:
 		nb = imp
-	# The whole batch in one band (or culled) is the common case: skip the
-	# per-cell work when it was already like that.
+	# The whole batch deep inside one band (or culled) is the common case:
+	# skip the per-cell work, as hysteresis can't hold any cell elsewhere.
 	# Levels are chosen per unit scale: a copy twice the size switches twice
 	# as far away.
-	var near := _dist(eye, b.lo, b.hi)
-	var far := eye.distance_to(_far_corner(eye, b.lo, b.hi))
+	var near := (_dist(eye, b.lo, b.hi) + reach) * (1.0 - HYSTERESIS)
+	var far := (eye.distance_to(_far_corner(eye, b.lo, b.hi)) + reach) * (1.0 + HYSTERESIS)
 	var whole := -2
 	if near >= cut:
 		whole = -1
@@ -1121,16 +1154,38 @@ func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: Pa
 		out.fill(whole)
 	else:
 		for i in current.size():
-			var d := _dist(eye, b.sub_lo[i], b.sub_hi[i])
-			if d >= cut:
-				out[i] = -1
-			elif d >= imp_from:
-				out[i] = imp
-			else:
-				out[i] = _band_of(bands, nb, d * k / b.sub_scale[i])
+			var d := _dist(eye, b.sub_lo[i], b.sub_hi[i]) + reach
+			var s := k / b.sub_scale[i]
+			var to := _band_at(bands, nb, cut, imp, imp_from, d, s)
+			var was := current[i]
+			if was >= -1 and to != was:
+				# Hold on to the current band until well past its edge.
+				if _rank(to) > _rank(was):
+					to = _band_at(bands, nb, cut, imp, imp_from, d * (1.0 - HYSTERESIS), s)
+					if _rank(to) < _rank(was):
+						to = was
+				else:
+					to = _band_at(bands, nb, cut, imp, imp_from, d * (1.0 + HYSTERESIS), s)
+					if _rank(to) > _rank(was):
+						to = was
+			out[i] = to
 	if out == current:
 		return PackedInt32Array()
 	return out
+
+
+## The band for a sub-cell `d` away whose levels switch at `d * s`.
+static func _band_at(bands: Array[Band], nb: int, cut: float, imp: int, imp_from: float, d: float, s: float) -> int:
+	if d >= cut:
+		return -1
+	if d >= imp_from:
+		return imp
+	return _band_of(bands, nb, d * s)
+
+
+## Bands from finest to coarsest: the mesh bands, impostors, then culled.
+static func _rank(band: int) -> int:
+	return band if band >= 0 else 1 << 20
 
 
 ## Each band's instances, nearest sub-cell first: leaves and blades in front
