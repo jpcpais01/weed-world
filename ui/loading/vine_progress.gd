@@ -67,16 +67,6 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## How far the vine has visibly grown, 0..1 (eases behind `value`).
-func grown() -> float:
-	return _shown
-
-
-## Where along the vine a point at t (0..1) is, in this control's space.
-func point_at(t: float) -> Vector2:
-	return _point(t)
-
-
 func _leaf_t(i: int) -> float:
 	return (float(i) + 0.6) / float(LEAVES)
 
