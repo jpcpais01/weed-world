@@ -276,8 +276,10 @@ func _ground(delta: float) -> void:
 		_idle_time = 0.0
 		var desired_yaw := atan2(_input_dir.x, _input_dir.z)
 		var diff := wrapf(desired_yaw - facing, -PI, PI)
-		# From a standstill, a big direction change is a proper turn on the spot.
-		if speed < 0.25 and absf(diff) > turn_in_place_angle and animator.current_state() == &"Move":
+		# From a standstill, a gentle push the other way is a proper turn on the
+		# spot; asking to run pivots and pushes off straight away instead.
+		var wants_run := target_speed > walk_speed * 1.5
+		if speed < 0.25 and absf(diff) > turn_in_place_angle and not wants_run and animator.current_state() == &"Move":
 			_start_turn(diff)
 			return
 		# At speed, throwing the stick backwards skids to a stop first.
@@ -286,11 +288,15 @@ func _ground(delta: float) -> void:
 			return
 		_turn_towards(desired_yaw, speed, delta)
 		var heading := Vector3(sin(facing), 0.0, cos(facing))
-		# Run where we face; ease off the throttle while still swinging around.
+		# Run where we face, easing off the throttle while still swinging round.
+		# Slow or stopped, the body pivots while the feet already push off
+		# towards the stick, so a turn-and-run flows as one curve.
 		var align := clampf(cos(wrapf(desired_yaw - facing, -PI, PI)), 0.0, 1.0)
 		var accel := sprint_acceleration if target_speed > jog_speed else acceleration
-		var target_vel := heading * target_speed * lerpf(0.35, 1.0, align)
-		_approach_velocity(target_vel, accel, delta)
+		var pivot := 1.0 - clampf(speed / jog_speed, 0.0, 1.0)
+		var dir := heading.lerp(_input_dir.normalized(), pivot * (1.0 - align)).normalized()
+		var throttle := lerpf(lerpf(0.35, 0.55, pivot), 1.0, align)
+		_approach_velocity(dir * target_speed * throttle, accel, delta)
 	else:
 		_yaw_rate = lerpf(_yaw_rate, 0.0, 1.0 - exp(-10.0 * delta))
 		if speed > sprint_speed * 0.8:
@@ -593,7 +599,9 @@ func _turn(delta: float) -> void:
 	if _desired_speed() > 0.0:
 		var desired_yaw := atan2(_input_dir.x, _input_dir.z)
 		var remaining := absf(wrapf(desired_yaw - facing, -PI, PI))
-		if progress > 0.42 and remaining < deg_to_rad(35.0):
+		# Step out of the turn as soon as it roughly faces the way to go: the
+		# ground move finishes the swing while already walking.
+		if (progress > 0.22 and remaining < deg_to_rad(60.0)) or _desired_speed() > walk_speed * 1.5:
 			_back_to_ground()
 	elif progress > 0.62:
 		_back_to_ground()
