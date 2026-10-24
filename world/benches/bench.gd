@@ -284,9 +284,17 @@ func _update_prompt(delta: float) -> void:
 
 
 static func _sit_hint() -> String:
-	match GameInput.method:
-		GameInput.Method.GAMEPAD:
+	match input_method():
+		1:
 			return "X  ·  sit and enjoy the view"
-		GameInput.Method.TOUCH:
+		2:
 			return "Tap the hand  ·  sit and enjoy the view"
 	return "E  ·  sit and enjoy the view"
+
+
+## GameInput.method (0 keyboard, 1 gamepad, 2 touch), looked up at runtime so
+## the forest's scripts compile even before the autoloads exist.
+static func input_method() -> int:
+	var tree := Engine.get_main_loop() as SceneTree
+	var input := tree.root.get_node_or_null("GameInput") if tree else null
+	return input.get("method") if input else 0

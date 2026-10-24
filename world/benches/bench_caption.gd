@@ -102,9 +102,9 @@ func fade_out(time: float) -> void:
 
 
 static func _stand_hint() -> String:
-	match GameInput.method:
-		GameInput.Method.GAMEPAD:
+	match Bench.input_method():
+		1:
 			return "Move or press X to stand up"
-		GameInput.Method.TOUCH:
+		2:
 			return "Move or tap the hand to stand up"
 	return "Move or press E to stand up"
