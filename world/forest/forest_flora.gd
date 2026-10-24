@@ -384,22 +384,41 @@ func stump(seed: int) -> ArrayMesh:
 				st.set_uv(Vector2((s + corner[0]) / float(sides) * 2.0, y * 1.5))
 				st.set_color(Color(lerpf(0.5, 1.0, t), 0.0, 0.0))
 				st.add_vertex(Vector3(cos(a) * rad, y, sin(a) * rad))
-	# Pale cut face.
+	var m := st.commit()
+	m.surface_set_material(0, kit.bark_material("Bark_DeadTree"))
+	# Pale cut face, wound clockwise seen from above so it faces the sky and
+	# closes the tube (it used to face down and got culled, leaving the stump
+	# an open shell you could see straight through).
+	var cap := SurfaceTool.new()
+	cap.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for s in sides:
 		var a0 := TAU * s / sides
 		var a1 := TAU * (s + 1) / sides
 		var rad := 0.32 * (1.0 + 0.08 * sin(a0 * 3.0 + seed))
 		var rad1 := 0.32 * (1.0 + 0.08 * sin(a1 * 3.0 + seed))
-		for v in [[0.0, 0.0, h * 0.85], [cos(a1) * rad1, sin(a1) * rad1, tops[(s + 1) % sides]], [cos(a0) * rad, sin(a0) * rad, tops[s]]]:
-			st.set_normal(Vector3.UP)
-			st.set_tangent(Plane(Vector3.RIGHT, 1.0))
-			st.set_uv(Vector2(v[0], v[1]) * 2.0 + Vector2(0.5, 0.5))
-			st.set_color(Color(1.0, 0.0, 0.0))
-			st.add_vertex(Vector3(v[0], v[2], v[1]))
-	var m := st.commit()
-	m.surface_set_material(0, kit.bark_material("Bark_DeadTree"))
+		for v in [[0.0, 0.0, h * 0.85], [cos(a0) * rad, sin(a0) * rad, tops[s]], [cos(a1) * rad1, sin(a1) * rad1, tops[(s + 1) % sides]]]:
+			cap.set_normal(Vector3.UP)
+			cap.set_tangent(Plane(Vector3.RIGHT, 1.0))
+			cap.set_uv(Vector2(v[0], v[1]) / 0.32 * 0.5 + Vector2(0.5, 0.5))
+			cap.set_color(Color(1.0, 0.0, 0.0))
+			cap.add_vertex(Vector3(v[0], v[2], v[1]))
+	cap.generate_normals()
+	cap.commit(m)
+	m.surface_set_material(1, _cut_wood())
 	m.resource_name = "Stump_%d" % seed
 	return m
+
+
+## The dead-tree bark switched to its cut-wood mode: growth rings, cracks and a
+## weathered, mossy rim. It keeps the bark's sway so cap and sides stay joined.
+func _cut_wood() -> ShaderMaterial:
+	if _mats.has("cut_wood"):
+		return _mats.cut_wood
+	var mat: ShaderMaterial = kit.bark_material("Bark_DeadTree").duplicate()
+	mat.set_shader_parameter("cut_face", 1.0)
+	kit.wind_materials.append(mat)
+	_mats.cut_wood = mat
+	return mat
 
 
 ## A fallen twig with a couple of side shoots.
