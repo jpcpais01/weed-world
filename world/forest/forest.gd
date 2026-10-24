@@ -36,6 +36,7 @@ var fx: ForestFX
 var life: ForestLife
 var sound: ForestSound
 var benches: BenchSet
+var weed: WeedPatches
 var _generated: Node3D
 var _interactors: Array[Vector3] = []
 var _wind_timer := 0.0
@@ -73,6 +74,9 @@ func build() -> void:
 	# colour, the grass tint and the undergrowth all read.
 	scatter = ForestScatter.new(layout, terrain, kit)
 	scatter.plan()
+	# Wild weed patches claim their soil before the undergrowth fills in.
+	weed = WeedPatches.new(terrain, scatter, kit)
+	weed.plan()
 	laps.append("trees %d" % (Time.get_ticks_msec() - t0))
 	build_step = 2
 
@@ -114,6 +118,7 @@ func build() -> void:
 	build_step = 7
 
 	benches.build(_generated)
+	weed.build(_generated)
 
 	if not Engine.is_editor_hint():
 		sound = ForestSound.new()

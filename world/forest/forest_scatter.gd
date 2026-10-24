@@ -30,6 +30,7 @@ var ground: ForestGround                   # contact stamps and path edges, see 
 var counts := {}                           # instances per group, for the build log
 var _grng := RandomNumberGenerator.new()   # ground dressing, kept apart so it never shifts the forest
 var _roots := {}
+var keep_clear: Array[Vector3] = []          # x, z, radius: no rocks here (weed patches)
 
 
 func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -> void:
@@ -622,6 +623,9 @@ func _rock(model: String, x: float, z: float, scale: float, sink: float, collide
 	xf.basis = Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.25)) * xf.basis
 	if _near_bench(Vector2(x, z), 1.3 + scale):
 		return  # leave the scenic benches (and the space to sit) clear
+	for c in keep_clear:
+		if Vector2(x, z).distance_to(Vector2(c.x, c.y)) < c.z + scale:
+			return
 	var mesh := _named(model) if shape == "" else kit.reshaped(model, shape, ROCK_SHAPES[shape])
 	# The ground blend band grows with the stone, and its footprint is stamped
 	# into the floor so soil, moss and shade gather round its base.

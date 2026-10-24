@@ -109,6 +109,12 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/update.log"; then exit 1; fi
           grep -q "update_check: PASS" "$RUNNER_TEMP/update.log"
 
+      - name: Weed check
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s res://tools/weed_check.gd 2>&1 | tee "$RUNNER_TEMP/weed.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/weed.log"; then exit 1; fi
+          grep -q "weed_check: PASS" "$RUNNER_TEMP/weed.log"
+
       - name: Restore release keystore
         if: env.PUBLISH == 'true'
         uses: actions/cache@v4
