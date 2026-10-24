@@ -13,7 +13,9 @@ const CHUNK := {"tree": 40.0, "far": 60.0, "rock": 30.0, "bush": 24.0, "plant": 
 ## Sub-cells ForestLod bands and culls by, see forest_lod.gd.
 const SUB := {"tree": 8.0, "far": 15.0, "rock": 6.0, "bush": 6.0, "plant": 4.0, "grass": 3.5, "small": 4.0, "litter": 4.0, "roots": 6.0}
 ## Distant silhouettes in the haze can simplify a little sooner.
-const PX_SCALE := {"far": 2.0}
+const PX_SCALE := {"far": 2.0, "plant": 1.5, "small": 1.5}
+## Groups whose trees turn into impostor cards far out (forest_impostors.gd).
+const IMPOSTOR_GROUPS := ["tree", "far"]
 ## Draw distance (0: always). Plants also stop where their shader has
 ## shrunk them to nothing.
 const VIS_END := {"tree": 0.0, "far": 0.0, "rock": 0.0, "bush": 70.0, "plant": 48.0, "grass": 38.0, "small": 34.0, "litter": 28.0, "roots": 46.0}
@@ -87,6 +89,9 @@ func build(parent: Node3D) -> void:
 	lod = ForestLod.new()
 	lod.name = "Vegetation"
 	parent.add_child(lod)
+	var imp := ForestImpostors.load_baked()
+	lod.impostors = imp
+	var imp_meshes := {}
 	var keys := _batches.keys()
 	keys.sort()
 	for key in keys:
@@ -95,7 +100,18 @@ func build(parent: Node3D) -> void:
 		if data.is_empty():
 			continue
 		var group: String = b.group
-		lod.add_batch(key, b.mesh, data, _cut(group, b.mesh), SUB[group], SHADOWS[group], PX_SCALE.get(group, 1.0))
+		var type := -1
+		if imp and group in IMPOSTOR_GROUPS:
+			type = imp.type_for(b.mesh)
+			if type >= 0:
+				imp_meshes[type] = b.mesh
+		lod.add_batch(key, b.mesh, data, _cut(group, b.mesh), SUB[group], SHADOWS[group], PX_SCALE.get(group, 1.0), type)
+	if imp:
+		imp.finish(imp_meshes)
+	lod.build()
+	if imp:
+		if not imp.stale.is_empty():
+			push_warning("ForestScatter: impostors out of date for %s; run tools/bake_impostors.gd" % ", ".join(imp.stale))
 
 	var body := StaticBody3D.new()
 	body.name = "PropColliders"

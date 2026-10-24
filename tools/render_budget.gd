@@ -3,7 +3,8 @@ extends SceneTree
 ## grows the forest headless, then replays Godot's own culling, visibility
 ## range, mesh LOD and shadow-cascade rules from a set of player camera
 ## views and reports the triangles and draw calls each view costs.
-##   godot --headless --path . -s res://tools/render_budget.gd [-- --groups] [-- --max-tris=N]
+##   godot --headless --path . -s res://tools/render_budget.gd [-- --groups] [-- --max-tris=N] [-- --mobile]
+## --mobile measures the phone settings (cheaper distant tree shadows).
 ##
 ## The model follows the Mobile renderer: a MultiMeshInstance3D is culled and
 ## LOD-ed as one block (its whole AABB), visibility ranges are measured to the
@@ -27,6 +28,8 @@ var _lod_px := 1.0
 
 
 func _initialize() -> void:
+	if "--mobile" in OS.get_cmdline_user_args():
+		ForestImpostors.shadow_from = ForestImpostors.SHADOW_FROM_MOBILE
 	_forest = load("res://world/forest/forest.tscn").instantiate() as Forest
 	_forest.preview_camera_when_alone = false
 	root.add_child(_forest)
@@ -180,6 +183,8 @@ func _group_of(g: Node) -> String:
 	if p and p.name == "Vegetation":
 		var parts := String(g.name).get_slice("~", 0).split("_")
 		var group := parts[0]
+		if parts.size() < 3:
+			return group
 		# The mesh is the middle of group_mesh_cx_cy.
 		var mesh := "_".join(parts.slice(1, parts.size() - 2))
 		if group in ["tree", "rock", "far"]:

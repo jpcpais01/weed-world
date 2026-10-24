@@ -62,16 +62,24 @@ const SHADOW_CUT := 80.0
 enum Shadow { NONE, SAME, PROXY, ONLY }
 ## Shadow casters get at most this many levels.
 const MAX_SHADOW_BANDS := 3
+## Trees far enough out become impostor cards (see ForestImpostors). Their
+## cards don't go into per-batch bands but into shared MultiMeshes, one per
+## IMP_CELL square of the valley, so the whole far forest is a few draws.
+const IMP_CELL := 96.0
+const IMP_FLOATS := 20
 
 ## One MultiMesh slice of a batch: the instances that currently fall in it.
 class Band:
 	var start := 0.0              # distance this band begins at
-	var mmi: MultiMeshInstance3D
+	var mmi: MultiMeshInstance3D  # null for the impostor band
 	var count := 0
 
 
 class Batch:
 	var key := ""
+	var mesh: Mesh
+	var shadow := Shadow.NONE
+	var px_scale := 1.0
 	var count := 0
 	var data := PackedFloat32Array()      # 16 floats per instance, grouped by sub-cell
 	var sub_lo := PackedVector3Array()    # sub-cell bounds (instances' AABBs)
@@ -89,8 +97,27 @@ class Batch:
 	var shadow_cut := INF
 	var shadow_bands: Array[Band] = []
 	var shadow_state := PackedInt32Array()
+	var imp_type := -1
+	var imp_band := -1                    # index of the impostor band (always the last), or -1
+	var imp_shadow_band := -1
+	var imp_from := INF                   # true distances, not per unit scale: the atlas
+	var imp_shadow_from := INF            # has a fixed number of pixels per metre
+	var imp_data := PackedFloat32Array()  # IMP_FLOATS per instance, same order as data
+	var imp_grow := 0.0                   # how far a card can swing past the mesh bounds
+	var sub_imp_cell := PackedInt32Array()
 
 
+## One square of impostors: the sub-cells whose centre falls in it.
+class ImpCell:
+	var members := PackedInt32Array()     # batch index, sub-cell, batch index, ...
+	var capacity := 0
+	var main: MultiMeshInstance3D
+	var shadow: MultiMeshInstance3D
+
+
+## Set before adding batches to let trees turn into impostors.
+var impostors: ForestImpostors
+var _imp_cells: Array[ImpCell] = []
 var batches: Array[Batch] = []
 var _task := -1
 var _task_eye := Vector3.ZERO
@@ -107,33 +134,113 @@ var _uploads := 0
 ## the sub-cell size. Shadow.SAME lets the drawn bands cast, Shadow.PROXY
 ## gives the batch its own coarser shadow casters, Shadow.ONLY makes a batch
 ## of nothing but shadow casters. `px_scale` loosens the pixel budget (for
-## silhouettes in the haze).
-func add_batch(key: String, mesh: Mesh, data: PackedFloat32Array, cut: float, sub: float, shadow: Shadow, px_scale := 1.0) -> void:
+## silhouettes in the haze). `imp_type` is the batch's ForestImpostors type,
+## or -1 to keep the real mesh at every distance. Call build() once every
+## batch is in.
+func add_batch(key: String, mesh: Mesh, data: PackedFloat32Array, cut: float, sub: float, shadow: Shadow, px_scale := 1.0,
+		imp_type := -1) -> void:
 	var b := Batch.new()
 	b.key = key
+	b.mesh = mesh
 	b.count = data.size() / 16
 	b.cut = cut
+	b.shadow = shadow
+	b.px_scale = px_scale
 	b.shadow_cut = SHADOW_CUT
 	_split(b, mesh, data, sub)
-	var chain := lod_chain(mesh, px_scale, false) if shadow != Shadow.ONLY else []
-	for level in chain:
-		if level.from >= cut:
-			break
-		var band := _band(b, level, false)
-		if shadow == Shadow.SAME:
-			band.mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-		b.bands.append(band)
-	if shadow == Shadow.PROXY or shadow == Shadow.ONLY:
-		var schain := lod_chain(mesh, px_scale, true)
-		for level in schain:
-			if level.from >= SHADOW_CUT:
-				break
-			b.shadow_bands.append(_band(b, level, true))
+	if impostors != null and imp_type >= 0:
+		b.imp_type = imp_type
+		b.imp_from = ForestImpostors.FROM if ForestImpostors.FROM < cut else INF
+		b.imp_shadow_from = ForestImpostors.shadow_from if ForestImpostors.shadow_from < SHADOW_CUT else INF
 	b.state.resize(b.sub_start.size())
 	b.state.fill(-1)
 	b.shadow_state.resize(b.sub_start.size())
 	b.shadow_state.fill(-1)
 	batches.append(b)
+
+
+## Works out every mesh's levels of detail, the slow part of growing the
+## forest, on all cores at once (one job per mesh, building only the levels
+## some copy of it can reach), then makes the bands and impostor squares.
+func build() -> void:
+	var jobs := {}
+	for b in batches:
+		if not jobs.has(b.mesh):
+			# Reading a mesh back from the RenderingServer can wait on this
+			# thread, so the workers get plain arrays.
+			jobs[b.mesh] = {"mesh": b.mesh, "raw": _raw_surfaces(b.mesh), "chains": {}}
+		var job: Dictionary = jobs[b.mesh]
+		if b.shadow != Shadow.ONLY:
+			_want(job, b.px_scale, false, minf(b.cut, b.imp_from) / b.scale_lo)
+		if b.shadow == Shadow.PROXY or b.shadow == Shadow.ONLY:
+			_want(job, b.px_scale, true, minf(SHADOW_CUT, b.imp_shadow_from) / b.scale_lo)
+	var list := jobs.values()
+	# Biggest first, so no core is left with a heavy mesh at the end.
+	for job in list:
+		job.size = 0
+		for sf in job.raw:
+			job.size += (sf.arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	list.sort_custom(func(x, y): return x.size > y.size)
+	var task := WorkerThreadPool.add_group_task(func(i: int) -> void: _run_job(list[i]), list.size(), -1, true, "ForestLod levels")
+	WorkerThreadPool.wait_for_group_task_completion(task)
+	for job in list:
+		_sources[job.mesh] = job.src
+		for k in job.chains:
+			_chains[k] = _finish_chain(job.src, job.chains[k].chain)
+	for b in batches:
+		_make_bands(b)
+	finish_impostors()
+
+
+static func _chain_key(mesh: Mesh, px_scale: float, shadow: bool) -> String:
+	return "%d/%.2f/%s" % [mesh.get_instance_id(), px_scale, shadow]
+
+
+static func _want(job: Dictionary, px_scale: float, shadow: bool, reach: float) -> void:
+	var want: Dictionary = job.chains.get_or_add(_chain_key(job.mesh, px_scale, shadow), {"px": px_scale, "shadow": shadow, "reach": 0.0})
+	want.reach = maxf(want.reach, reach)
+
+
+## Runs on a worker: touches nothing but its own job, and no server.
+func _run_job(job: Dictionary) -> void:
+	job.src = _make_source(job.mesh, job.raw)
+	for k in job.chains:
+		var want: Dictionary = job.chains[k]
+		want.chain = _make_chain(job.src, want.px, want.shadow, want.reach)
+
+
+func _make_bands(b: Batch) -> void:
+	var chain := lod_chain(b.mesh, b.px_scale, false) if b.shadow != Shadow.ONLY else []
+	for level in chain:
+		# The smallest copies reach a level first; levels none reaches before
+		# the cut or the impostors are skipped.
+		if level.from * b.scale_lo >= minf(b.cut, b.imp_from):
+			break
+		var band := _band(b, level, false)
+		if b.shadow == Shadow.SAME:
+			band.mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		b.bands.append(band)
+	if not b.bands.is_empty() and b.imp_from < INF:
+		b.imp_band = b.bands.size()
+		b.bands.append(_imp_band(b.imp_from))
+	else:
+		b.imp_from = INF
+	if b.shadow == Shadow.PROXY or b.shadow == Shadow.ONLY:
+		for level in lod_chain(b.mesh, b.px_scale, true):
+			if level.from * b.scale_lo >= minf(SHADOW_CUT, b.imp_shadow_from):
+				break
+			b.shadow_bands.append(_band(b, level, true))
+	if not b.shadow_bands.is_empty() and b.imp_shadow_from < INF:
+		b.imp_shadow_band = b.shadow_bands.size()
+		b.shadow_bands.append(_imp_band(b.imp_shadow_from))
+	else:
+		b.imp_shadow_from = INF
+	if b.imp_band >= 0 or b.imp_shadow_band >= 0:
+		b.imp_data = _imp_data(b.data, b.imp_type)
+		var box := b.mesh.get_aabb()
+		b.imp_grow = maxf(box.size.x, box.size.z) * b.scale_hi
+	else:
+		b.imp_type = -1
 
 
 func _band(b: Batch, level: Dictionary, shadow: bool) -> Band:
@@ -153,6 +260,75 @@ func _band(b: Batch, level: Dictionary, shadow: bool) -> Band:
 	band.mmi = mmi
 	add_child(mmi)
 	return band
+
+
+func _imp_band(from: float) -> Band:
+	var band := Band.new()
+	band.start = from
+	return band
+
+
+## Instance data for the impostor MultiMeshes: the transform, the type in the
+## colour's red, then the tree's own custom data.
+static func _imp_data(data: PackedFloat32Array, type: int) -> PackedFloat32Array:
+	var n := data.size() / 16
+	var out := PackedFloat32Array()
+	out.resize(n * IMP_FLOATS)
+	for i in n:
+		var o := i * IMP_FLOATS
+		var d := i * 16
+		for f in 12:
+			out[o + f] = data[d + f]
+		out[o + 12] = type
+		out[o + 15] = 1.0
+		for f in 4:
+			out[o + 16 + f] = data[d + 12 + f]
+	return out
+
+
+## Sorts the impostor sub-cells into squares and makes each square's
+## MultiMeshes.
+func finish_impostors() -> void:
+	if impostors == null:
+		return
+	var index := {}
+	for bi in batches.size():
+		var b := batches[bi]
+		if b.imp_type < 0:
+			continue
+		b.sub_imp_cell.resize(b.sub_start.size())
+		for i in b.sub_start.size():
+			var c := (b.sub_lo[i] + b.sub_hi[i]) * 0.5
+			var k := Vector2i(floori(c.x / IMP_CELL), floori(c.z / IMP_CELL))
+			if not index.has(k):
+				index[k] = _imp_cells.size()
+				_imp_cells.append(ImpCell.new())
+			var cell := _imp_cells[index[k]]
+			cell.members.append(bi)
+			cell.members.append(i)
+			cell.capacity += b.sub_count[i]
+			b.sub_imp_cell[i] = index[k]
+	for ci in _imp_cells.size():
+		var cell := _imp_cells[ci]
+		cell.main = _imp_mmi(cell.capacity, "Impostors~%d" % ci, false)
+		cell.shadow = _imp_mmi(cell.capacity, "Impostors~s%d" % ci, true)
+
+
+func _imp_mmi(capacity: int, node_name: String, shadow: bool) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.use_custom_data = true
+	mm.mesh = impostors.quad
+	mm.instance_count = capacity
+	mm.visible_instance_count = 0
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = node_name
+	mmi.multimesh = mm
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY if shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.visible = false
+	add_child(mmi)
+	return mmi
 
 
 ## Regroups a batch's instances by sub-cell so each sub-cell is one
@@ -213,10 +389,16 @@ func _split(b: Batch, mesh: Mesh, data: PackedFloat32Array, sub: float) -> void:
 ## (bigger copies switch proportionally further out). Each surface simplifies
 ## on its own schedule; a level changes whichever surfaces are ready to.
 func lod_chain(mesh: Mesh, px_scale: float, shadow: bool) -> Array:
-	var key := "%d/%.2f/%s" % [mesh.get_instance_id(), px_scale, shadow]
-	if _chains.has(key):
-		return _chains[key]
-	var src := _lod_source(mesh)
+	var key := _chain_key(mesh, px_scale, shadow)
+	if not _chains.has(key):
+		var src := _lod_source(mesh)
+		_chains[key] = _finish_chain(src, _make_chain(src, px_scale, shadow, INF))
+	return _chains[key]
+
+
+## The chain itself, with levels built only out to `reach` (per unit scale):
+## [{from, levels}], the arrays of each level made but not yet its mesh.
+static func _make_chain(src: Dictionary, px_scale: float, shadow: bool, reach: float) -> Array:
 	var surfaces: Array = src.surfaces
 	var crowned := false
 	for sf in surfaces:
@@ -272,6 +454,8 @@ func lod_chain(mesh: Mesh, px_scale: float, shadow: bool) -> Array:
 	var chain := []
 	var meshes := {}
 	for start in kept:
+		if start >= reach and not chain.is_empty():
+			break
 		var levels := PackedInt32Array()
 		for s in surfaces.size():
 			var lv := 0
@@ -281,9 +465,19 @@ func lod_chain(mesh: Mesh, px_scale: float, shadow: bool) -> Array:
 			levels.append(lv)
 		var mk := str(levels)
 		if not meshes.has(mk):
-			meshes[mk] = mesh if levels.count(0) == surfaces.size() else _level_mesh(src, levels)
-			chain.append({"from": start, "mesh": meshes[mk]})
-	_chains[key] = chain
+			meshes[mk] = true
+			if levels.count(0) != surfaces.size():
+				_level_arrays(src, levels)
+			chain.append({"from": start, "levels": levels})
+	return chain
+
+
+## Turns a chain's levels into meshes (on the main thread, or the thread
+## that grows the forest).
+static func _finish_chain(src: Dictionary, chain: Array) -> Array:
+	for level in chain:
+		var levels: PackedInt32Array = level.levels
+		level.mesh = src.mesh if levels.count(0) == levels.size() else _level_mesh(src, levels)
 	return chain
 
 
@@ -293,12 +487,26 @@ var _sources := {}
 ## How each surface of a mesh simplifies: leaf cards and grass blades thin
 ## out (see THIN), everything else gets meshoptimizer levels.
 func _lod_source(mesh: Mesh) -> Dictionary:
-	if _sources.has(mesh):
-		return _sources[mesh]
+	if not _sources.has(mesh):
+		_sources[mesh] = _make_source(mesh, _raw_surfaces(mesh))
+	return _sources[mesh]
+
+
+static func _raw_surfaces(mesh: Mesh) -> Array:
+	var raw := []
+	for s in mesh.get_surface_count():
+		var mat := mesh.surface_get_material(s)
+		var shader: Shader = (mat as ShaderMaterial).shader if mat is ShaderMaterial else null
+		var tint: bool = shader == NatureKit.SH_PLANT and (mat as ShaderMaterial).get_shader_parameter("ground_tint")
+		raw.append({"arrays": mesh.surface_get_arrays(s), "material": mat, "shader": shader, "ground_tint": tint})
+	return raw
+
+
+static func _make_source(mesh: Mesh, raw: Array) -> Dictionary:
 	var im := ImporterMesh.new()
 	var surfaces := []
-	for s in mesh.get_surface_count():
-		var arrays := mesh.surface_get_arrays(s)
+	for s in raw.size():
+		var arrays: Array = raw[s].arrays
 		if arrays[Mesh.ARRAY_INDEX] == null or (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).is_empty():
 			var count := (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
 			var idx := PackedInt32Array()
@@ -306,10 +514,10 @@ func _lod_source(mesh: Mesh) -> Dictionary:
 			for i in count:
 				idx[i] = i
 			arrays[Mesh.ARRAY_INDEX] = idx
-		var mat := mesh.surface_get_material(s)
-		var shader: Shader = (mat as ShaderMaterial).shader if mat is ShaderMaterial else null
+		var mat: Material = raw[s].material
+		var shader: Shader = raw[s].shader
 		var sf := {"index": s, "arrays": arrays, "material": mat, "kind": "mesh", "bark": shader == NatureKit.SH_BARK, "levels": {}}
-		if shader == NatureKit.SH_CANOPY or (shader == NatureKit.SH_PLANT and (mat as ShaderMaterial).get_shader_parameter("ground_tint")):
+		if shader == NatureKit.SH_CANOPY or raw[s].ground_tint:
 			var comps := _components(arrays)
 			if comps.size() >= (24 if shader == NatureKit.SH_CANOPY else 6):
 				sf.kind = "cards" if shader == NatureKit.SH_CANOPY else "blades"
@@ -325,15 +533,12 @@ func _lod_source(mesh: Mesh) -> Dictionary:
 			for c in sf.comps:
 				var cb := AABB(c.center, Vector3.ZERO).grow(c.size * 0.5)
 				crown = cb if crown.size == Vector3.ZERO else crown.merge(cb)
-	var src := {"im": im, "mesh": mesh, "surfaces": surfaces, "crown": crown}
-	_sources[mesh] = src
-	return src
+	return {"im": im, "mesh": mesh, "surfaces": surfaces, "crown": crown}
 
 
-## A copy of the mesh with each surface at the given level, unused vertices
-## dropped so the simplified copy really is smaller.
-func _level_mesh(src: Dictionary, levels: PackedInt32Array) -> ArrayMesh:
-	var out := ArrayMesh.new()
+## Each surface's arrays at the given level, unused vertices dropped so the
+## simplified copy really is smaller. Cached per surface and level.
+static func _level_arrays(src: Dictionary, levels: PackedInt32Array) -> void:
 	var surfaces: Array = src.surfaces
 	for s in surfaces.size():
 		var sf: Dictionary = surfaces[s]
@@ -353,7 +558,15 @@ func _level_mesh(src: Dictionary, levels: PackedInt32Array) -> ArrayMesh:
 							var im: ImporterMesh = src.im
 							arrays = _compact(im.get_surface_arrays(s), im.get_surface_lod_indices(s, lv - 1))
 			sf.levels[lv] = arrays
-		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sf.levels[lv])
+
+
+static func _level_mesh(src: Dictionary, levels: PackedInt32Array) -> ArrayMesh:
+	_level_arrays(src, levels)
+	var out := ArrayMesh.new()
+	var surfaces: Array = src.surfaces
+	for s in surfaces.size():
+		var sf: Dictionary = surfaces[s]
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sf.levels[levels[s]])
 		out.surface_set_material(s, sf.material)
 	out.resource_name = "%s@%s" % [(src.mesh as Mesh).resource_name, ",".join(Array(levels).map(str))]
 	return out
@@ -637,27 +850,86 @@ func _evaluate_task() -> void:
 ## batch that changed. Touches no nodes, so it can run on a worker.
 func _evaluate(eye: Vector3) -> Array:
 	var changes := []
-	for b in batches:
-		var main := _assign(b, eye, b.bands, b.cut, b.state)
-		var shadow := _assign(b, eye, b.shadow_bands, b.shadow_cut, b.shadow_state) if not b.shadow_bands.is_empty() else PackedInt32Array()
+	# Impostor squares whose contents change, and the batches' new states.
+	var dirty := {}
+	var dirty_shadow := {}
+	var next := {}
+	var next_shadow := {}
+	for bi in batches.size():
+		var b := batches[bi]
+		var main := _assign(b, eye, b.bands, b.cut, b.state, b.imp_band, b.imp_from)
+		var shadow := _assign(b, eye, b.shadow_bands, b.shadow_cut, b.shadow_state, b.imp_shadow_band, b.imp_shadow_from) \
+				if not b.shadow_bands.is_empty() else PackedInt32Array()
 		if main.is_empty() and shadow.is_empty():
 			continue
 		var change := {"batch": b}
 		if not main.is_empty():
 			change["state"] = main
-			change["bands"] = _buffers(b, main, b.bands.size())
+			change["bands"] = _buffers(b, main, b.bands.size(), b.imp_band)
+			if b.imp_band >= 0:
+				next[bi] = main
+				_mark(b, b.state, main, b.imp_band, dirty)
 		if not shadow.is_empty():
 			change["shadow_state"] = shadow
-			change["shadow_bands"] = _buffers(b, shadow, b.shadow_bands.size())
+			change["shadow_bands"] = _buffers(b, shadow, b.shadow_bands.size(), b.imp_shadow_band)
+			if b.imp_shadow_band >= 0:
+				next_shadow[bi] = shadow
+				_mark(b, b.shadow_state, shadow, b.imp_shadow_band, dirty_shadow)
 		changes.append(change)
+	for ci in dirty:
+		changes.append(_imp_buffer(ci, next, false))
+	for ci in dirty_shadow:
+		changes.append(_imp_buffer(ci, next_shadow, true))
 	return changes
 
 
-## New band per sub-cell, or an empty array if nothing changed.
-func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: PackedInt32Array) -> PackedInt32Array:
+## Flags the impostor squares of sub-cells that join or leave the impostors.
+static func _mark(b: Batch, old: PackedInt32Array, now: PackedInt32Array, band: int, dirty: Dictionary) -> void:
+	for i in now.size():
+		if (old[i] == band) != (now[i] == band):
+			dirty[b.sub_imp_cell[i]] = true
+
+
+## The cards of one impostor square, as an upload for _apply.
+func _imp_buffer(ci: int, next: Dictionary, shadow: bool) -> Dictionary:
+	var cell := _imp_cells[ci]
+	var buf := PackedFloat32Array()
+	var count := 0
+	var lo := Vector3.ZERO
+	var hi := Vector3.ZERO
+	for m in range(0, cell.members.size(), 2):
+		var bi := cell.members[m]
+		var i := cell.members[m + 1]
+		var b := batches[bi]
+		var state: PackedInt32Array = next[bi] if next.has(bi) else (b.shadow_state if shadow else b.state)
+		if state[i] != (b.imp_shadow_band if shadow else b.imp_band):
+			continue
+		var s := b.sub_start[i]
+		buf.append_array(b.imp_data.slice(s * IMP_FLOATS, (s + b.sub_count[i]) * IMP_FLOATS))
+		# Cards turn to face the camera; shadow cards also step back from the sun.
+		var g := b.imp_grow * (0.9 if shadow else 0.1)
+		var grow := Vector3(g, 0.0, g)
+		var blo := b.sub_lo[i] - grow
+		var bhi := b.sub_hi[i] + grow
+		lo = blo if count == 0 else lo.min(blo)
+		hi = bhi if count == 0 else hi.max(bhi)
+		count += b.sub_count[i]
+	var out := {"imp": ci, "shadow": shadow, "count": count}
+	if count > 0:
+		buf.resize(cell.capacity * IMP_FLOATS)
+		out["buffer"] = buf
+		out["aabb"] = AABB(lo, hi - lo)
+	return out
+
+
+## New band per sub-cell, or an empty array if nothing changed. Sub-cells at
+## `imp_from` or further go to band `imp` (if there is one).
+func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: PackedInt32Array, imp: int, imp_from: float) -> PackedInt32Array:
 	var nb := bands.size()
 	if nb == 0:
 		return PackedInt32Array()
+	if imp >= 0:
+		nb = imp
 	# The whole batch in one band (or culled) is the common case: skip the
 	# per-cell work when it was already like that.
 	# Levels are chosen per unit scale: a copy twice the size switches twice
@@ -667,9 +939,11 @@ func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: Pa
 	var whole := -2
 	if near >= cut:
 		whole = -1
+	elif near >= imp_from:
+		whole = imp
 	else:
-		var bn := _band_of(bands, near / b.scale_hi)
-		if far < cut and _band_of(bands, far / b.scale_lo) == bn:
+		var bn := _band_of(bands, nb, near / b.scale_hi)
+		if far < cut and far < imp_from and _band_of(bands, nb, far / b.scale_lo) == bn:
 			whole = bn
 	var out := PackedInt32Array()
 	out.resize(current.size())
@@ -678,15 +952,23 @@ func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: Pa
 	else:
 		for i in current.size():
 			var d := _dist(eye, b.sub_lo[i], b.sub_hi[i])
-			out[i] = -1 if d >= cut else _band_of(bands, d / b.sub_scale[i])
+			if d >= cut:
+				out[i] = -1
+			elif d >= imp_from:
+				out[i] = imp
+			else:
+				out[i] = _band_of(bands, nb, d / b.sub_scale[i])
 	if out == current:
 		return PackedInt32Array()
 	return out
 
 
-func _buffers(b: Batch, state: PackedInt32Array, nb: int) -> Array:
+func _buffers(b: Batch, state: PackedInt32Array, nb: int, skip: int) -> Array:
 	var out := []
 	for k in nb:
+		if k == skip:
+			out.append({"count": 0})
+			continue
 		var buf := PackedFloat32Array()
 		var count := 0
 		var lo := Vector3.ZERO
@@ -721,6 +1003,10 @@ func _buffers(b: Batch, state: PackedInt32Array, nb: int) -> Array:
 
 func _apply(changes: Array) -> void:
 	for ch in changes:
+		if ch.has("imp"):
+			var cell := _imp_cells[ch.imp]
+			_show(cell.shadow if ch.shadow else cell.main, ch)
+			continue
 		var b: Batch = ch.batch
 		if ch.has("state"):
 			b.state = ch.state
@@ -735,24 +1021,29 @@ func _upload(bands: Array[Band], data: Array) -> void:
 		var band := bands[k]
 		var d: Dictionary = data[k]
 		var count: int = d.count
-		if count == 0:
-			if band.count > 0:
-				band.mmi.visible = false
-				band.mmi.multimesh.visible_instance_count = 0
-				band.count = 0
+		if count == 0 and band.count == 0:
 			continue
-		var mm := band.mmi.multimesh
-		mm.buffer = d.buffer
-		mm.visible_instance_count = count
-		band.mmi.custom_aabb = d.aabb
-		band.mmi.visible = true
+		_show(band.mmi, d)
 		band.count = count
-		_uploads += 1
 
 
-static func _band_of(bands: Array[Band], d: float) -> int:
+func _show(mmi: MultiMeshInstance3D, d: Dictionary) -> void:
+	var count: int = d.count
+	if count == 0:
+		mmi.visible = false
+		mmi.multimesh.visible_instance_count = 0
+		return
+	var mm := mmi.multimesh
+	mm.buffer = d.buffer
+	mm.visible_instance_count = count
+	mmi.custom_aabb = d.aabb
+	mmi.visible = true
+	_uploads += 1
+
+
+static func _band_of(bands: Array[Band], nb: int, d: float) -> int:
 	var k := 0
-	for i in range(1, bands.size()):
+	for i in range(1, nb):
 		if d >= bands[i].start:
 			k = i
 	return k
