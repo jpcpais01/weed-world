@@ -13,6 +13,7 @@ const PAPER_R := 0.0115  ## the rolled tube (and the filling log) radius
 const JOINT_L := 0.145
 const JOINT_R_TIP := 0.0135   ## the lit end
 const JOINT_R_MOUTH := 0.0078
+const FILTER_L := JOINT_L * 0.2  ## the cardboard filter at the mouth end
 
 static var _soft_dot: GradientTexture2D
 
@@ -180,9 +181,10 @@ static func joint(tint: Color) -> Dictionary:
 	mi.mesh = body
 	mi.rotation.z = -PI * 0.5
 	mi.position.x = JOINT_L * 0.5
+	mi.name = "Body"
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(mi)
-	# The twist at the tip, and the crutch at the mouth end.
+	# The twist at the tip.
 	var twist := CylinderMesh.new()
 	twist.top_radius = 0.0
 	twist.bottom_radius = JOINT_R_TIP * 0.95
@@ -197,33 +199,56 @@ static func joint(tint: Color) -> Dictionary:
 	tw.position.x = JOINT_L + 0.01
 	tw.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(tw)
+	# The filter: a cardboard tip over the mouth end, a fifth of the joint long.
+	var filter_r := lerpf(JOINT_R_MOUTH, JOINT_R_TIP, FILTER_L / JOINT_L) + 0.0006
 	var crutch := CylinderMesh.new()
-	crutch.top_radius = JOINT_R_MOUTH * 1.02
-	crutch.bottom_radius = JOINT_R_MOUTH * 1.02
-	crutch.height = 0.022
-	crutch.radial_segments = 8
+	crutch.top_radius = filter_r
+	crutch.bottom_radius = filter_r
+	crutch.height = FILTER_L
+	crutch.radial_segments = 10
 	crutch.rings = 1
 	var cmat := StandardMaterial3D.new()
-	cmat.albedo_color = Color(0.86, 0.72, 0.5)
-	cmat.roughness = 0.9
+	cmat.albedo_color = Color(0.86, 0.66, 0.4)
+	cmat.roughness = 0.85
+	cmat.emission_enabled = true
+	cmat.emission = Color(0.86, 0.66, 0.4) * 0.12
+	cmat.rim_enabled = true
+	cmat.rim = 0.3
+	cmat.rim_tint = 0.6
 	crutch.material = cmat
 	var cr := MeshInstance3D.new()
 	cr.mesh = crutch
+	cr.name = "Filter"
 	cr.rotation.z = -PI * 0.5
-	cr.position.x = 0.011
+	cr.position.x = FILTER_L * 0.5
 	cr.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(cr)
-	# The ember: a glowing cap that brightens on every draw.
+	# Its open end, a shade darker, where the card is rolled up.
+	var cap := CylinderMesh.new()
+	cap.top_radius = filter_r * 0.82
+	cap.bottom_radius = filter_r * 0.82
+	cap.height = 0.001
+	cap.radial_segments = 10
+	cap.rings = 1
+	var capmat := StandardMaterial3D.new()
+	capmat.albedo_color = Color(0.62, 0.45, 0.26)
+	capmat.roughness = 0.95
+	cap.material = capmat
+	var cp := MeshInstance3D.new()
+	cp.mesh = cap
+	cp.rotation.z = -PI * 0.5
+	cp.position.x = -0.0003
+	cp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(cp)
+	# The ember: an ash cap with glowing cracks that blaze up on every draw.
 	var ember := SphereMesh.new()
 	ember.radius = JOINT_R_TIP * 1.05
 	ember.height = JOINT_R_TIP * 1.4
 	ember.radial_segments = 10
 	ember.rings = 4
-	var emat := StandardMaterial3D.new()
-	emat.albedo_color = Color(0.25, 0.08, 0.04)
-	emat.emission_enabled = true
-	emat.emission = Color(1.0, 0.42, 0.12)
-	emat.emission_energy_multiplier = 0.0
+	var emat := ShaderMaterial.new()
+	emat.shader = preload("res://player/weed/ember.gdshader")
+	emat.set_shader_parameter("noise", preload("res://assets/fx/smoke_noise.png"))
 	ember.material = emat
 	var em := MeshInstance3D.new()
 	em.mesh = ember
@@ -232,7 +257,7 @@ static func joint(tint: Color) -> Dictionary:
 	em.visible = false
 	em.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(em)
-	return {"root": root, "ember": em, "ember_mat": emat, "body_mat": mat, "twist": tw}
+	return {"root": root, "ember": em, "ember_mat": emat, "body_mat": mat, "twist": tw, "body": mi}
 
 
 static func soft_dot() -> GradientTexture2D:
@@ -279,62 +304,27 @@ static func _grow_curve(from: float, to: float) -> Curve:
 	return c
 
 
-## A billowing exhale: soft puffs that drift out, swell and thin away.
-static func smoke_puff(color: Color) -> CPUParticles3D:
+## Sparks that pop off the ember while it's drawn on.
+static func ember_sparks() -> CPUParticles3D:
 	var p := CPUParticles3D.new()
-	p.name = "Exhale"
+	p.name = "EmberSparks"
 	p.emitting = false
-	p.one_shot = true
-	p.amount = 26
-	p.lifetime = 3.2
-	p.explosiveness = 0.0
-	p.local_coords = false
-	p.direction = Vector3(0, 0.2, 1)
-	p.spread = 22.0
-	p.initial_velocity_min = 0.25
-	p.initial_velocity_max = 0.6
-	p.gravity = Vector3(0, 0.12, 0)
-	p.damping_min = 0.25
-	p.damping_max = 0.45
-	p.angle_min = -180.0
-	p.angle_max = 180.0
-	p.angular_velocity_min = -25.0
-	p.angular_velocity_max = 25.0
-	p.scale_amount_min = 0.7
-	p.scale_amount_max = 1.2
-	p.scale_amount_curve = _grow_curve(0.25, 1.0)
-	p.color = Color(color, 0.5)
-	p.color_ramp = _fade(0.12, 1.0)
-	var q := QuadMesh.new()
-	q.size = Vector2(0.22, 0.22)
-	var mat := _particle_material(Color.WHITE, false, false)
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	q.material = mat
-	p.mesh = q
-	return p
-
-
-## The thin curl that rises from the ember between draws.
-static func ember_wisp(color: Color) -> CPUParticles3D:
-	var p := CPUParticles3D.new()
-	p.name = "Wisp"
-	p.emitting = false
-	p.amount = 14
-	p.lifetime = 2.4
+	p.amount = 8
+	p.lifetime = 0.55
 	p.local_coords = false
 	p.direction = Vector3.UP
-	p.spread = 6.0
-	p.initial_velocity_min = 0.06
-	p.initial_velocity_max = 0.12
-	p.gravity = Vector3(0, 0.08, 0)
-	p.scale_amount_min = 0.6
+	p.spread = 70.0
+	p.initial_velocity_min = 0.08
+	p.initial_velocity_max = 0.3
+	p.gravity = Vector3(0, -0.6, 0)
+	p.scale_amount_min = 0.5
 	p.scale_amount_max = 1.0
-	p.scale_amount_curve = _grow_curve(0.15, 1.0)
-	p.color = Color(color, 0.32)
-	p.color_ramp = _fade(0.15, 1.0)
+	p.scale_amount_curve = _grow_curve(1.0, 0.2)
+	p.color = Color(1.0, 0.55, 0.18)
+	p.color_ramp = _fade(0.05, 1.0)
 	var q := QuadMesh.new()
-	q.size = Vector2(0.07, 0.07)
-	q.material = _particle_material(Color.WHITE, false)
+	q.size = Vector2(0.008, 0.008)
+	q.material = _particle_material(Color.WHITE, true)
 	p.mesh = q
 	return p
 

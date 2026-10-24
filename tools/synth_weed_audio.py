@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Synthesises the little sounds of rolling a joint, from scratch so every
-sound is original and free to ship: the pouch, the paper, a sniff, the bud
-crumbling, rolling, the lick, the twist, tap-taps and a ta-da twinkle.
-Writes Ogg Vorbis files to assets/audio/weed/.
+"""Synthesises the little sounds of rolling and smoking a joint, from scratch
+so every sound is original and free to ship: the pouch, the paper, a sniff,
+the bud crumbling, rolling, the lick, the twist, tap-taps, a ta-da twinkle,
+the flick of a fairy flame, a crackling draw, the exhale and the flame going
+out. Writes Ogg Vorbis files to assets/audio/weed/.
 
-    python3 tools/synth_weed_audio.py
+    python3 tools/synth_weed_audio.py            # everything
+    python3 tools/synth_weed_audio.py draw exhale  # just these
 
 Needs numpy, scipy and ffmpeg (with libvorbis) on the PATH.
 """
 import os
 import subprocess
+import sys
 import tempfile
 
 import numpy as np
@@ -240,8 +243,63 @@ def tada():
     return finish(x, -5)
 
 
+def flick():
+    """A thumb flick and the soft whump of a fairy flame catching."""
+    x = np.zeros(int(0.5 * SR))
+    place(x, grain(0.006, 2500, 9000, 0.0015), 0.0)
+    place(x, grain(0.004, 1800, 6000, 0.001) * 0.6, 0.012)
+    n = int(0.3 * SR)
+    whump = lowpass(rng.standard_normal(n), 900) * env(n, 0.02, 0.08)
+    place(x, whump * 0.9, 0.03)
+    place(x, bell(2350.0, 0.35, 0.1) * 0.15, 0.04)
+    return finish(x, -8)
+
+
+def draw():
+    """A long draw on a joint: breath in through the filter and the ember
+    crackling as it flares."""
+    dur = 1.2
+    n = int(dur * SR)
+    t = t_axis(dur)
+    breath = bandpass(rng.standard_normal(n), 500, 3200)
+    breath *= np.clip(t / 0.15, 0, 1) * np.clip((dur - t) / 0.2, 0, 1) * (0.8 + 0.2 * np.sin(2 * np.pi * 2.0 * t))
+    x = breath * 0.35
+    for _ in range(55):
+        at = rng.uniform(0.08, dur - 0.1)
+        place(x, grain(rng.uniform(0.001, 0.004), 2500, 10000, rng.uniform(0.0005, 0.002)) * rng.uniform(0.2, 1.0), at)
+    return finish(x, -9)
+
+
+def exhale():
+    """A slow, relaxed breath out."""
+    dur = 1.5
+    n = int(dur * SR)
+    t = t_axis(dur)
+    noise = rng.standard_normal(n)
+    # Breathy and low; the lips' hiss fades as the breath runs out.
+    lo = bandpass(noise, 250, 1400)
+    hi = bandpass(noise, 1400, 5000)
+    shape = np.clip(t / 0.08, 0, 1) * np.exp(-t / 0.75)
+    x = (lo * 0.8 + hi * 0.35 * np.exp(-t / 0.4)) * shape
+    return finish(x, -9)
+
+
+def fizzle():
+    """A tiny flame going out with a puff."""
+    x = np.zeros(int(0.35 * SR))
+    n = int(0.25 * SR)
+    place(x, bandpass(rng.standard_normal(n), 2000, 7000) * env(n, 0.005, 0.06) * 0.6, 0.0)
+    place(x, lowpass(rng.standard_normal(n), 600) * env(n, 0.01, 0.05), 0.02)
+    return finish(x, -12)
+
+
 if __name__ == "__main__":
     for name, make in [("pouch", pouch), ("bling", bling), ("paper", paper), ("sniff", sniff), ("happy", happy),
                        ("crumble", crumble), ("pat", pat), ("roll", roll), ("lick", lick), ("glint", glint),
-                       ("twist", twist), ("tap", tap), ("tada", tada)]:
-        save(name, make())
+                       ("twist", twist), ("tap", tap), ("tada", tada), ("flick", flick), ("draw", draw),
+                       ("exhale", exhale), ("fizzle", fizzle)]:
+        # Every sound is made (so the random numbers stay in step), only the
+        # ones asked for are written.
+        x = make()
+        if len(sys.argv) < 2 or name in sys.argv[1:]:
+            save(name, x)

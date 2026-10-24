@@ -25,9 +25,10 @@ signal note(text: String)
 enum Act { NONE, ROLL, LIGHT, HIT }
 
 const ROLL_TIME := 10.0
-const LIGHT_TIME := 1.5
+const LIGHT_TIME := 2.6
 const HIT_TIME := 3.8
 const HITS := 3
+const BURN_PER_PUFF := 0.17   # how much of the joint each puff burns away
 const MAX_BUDS := 12
 const SAVE_PATH := "user://weed.cfg"
 ## Rolling stages for the HUD: start time and caption.
@@ -42,9 +43,14 @@ const TRAY_L := Vector3(0.17, 0.78, 0.46)
 const TRAY_R := Vector3(-0.17, 0.78, 0.46)
 const HOLD_R := Vector3(-0.25, 0.64, 0.40)
 const TO_MOUTH_R := Vector3(-0.15, 0.80, 0.47)
+const TO_MOUTH_FRONT_R := Vector3(-0.09, 0.77, 0.5)
 const TADA_R := Vector3(-0.24, 0.97, 0.42)
 ## Which way the joint points out of the mouth while smoking.
 const MOUTH_OUT := Vector3(-0.55, -0.12, 1.0)
+## Held straight out in front of the face while it's lit.
+const LIGHT_OUT := Vector3(0.0, -0.18, 1.0)
+const NOSE := Vector3(0.0, 0.875, 0.5)
+const NOSTRIL_X := 0.017
 
 var keling: KelingController
 var hands: KelingHands
@@ -79,8 +85,11 @@ var _clips := {}
 var _joint: Dictionary
 var _crumbs: CPUParticles3D
 var _sparkle: CPUParticles3D
-var _exhale: CPUParticles3D
-var _wisp: CPUParticles3D
+var _smoke: WeedSmoke
+var _sparks: CPUParticles3D
+var _nose_local: Array[Transform3D] = []
+var _ember_smoke := 0.0      # how much the ember smokes this frame (0..1.5)
+var _burn_k := 1.0           # how much of the joint is left (1 = fresh)
 var _flame: MeshInstance3D
 var _fist_bud: Node3D
 var _fist_mesh: MeshInstance3D
@@ -341,6 +350,7 @@ func _stop_act() -> void:
 		_closeup(false)
 	_hide_roll_props()
 	_flame.visible = false
+	_sparks.emitting = false
 	hands.chest_swell = 0.0
 	act = Act.NONE
 	act_changed.emit(act)
@@ -574,8 +584,7 @@ func _clear_joint() -> void:
 func _paint_joint(strain: StringName) -> void:
 	var info := WeedStrains.info(strain)
 	(_joint.body_mat as StandardMaterial3D).backlight = info.glow * 0.4
-	_exhale.color = Color(info.smoke, 0.5)
-	_wisp.color = Color(info.smoke, 0.3)
+	_smoke.set_style(info.get("smoke", &"normal"))
 
 
 func _e(a: float, b: float) -> float:
@@ -960,51 +969,149 @@ func _set_joint(mouth_end: Vector3, dir: Vector3, spin := 0.0) -> void:
 func _pose_smoke() -> void:
 	var t := act_t
 	var bd := hands.body_delta
-	var m := 0.0     # 0 hold .. 1 at the mouth
+	var dt := get_process_delta_time()
+	var rig := _rig.global_transform
+	var m := 0.0       # 0 held low .. 1 at the lips
+	var forward := 0.0 # 1 = held straight out in front (to light it)
 	var ember := 0.6
 	var info := WeedStrains.info(joint_strain)
 	if act == Act.LIGHT:
-		m = _e(0.0, 0.45)
-		# Snap a fairy flame off the left fingertips and send it to the tip.
-		var snap := _e(0.1, 0.35) * (1.0 - _e(1.15, 1.5))
-		_arm("Left", Vector3(0.2, 0.86, 0.42), snap, P_WRIST, Vector3(-0.3, 0.5, 1.0), Vector3(-1, 0, 0), {"curl": 0.2 + 0.6 * _pulse(t, 0.3, 0.12), "wiggle": 0.2, "thumb": 0.5 * _pulse(t, 0.3, 0.12)})
-		var tip := _tip_world_skel()
-		var finger := Vector3(0.12, 0.92, 0.52) + bd
-		_flame.visible = t > 0.32 and t < 1.3
-		_flame.position = finger.lerp(tip, _e(0.4, 0.85))
-		_flame.scale = Vector3.ONE * (_e(0.32, 0.42) * (1.0 - _e(1.0, 1.3)) + 0.001)
-		if _event("snap", 0.32):
-			_burst(finger, Color(1.0, 0.6, 0.2), 10)
-		if _event("lit", 0.9):
-			_burst(tip, Color(1.0, 0.55, 0.15), 14)
-			(_joint.ember as Node3D).visible = true
-		ember = 0.6 + 3.0 * _e(0.9, 1.1) * (1.0 - _e(1.2, 1.5))
-		hands.chest_swell = 0.4 * _e(0.9, 1.2) * (1.0 - _e(1.3, 1.5))
+		m = _e(0.0, 0.45) * (1.0 - _e(1.9, 2.45))
+		forward = m
+	else:
+		m = _e(0.0, 0.5) * (1.0 - _e(1.55, 1.95))
+
+	# The right hand brings the joint to the lips, filter first.
+	var rg := HOLD_R.lerp(TO_MOUTH_R.lerp(TO_MOUTH_FRONT_R, forward), m)
+	_arm("Right", rg, 1.0, P_WRIST, Vector3(0.0, 0.3, 1.0).lerp(Vector3(0.6, 0.25, 1.0), m), Vector3(1.0, 0.3, 0.0), "hold")
+	var g := hands.grip_point("Right")
+	var at_mouth := MOUTH + bd
+	var out := MOUTH_OUT.normalized().lerp(LIGHT_OUT.normalized(), forward)
+	var dir := _hold_dir().lerp(out, m).normalized()
+	_set_joint(g.lerp(at_mouth, m), dir)
+	var tip := _tip_world_skel()
+	var up_w := (rig.basis * Vector3.UP).normalized()
+
+	if act == Act.LIGHT:
+		# Thumb flicks a fairy flame alight on the left fingertips and holds
+		# it under the tip; three short draws pull the flame in until the
+		# ember catches, then a shake of the hand puts the flame out.
+		var lw := _e(0.1, 0.4) * (1.0 - _e(1.9, 2.35))
+		var flick := _pulse(t, 0.5, 0.09)
+		var draws := _pulse(t, 0.88, 0.13) + _pulse(t, 1.18, 0.13) + _pulse(t, 1.48, 0.13)
+		var shake := _e(1.62, 1.66) * (1.0 - _e(1.86, 1.96))
+		var catch := _e(0.85, 1.55)
+		var ready := Vector3(0.13, 0.74, 0.54) + bd
+		var under := tip + Vector3(0.012, -0.062, 0.004)
+		var goal := ready.lerp(under, _e(0.52, 0.74)).lerp(Vector3(0.16, 0.7, 0.5) + bd, _e(1.62, 1.95))
+		goal += Vector3(sin(t * 46.0) * 0.016 * shake, 0.002 * sin(t * 11.0) * _e(0.7, 0.8), 0.0)
+		_arm("Left", goal, lw, P_PINCH, Vector3(-0.35, 0.6, 1.0), Vector3(-1.0, -0.2, -0.2), {"curl": 0.2, "index": 0.22, "middle": 0.5, "ring": 0.7, "pinch": 1.0 - 0.7 * flick, "rub": flick, "wiggle": 0.4 * shake})
+		var flame_at := hands.pinch_point("Left") + Vector3(0.0, 0.008, 0.0)
+		var flame_k := _e(0.48, 0.56) * (1.0 - _e(1.66, 1.82))
+		_flame.visible = flame_k > 0.01
+		_flame.position = flame_at
+		_flame.scale = Vector3(1.0, 1.0 + 0.45 * draws, 1.0) * maxf(1.8 * flame_k * (0.9 + 0.1 * sin(t * 37.0)), 0.001)
+		if _event("flick", 0.5):
+			_burst(flame_at, Color(1.0, 0.6, 0.2), 6)
+			_sfx("flick")
+		for i in 3:
+			if _event("light_draw%d" % i, 0.8 + 0.3 * i):
+				_sfx("draw", 1.35)
+				for k in 2:
+					_smoke.puff(rig * tip, up_w * 0.05 + _jitter(0.02), 0.012, 0.09, 1.8, 0.5)
+		if _event("flame_out", 1.8):
+			_smoke.puff(rig * flame_at, up_w * 0.08, 0.008, 0.06, 1.3, 0.4)
+			_sfx("fizzle")
+		_sparks.position = tip
+		_sparks.emitting = draws > 0.3 and catch > 0.1
+		ember = 0.3 + catch * (0.5 + 2.2 * draws)
+		_ember_smoke = catch * (1.0 - 0.6 * draws)
+		hands.chest_swell = 0.22 * draws + 0.25 * _e(1.5, 1.7) * (1.0 - _e(1.95, 2.4))
+		hands.head_pitch = -0.08 * m + 0.12 * _e(1.9, 2.1) * (1.0 - _e(2.3, 2.6))
+		# A first small puff of smoke out of the mouth.
+		if t > 1.95 and t < 2.45:
+			var k := (t - 1.95) / 0.5
+			_exhale_stream(rig, dt, 26.0 * pow(1.0 - k, 0.7), lerpf(0.8, 0.3, k), lerpf(0.22, 0.3, k), 2.8, lerpf(0.6, 0.35, k))
+		if _event("light_exhale", 1.95):
+			_sfx("exhale", 1.25)
 	else:
 		_arm("Left", TRAY_L, 0.0)
-		m = _e(0.0, 0.5) * (1.0 - _e(1.7, 2.1))
-		var inhale := _e(0.5, 1.6)
-		ember = 0.6 + 4.5 * inhale * (1.0 - _e(1.7, 2.0)) + 0.4 * sin(t * 30.0) * inhale * (1.0 - _e(1.6, 1.8))
-		hands.chest_swell = inhale * (1.0 - _e(2.4, 3.4))
-		hands.head_pitch = 0.28 * _e(2.25, 2.6) * (1.0 - _e(3.3, 3.8))
-		if _event("exhale", 2.4):
-			_exhale.position = MOUTH + bd + Vector3(0, -0.01, 0.03)
-			_exhale.restart()
-			_exhale.emitting = true
+		# Draw deep (the ember flares and crackles), lower the joint, hold
+		# it in for a moment, then tip the head back and let it roll out.
+		var inhale := _e(0.5, 1.5)
+		var drawing := inhale * (1.0 - _e(1.5, 1.65))
+		ember = 0.6 + 4.2 * drawing + 0.5 * sin(t * 31.0) * drawing
+		_ember_smoke = lerpf(1.0, 0.1, drawing) + 0.6 * _e(1.6, 1.75) * (1.0 - _e(1.9, 2.6))
+		_sparks.position = tip
+		_sparks.emitting = drawing > 0.3
+		hands.chest_swell = inhale * (1.0 - _e(2.3, 3.5))
+		hands.head_pitch = 0.05 * _e(1.6, 2.0) * (1.0 - _e(2.2, 2.35)) + 0.28 * _e(2.25, 2.6) * (1.0 - _e(3.3, 3.8))
+		if _event("draw", 0.5):
+			_sfx("draw")
+		if _event("leak", 1.95):
+			var mx := _mouth_xf()
+			_smoke.puff(rig * (mx.origin + mx.basis.z * 0.01), up_w * 0.03, 0.008, 0.05, 1.4, 0.35, 1.0)
+		if _event("exhale", 2.3):
 			_count_puff()
+			_sfx("exhale")
+		if t > 2.3 and t < 3.65:
+			var k := (t - 2.3) / 1.35
+			_exhale_stream(rig, dt, 42.0 * pow(1.0 - k, 0.7), lerpf(1.6, 0.4, k), lerpf(0.3, 0.45, k), 3.6, lerpf(0.65, 0.35, k), 1.5)
+		if t > 2.3 and t < 2.95 and not _nose_local.is_empty():
+			var k := (t - 2.3) / 0.65
+			var head := _skel.get_bone_global_pose(_head_bone)
+			for i in 2:
+				var nx := head * _nose_local[i]
+				_smoke.stream(StringName("nose%d" % i), rig * nx.origin, rig.basis * nx.basis.z, 9.0 * (1.0 - k), 0.32, 0.01, 0.1, 1.9, 0.5, 0.12, dt)
 		if joint_puffs <= 0 and t > 3.3:
 			# The last of it: the roach vanishes in a twinkle.
 			var gone := _e(3.3, 3.75)
 			(_joint.root as Node3D).scale = Vector3.ONE * maxf(1.0 - gone, 0.001)
+			_ember_smoke = 0.0
 			if _event("roach", 3.4):
 				_burst(hands.grip_point("Right"), info.glow, 14)
-	var rg := HOLD_R.lerp(TO_MOUTH_R, m)
-	_arm("Right", rg, 1.0, P_WRIST, Vector3(0.0, 0.3, 1.0).lerp(Vector3(0.6, 0.25, 1.0), m), Vector3(1.0, 0.3, 0.0), "hold")
 	_set_ember(ember)
-	var g := hands.grip_point("Right")
-	var at_mouth := MOUTH + bd
-	var dir := _hold_dir().lerp(MOUTH_OUT.normalized(), m).normalized()
-	_set_joint(g.lerp(at_mouth, m), dir)
+
+
+## Breath out of the mouth: a stream of puffs leaving the lips.
+func _exhale_stream(rig: Transform3D, dt: float, rate: float, speed: float, size: float, life: float, alpha: float, drag := 2.0) -> void:
+	var mx := _mouth_xf()
+	var o := rig * (mx.origin + mx.basis.z * 0.012)
+	var d := rig.basis * (mx.basis.z + Vector3(0.0, 0.5, 0.0))
+	_smoke.stream(&"exhale", o, d, rate, speed, 0.03, size, life, alpha, 0.14, dt, drag)
+
+
+func _mouth_xf() -> Transform3D:
+	if _head_bone < 0:
+		return Transform3D(Basis.looking_at(Vector3(0.0, -0.35, 1.0), Vector3.UP, true), MOUTH + hands.body_delta)
+	return _skel.get_bone_global_pose(_head_bone) * _mouth_local
+
+
+func _jitter(r: float) -> Vector3:
+	return Vector3(randf_range(-r, r), randf_range(-r, r), randf_range(-r, r))
+
+
+## How much of the joint is left: each puff burns a little more of it away.
+func _burn() -> float:
+	if not has_joint():
+		return 1.0
+	var k := 1.0 - BURN_PER_PUFF * (HITS - joint_puffs)
+	if act == Act.LIGHT:
+		k -= 0.03 * _e(0.85, 1.55)
+	elif lit:
+		k -= 0.03
+		if act == Act.HIT and not _hit_counted:
+			k -= BURN_PER_PUFF * _e(0.5, 1.5)
+	return clampf(k, 0.3, 1.0)
+
+
+func _apply_burn(k: float) -> void:
+	_burn_k = k
+	var body: Node3D = _joint.body
+	body.scale = Vector3(1.0, k, 1.0)
+	body.position.x = WeedProps.JOINT_L * k * 0.5
+	(_joint.ember as Node3D).position.x = WeedProps.JOINT_L * k
+	(_joint.twist as Node3D).position.x = WeedProps.JOINT_L * k + 0.01
 
 
 func _pulse(t: float, at: float, width: float) -> float:
@@ -1024,12 +1131,12 @@ func _count_puff() -> void:
 
 func _tip_world_skel() -> Vector3:
 	var jroot: Node3D = _joint.root
-	return jroot.transform * Vector3(WeedProps.JOINT_L, 0, 0)
+	return jroot.transform * Vector3(WeedProps.JOINT_L * _burn_k, 0, 0)
 
 
 func _set_ember(energy: float) -> void:
-	var em: StandardMaterial3D = _joint.ember_mat
-	em.emission_energy_multiplier = energy if lit or act == Act.LIGHT else 0.0
+	var em: ShaderMaterial = _joint.ember_mat
+	em.set_shader_parameter("energy", energy if lit or act == Act.LIGHT else 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1037,6 +1144,8 @@ func _set_ember(energy: float) -> void:
 # and lay the props into the fingers.
 
 func _place_props() -> void:
+	_apply_burn(_burn())
+	_ember_smoke = 1.0
 	if act == Act.ROLL:
 		_pose_roll()
 	elif act == Act.LIGHT or act == Act.HIT:
@@ -1053,10 +1162,14 @@ func _place_props() -> void:
 	elif act == Act.NONE:
 		jroot.visible = false
 	(_joint.ember as Node3D).visible = lit or (act == Act.LIGHT and act_t > 0.9)
-	var wisp := lit and has_joint() and act != Act.HIT and _joint_hidden < 0.5
-	if _wisp.emitting != wisp:
-		_wisp.emitting = wisp
-	_wisp.position = _tip_world_skel()
+	if lit or act == Act.LIGHT:
+		(_joint.twist as Node3D).visible = false
+	if act != Act.LIGHT and act != Act.HIT:
+		_sparks.emitting = false
+	# The ember's own thin stream of smoke.
+	var smoking := has_joint() and jroot.visible and _joint_hidden < 0.5 and (lit or act == Act.LIGHT)
+	_smoke.set_scale_hint(_rig.global_transform.basis.get_scale().y)
+	_smoke.ember(_rig.global_transform * _tip_world_skel(), _ember_smoke * (jroot.scale.x if smoking else 0.0))
 
 
 func _pose_rest() -> void:
@@ -1106,6 +1219,10 @@ func _build_props() -> void:
 		var head_rest := _skel.get_bone_global_rest(_head_bone)
 		var mouth := Transform3D(Basis.looking_at(Vector3(0.0, -0.35, 1.0), Vector3.UP, true), MOUTH + Vector3(0.0, -0.004, -0.012))
 		_mouth_local = head_rest.affine_inverse() * mouth
+		# The nostrils, under the big round nose, breathing out down and away.
+		for sx in [-1.0, 1.0]:
+			var nose := Transform3D(Basis.looking_at(Vector3(sx * 0.45, -0.75, 0.55), Vector3.UP, true), NOSE + Vector3(sx * NOSTRIL_X, 0.0, 0.0))
+			_nose_local.append(head_rest.affine_inverse() * nose)
 	for i in 3:
 		var v := AudioStreamPlayer3D.new()
 		v.name = "WeedSfx%d" % i
@@ -1120,12 +1237,11 @@ func _build_props() -> void:
 	_rig.add_child(_crumbs)
 	_sparkle = WeedProps.stars(Color(1, 1, 1), 12, 0.035)
 	_rig.add_child(_sparkle)
-	_exhale = WeedProps.smoke_puff(Color(0.9, 0.9, 0.9))
-	_exhale.explosiveness = 0.55
-	_exhale.direction = Vector3(0, 0.55, 1).normalized()  # out of the mouth (skeleton space)
-	_rig.add_child(_exhale)
-	_wisp = WeedProps.ember_wisp(Color(0.9, 0.9, 0.9))
-	_rig.add_child(_wisp)
+	_smoke = WeedSmoke.new()
+	_smoke.name = "Smoke"
+	keling.add_child.call_deferred(_smoke)
+	_sparks = WeedProps.ember_sparks()
+	_rig.add_child(_sparks)
 	_flame = WeedProps.flame()
 	_rig.add_child(_flame)
 	# The bud shown in the fist right after a pick (stem-down sprig placement).

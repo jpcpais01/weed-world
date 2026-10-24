@@ -9,7 +9,7 @@ extends SceneTree
 # Untyped on purpose: -s scripts compile before the autoloads exist, and the
 # controller names GameInput.
 const ROLL_TIME := 10.0
-const LIGHT_TIME := 1.5
+const LIGHT_TIME := 2.6
 const HIT_TIME := 3.8
 const HITS := 3
 const ACT_NONE := 0

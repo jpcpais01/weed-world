@@ -6,7 +6,7 @@ extends SceneTree
 
 # Shot list: [name, seconds after the step starts, camera preset]
 const ROLL_SHOTS := [["roll_1_crumble", 2.2], ["roll_2_curl", 5.0], ["roll_3_lick", 7.5], ["roll_4_twist", 8.6], ["roll_5_tada", 9.35]]
-const SMOKE_SHOTS := [["smoke_1_light", 0.85], ["smoke_2_inhale", 1.5 + 1.2], ["smoke_3_exhale", 1.5 + 3.1]]
+const SMOKE_SHOTS := [["smoke_1_light", 1.15], ["smoke_2_inhale", 2.6 + 1.2], ["smoke_3_exhale", 2.6 + 3.0]]
 
 var _out := "user://"
 var _k
