@@ -33,6 +33,8 @@ func setup(p_forest: Forest) -> void:
 	forest = p_forest
 	rng.seed = ForestLayout.SEED + 999
 	name = "Soundscape"
+	# The forest keeps breathing (muffled) behind the pause menu.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_bed = _flat("wind_leaves", -13.0)
 	_crickets = _flat("crickets", -27.0)
 	# Water sits under the birds and wind, not on top of them. Paired players
@@ -51,6 +53,7 @@ func setup(p_forest: Forest) -> void:
 		p.max_distance = 60.0
 		p.attenuation_filter_cutoff_hz = 6000.0
 		p.attenuation_filter_db = -12.0
+		p.bus = &"Ambience"
 		add_child(p)
 		_calls.append(p)
 	# Sample points along every stretch of running water.
@@ -79,6 +82,7 @@ func _flat(clip: String, db: float) -> AudioStreamPlayer:
 	p.stream = _stream(clip)
 	p.volume_db = db
 	p.autoplay = true
+	p.bus = &"Ambience"
 	add_child(p)
 	return p
 
@@ -91,6 +95,7 @@ func _spatial(clip: String, db: float, unit: float, max_d: float, voice := 0) ->
 	p.max_distance = max_d
 	p.pitch_scale = [1.0, 0.93, 1.06][voice % 3]
 	p.attenuation_filter_cutoff_hz = 6000.0
+	p.bus = &"Ambience"
 	add_child(p)
 	var from := fmod(voice * 0.37 + rng.randf() * 0.2, 1.0) * p.stream.get_length()
 	# The forest may be grown off-screen first; start once the player is live.

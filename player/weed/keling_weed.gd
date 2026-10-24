@@ -1113,6 +1113,7 @@ func _build_props() -> void:
 		v.max_distance = 18.0
 		v.volume_db = -4.0
 		v.attenuation_filter_cutoff_hz = 9000.0
+		v.bus = &"SFX"
 		_rig.add_child(v)
 		_voices.append(v)
 	_crumbs = WeedProps.crumbs(Color(0.5, 0.8, 0.3))

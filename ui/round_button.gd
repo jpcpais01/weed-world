@@ -85,24 +85,6 @@ func _glyph(c: Vector2, s: float, col: Color) -> void:
 			draw_line(c + Vector2(-0.35, -0.95) * s, c + Vector2(-0.35, 0.75) * s, Color(col, 0.6), w * 0.6, true)
 			draw_line(c + Vector2(0.35, -0.7) * s, c + Vector2(0.35, 1.0) * s, Color(col, 0.6), w * 0.6, true)
 			draw_circle(c + Vector2(0.62, -0.25) * s, s * 0.17, HudTheme.GOLD)
-		"notes":
-			# A rolled scroll.
-			var r := Rect2(c + Vector2(-0.75, -0.85) * s, Vector2(1.5, 1.7) * s)
-			draw_rect(r, col, false, w * 0.8, true)
-			for k in 3:
-				var y := -0.4 + k * 0.4
-				draw_line(c + Vector2(-0.42, y) * s, c + Vector2(0.42 - (0.3 if k == 2 else 0.0), y) * s, col, w * 0.6, true)
-			draw_line(c + Vector2(-1.0, -0.85) * s, c + Vector2(1.0, -0.85) * s, col, w * 1.1, true)
-			draw_line(c + Vector2(-1.0, 0.85) * s, c + Vector2(1.0, 0.85) * s, col, w * 1.1, true)
-		"friends":
-			# Two Kelings side by side, the nearer one with a little sprout.
-			var a := c + Vector2(-0.42, 0.05) * s
-			var b := c + Vector2(0.4, -0.08) * s
-			draw_arc(a + Vector2(0, 0.95) * s, s * 0.62, PI * 1.12, PI * 1.88, 16, Color(col, 0.75), w * 0.8, true)
-			draw_circle(a, s * 0.36, Color(col, 0.75), false, w * 0.8, true)
-			draw_arc(b + Vector2(0, 1.05) * s, s * 0.7, PI * 1.12, PI * 1.88, 16, col, w * 0.9, true)
-			draw_circle(b, s * 0.42, col, false, w * 0.9, true)
-			MapIcons.leaf(self, b + Vector2(0, -0.42) * s, Vector2(0.5, -0.86), s * 0.55, s * 0.3, HudTheme.LEAF)
 		"dice":
 			var r := Rect2(c - Vector2(s, s) * 0.85, Vector2(s, s) * 1.7)
 			draw_rect(r, col, false, w * 0.8, true)
@@ -118,3 +100,5 @@ func _glyph(c: Vector2, s: float, col: Color) -> void:
 			MapIcons.star(self, c, s * 0.95, Color(HudTheme.GOLD, 0.9), HudTheme.INK)
 			draw_line(c - Vector2(s, s), c + Vector2(s, s), HudTheme.INK, w * 1.6, true)
 			draw_line(c - Vector2(s, s), c + Vector2(s, s), col if light else HudTheme.BLOSSOM, w * 0.8, true)
+		_:
+			MenuIcons.glyph(self, glyph, c, s, col)

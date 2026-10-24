@@ -94,7 +94,16 @@ func _ready() -> void:
 		set_process(false)
 		return
 	# Hold the forest's voice back until the reveal.
-	AudioServer.set_bus_volume_db(0, -60.0)
+	_fade_audio(0.0)
+
+
+## Fades the whole mix in under the player's own master volume.
+func _fade_audio(f: float) -> void:
+	var settings := get_node_or_null("/root/Settings")
+	if settings:
+		settings.set_master_fade(f)
+	else:
+		AudioServer.set_bus_volume_db(0, linear_to_db(maxf(f, 0.001)))
 
 
 # --- Phases -------------------------------------------------------------------
@@ -295,9 +304,9 @@ func _step_reveal(_delta: float) -> void:
 	var e := t * t * (3.0 - 2.0 * t)
 	_curtain.modulate.a = 1.0 - e
 	_art.scale = Vector2.ONE * (_art_zoom() + e * 0.06)
-	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(e, 0.001)))
+	_fade_audio(e)
 	if t >= 1.0:
-		AudioServer.set_bus_volume_db(0, 0.0)
+		_fade_audio(1.0)
 		_goto(Phase.DONE)
 		finished.emit(_level)
 		print("loading_screen: done in %d ms" % (Time.get_ticks_msec() - _t0))

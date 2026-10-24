@@ -3,8 +3,9 @@ extends CanvasLayer
 ## on phones, key-cap control hints on desktop / gamepad, an FPS / triangle
 ## counter (tap it, or press 0, for where the frame time goes and the debug
 ## readout) and a "What's new"
-## scroll fed by PATCH_NOTES.md, and the "Play together" co-op button, card
-## and join/leave toasts. Everything is built in code
+## scroll fed by PATCH_NOTES.md, the "Play together" co-op button, card
+## and join/leave toasts, and the pause menu with all the settings (Esc,
+## Start, the pause button top left). Everything is built in code
 ## and laid out for a phone first: big touch targets, notch-safe margins.
 
 const PATCH_NOTES := "res://PATCH_NOTES.md"
@@ -45,6 +46,10 @@ var _coop_btn: RoundIconButton
 var _coop: CoopPanel
 var _toasts: CoopToasts
 var _net: Node
+var _pause_btn: RoundIconButton
+var _pause: PauseMenu
+var _settings: Node
+var _music: ForestMusic
 
 
 func _ready() -> void:
@@ -80,6 +85,7 @@ func _ready() -> void:
 	_root.add_child(_world_map)
 
 	_build_coop()
+	_build_pause()
 
 	map_state.waypoint_changed.connect(_on_waypoint_changed)
 	GameInput.input_method_changed.connect(func(_m): _refresh())
@@ -400,7 +406,66 @@ func _draw_coop_badge() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Pause menu and settings
+
+func _build_pause() -> void:
+	_settings = get_node_or_null("/root/Settings")
+	_pause_btn = RoundIconButton.new("pause", 46.0)
+	_pause_btn.tooltip_text = "Menu (Esc)"
+	_pause_btn.pressed.connect(func(): _pause.open())
+	_root.add_child(_pause_btn)
+	# Last, so it hears Esc first (and lets open panels have it).
+	_pause = PauseMenu.new()
+	_pause.hud = self
+	# Not while the level is still loading (it doesn't process yet), nor over
+	# another panel: Esc closes that first.
+	_pause.blocked = func() -> bool:
+		return not can_process() or _world_map.is_open or _coop.is_open or _notes_panel.visible
+	_pause.opened.connect(func():
+		_touch.visible = false
+		_pause_btn.visible = false)
+	_pause.closed.connect(func():
+		_pause_btn.visible = true
+		_touch.visible = GameInput.method == GameInput.Method.TOUCH and not _world_map.is_open and not _notes_panel.visible and not _coop.is_open)
+	_root.add_child(_pause)
+	if _settings:
+		_settings.changed.connect(_on_setting_changed)
+		_settings.bindings_changed.connect(_refresh)
+	_apply_interface()
+
+
+func _on_setting_changed(key: String) -> void:
+	if key == "show_fps" or key == "show_hints":
+		_apply_interface()
+
+
+func _apply_interface() -> void:
+	var fps := _settings == null or bool(_settings.get_value("show_fps"))
+	_stats.visible = fps
+	if not fps and _debug_on:
+		_toggle_debug()
+	_hints_chip.visible = _hints_enabled()
+	_refresh()
+
+
+func _hints_enabled() -> bool:
+	return _settings == null or bool(_settings.get_value("show_hints"))
+
+
+func open_coop() -> void:
+	_coop.open()
+
+
+func is_paused() -> bool:
+	return _pause != null and _pause.is_open
+
+
+# ---------------------------------------------------------------------------
 # Layout
+
+func safe_insets() -> Vector4:
+	return _safe_insets()
+
 
 func _safe_insets() -> Vector4:
 	var win := DisplayServer.window_get_size()
@@ -419,13 +484,14 @@ func _layout() -> void:
 	var right := 22.0 + inset.z
 	var bottom := 22.0 + inset.w
 
+	_pause_btn.position = Vector2(left, top - 2.0)
 	_brand.reset_size()
-	_brand.position = Vector2(left, top)
+	_brand.position = Vector2(left + _pause_btn.size.x + 10.0, top + (_pause_btn.size.y - _brand.size.y) * 0.5 - 2.0)
 	_stats.reset_size()
-	_stats.position = Vector2(left, _brand.position.y + _brand.size.y + 4.0)
+	_stats.position = Vector2(left, maxf(_brand.position.y + _brand.size.y, _pause_btn.position.y + _pause_btn.size.y) + 4.0)
 	_perf.position = Vector2(left + 10.0, _stats.position.y + _stats.size.y + 2.0)
 	_perf.reset_size()
-	var below := _perf.position.y + _perf.size.y + 6.0 if _perf.visible else _stats.position.y + _stats.size.y + 4.0
+	var below := _perf.position.y + _perf.size.y + 6.0 if _perf.visible else (_stats.position.y + _stats.size.y + 4.0 if _stats.visible else _stats.position.y)
 	_debug.position = Vector2(left + 8.0, below)
 
 	var mm := _minimap.size
@@ -455,7 +521,7 @@ func _layout() -> void:
 
 func _refresh() -> void:
 	var touch := GameInput.method == GameInput.Method.TOUCH
-	_touch.visible = touch and not _world_map.is_open and not _notes_panel.visible
+	_touch.visible = touch and not _world_map.is_open and not _notes_panel.visible and not is_paused()
 	for c in _hints_box.get_children():
 		c.queue_free()
 	var rows: Array = []
@@ -467,17 +533,20 @@ func _refresh() -> void:
 			rows = [
 				[[["L"], "move"], [["R"], "camera"], [["LB", "RB"], "zoom"]],
 				[[["A"], "jump"], [["X"], "grab"], [["B"], "sprint"], [["Y"], "map"], [["RT"], "roll · smoke"]],
-				[[["D-pad"], "dance · cheer · sit · nod"], [["View"], "debug"]],
+				[[["D-pad"], "dance · cheer · sit · nod"], [["View"], "debug"], [["Start"], "menu"]],
 			]
 		_:
+			var k := func(a: String) -> String: return _settings.key_label(a) if _settings else a
 			rows = [
-				[[["W", "A", "S", "D"], "move"], [["Shift"], "sprint"], [["C"], "walk"], [["R"], "roll · smoke"]],
-				[[["Space"], "jump"], [["E"], "grab"], [["M"], "map"], [["P"], "play together"], [["Esc"], "free mouse"]],
-				[[["1", "2", "3", "4"], "dance · cheer · sit · nod"], [["0"], "debug"], [["F11"], "fullscreen"]],
+				[[[k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")], "move"],
+					[[k.call("sprint")], "sprint"], [[k.call("walk_toggle")], "walk"], [[k.call("weed")], "roll · smoke"]],
+				[[[k.call("jump")], "jump"], [[k.call("grab")], "grab"], [[k.call("map")], "map"], [[k.call("coop")], "play together"], [["Esc"], "menu"]],
+				[[[k.call("emote_dance"), k.call("emote_cheer"), k.call("emote_sit"), k.call("emote_nod")], "dance · cheer · sit · nod"],
+					[[k.call("toggle_debug")], "debug"], [["F11"], "fullscreen"]],
 			]
 	for r in rows:
 		_hints_box.add_child(_hint_row(r, pad))
-	_hints_open = not rows.is_empty()
+	_hints_open = not rows.is_empty() and _hints_enabled()
 	_hint_timer = 14.0
 	_hints.visible = _hints_open
 	_hints.modulate.a = 1.0
@@ -496,6 +565,11 @@ func _find_forest() -> void:
 	if _forest == null:
 		return
 	_perf.forest = _forest
+	if _settings:
+		_settings.attach_forest(_forest)
+	_music = ForestMusic.new()
+	_music.name = "Music"
+	add_child(_music)
 	map_state.places = MapLandmarks.all(_forest)
 	_minimap.visible = true
 	_area_pill.visible = true
@@ -530,6 +604,7 @@ func _search_forest(n: Node, depth: int) -> Forest:
 func _on_map_opened() -> void:
 	_coop.close()
 	_coop_btn.visible = false
+	_pause_btn.visible = false
 	_touch.visible = false
 	_minimap.visible = false
 	_area_pill.visible = false
@@ -545,9 +620,10 @@ func _on_map_closed() -> void:
 	_minimap.visible = _forest != null
 	_area_pill.visible = _forest != null
 	_hints.visible = _hints_open
-	_hints_chip.visible = true
+	_hints_chip.visible = _hints_enabled()
 	_notes_btn.visible = true
 	_coop_btn.visible = true
+	_pause_btn.visible = true
 
 
 func _on_waypoint_changed() -> void:
@@ -613,7 +689,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("coop") and not _world_map.is_open:
 		if not (get_viewport().gui_get_focus_owner() is LineEdit):
 			_toggle_coop()
-	elif event.is_action_pressed("controls_help") and GameInput.method != GameInput.Method.TOUCH:
+	elif event.is_action_pressed("controls_help") and GameInput.method != GameInput.Method.TOUCH and _hints_enabled():
 		_hints_open = not _hints_open
 		_hint_timer = 14.0 if _hints_open else 0.0
 		_hints.visible = _hints_open
@@ -637,7 +713,7 @@ func _process_timed(delta: float) -> void:
 			if _hints.modulate.a <= 0.0:
 				_hints_open = false
 				_hints.visible = false
-	var chip_target := 0.0 if _hints_open or GameInput.method == GameInput.Method.TOUCH else 1.0
+	var chip_target := 0.0 if _hints_open or GameInput.method == GameInput.Method.TOUCH or not _hints_enabled() else 1.0
 	_hints_chip.modulate.a = move_toward(_hints_chip.modulate.a, chip_target, delta * 2.0)
 
 	if _forest:

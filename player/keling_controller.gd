@@ -1100,6 +1100,34 @@ func apply_net_event(kind: StringName, args: Array) -> void:
 				_bench.release(self)
 			_bench = null
 			_seat = -1
+		&"away":
+			_set_away(bool(args[0]) if args.size() > 0 else false)
+
+
+## A friend has their menu open: a little "taking a break" under their name.
+func _set_away(away: bool) -> void:
+	var note := get_node_or_null("AwayTag") as Label3D
+	if not away:
+		if note:
+			note.queue_free()
+		return
+	if note:
+		return
+	note = Label3D.new()
+	note.name = "AwayTag"
+	note.text = "taking a break · zz"
+	note.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	note.fixed_size = true
+	note.pixel_size = 0.0007
+	note.font = HudTheme.body_font(800)
+	note.font_size = 30
+	note.outline_size = 10
+	note.modulate = Color(HudTheme.CREAM, 0.85)
+	note.outline_modulate = Color(0.04, 0.08, 0.05, 0.75)
+	note.position = Vector3(0, 1.58, 0)
+	note.offset = Vector2(0, -46)
+	note.render_priority = 5
+	add_child(note)
 
 
 func _remote_seat(bench_id: String, seat: int) -> void:
