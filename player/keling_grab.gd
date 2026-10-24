@@ -35,6 +35,8 @@ var side := "Right"
 var target_world := Vector3.ZERO
 ## 0..1 while the hand holds its catch (for the controller to show the sprig).
 var holding := false
+## Whose body this is: the tug back to the chest lands on its chest.
+var body: KelingBody
 
 var _bones := {}
 var _fingers := {}  # side -> finger -> {bones: [..], axis: Vector3 (hand space), splay: float}
@@ -67,8 +69,7 @@ func _setup_fingers(skel: Skeleton3D, s: String) -> void:
 	var mid_dir: Vector3 = (rest.call("MiddleIntermediate").origin - rest.call("MiddleProximal").origin).normalized()
 	var thumb_tip: Vector3 = rest.call("ThumbTip").origin
 	# The palm faces the thumb side: that is where the fingers curl to.
-	var palm: Vector3 = thumb_tip - knuckles
-	palm = (palm - mid_dir * palm.dot(mid_dir)).normalized()
+	var palm := KelingBody.palm_normal(thumb_tip, knuckles, mid_dir, rest.call("IndexProximal").origin, rest.call("RingProximal").origin)
 	_palm_normal[s] = hand_q.inverse() * palm
 	_finger_dir[s] = hand_q.inverse() * (knuckles - rest.call("Hand").origin).normalized()
 	var lateral := palm.cross(mid_dir).normalized()
@@ -173,7 +174,7 @@ func _process_modification_with_delta_timed(delta: float) -> void:
 		_rotate_model(skel, sh, clav_axis.normalized(), clav)
 
 	# Hand path: out to the target (with a small overshoot), then up to the chest.
-	var chest_point := Vector3(0.15 * sgn, 0.74, 0.42)
+	var chest_point := body.fit(Vector3(0.15 * sgn, 0.74, 0.42)) if body else Vector3(0.15 * sgn, 0.74, 0.42)
 	var hand_bone: int = _bones[side + "Hand"]
 	var anim_hand := skel.get_bone_global_pose(hand_bone).origin
 	var reach_dir := (_target_model - anim_hand).normalized()

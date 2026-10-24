@@ -1,8 +1,8 @@
 extends SceneTree
 ## Bakes Quaternius' Universal Animation Library clips (CC0) onto the Keling rig.
 ##
-## Run from the project root:
-##   godot --headless --path . -s res://tools/retarget_animations.gd
+## Run from the project root (the id picks the character, default keling):
+##   godot --headless --path . -s res://tools/retarget_animations.gd -- [blossom|sunflower|lavender|toadstool|keling|all]
 ##
 ## Godot's import-time retargeting rewrites rest poses, which breaks the extra
 ## spring bones we add to the Keling (crown and flower stalks). Instead this tool
@@ -13,8 +13,8 @@ extends SceneTree
 ## onto the Keling "Root" bone so the controller can consume them.
 
 const SOURCE := "res://art_source/ual_keling_clips.glb"
-const TARGET := "res://assets/characters/keling/keling.glb"
-const OUTPUT := "res://assets/characters/keling/keling_animations.res"
+var TARGET := "res://assets/characters/keling/keling.glb"
+var OUTPUT := "res://assets/characters/keling/keling_animations.res"
 const FPS := 30.0
 
 ## Extra outward swing for the arms so the Keling's short arms clear its round
@@ -47,14 +47,14 @@ const ARM_MAX_ELEVATION_DEG := 35.0
 
 ## Trunk profile written by tools/rig_keling.py: hands, forearms and elbows are
 ## pushed out of it so the arms rest on the round belly instead of sinking in.
-const BODY_PROFILE := "res://assets/characters/keling/keling_body.json"
+var BODY_PROFILE := "res://assets/characters/keling/keling_body.json"
 ## Collision radius of each arm part (metres) and how its fix is shared out:
 ## [bone that rotates, [[point bone, along-bone fraction or -1 for origin, radius, weight]...]]
 ## The library's folded arms need a slim chest; the Keling's arms are far too
 ## short to cross over its belly, so they rest on top of it instead: collarbones
 ## forward, forearms laid over the upper belly, hands patting the middle.
-const BELLY_WRIST := Vector3(0.205, 0.665, 0.0)  # z found on the belly surface
-const BELLY_FINGERS := Vector3(0.10, 0.63, 0.0)
+var BELLY_WRIST := Vector3(0.205, 0.665, 0.0)  # z found on the belly surface
+var BELLY_FINGERS := Vector3(0.10, 0.63, 0.0)
 const BELLY_PROTRACT_DEG := 20.0
 const ARM_COLLIDERS := [
 	["UpperArm", [["LowerArm", -1.0, 0.04, 1.0], ["UpperArm", 0.5, 0.045, 1.0], ["Hand", -1.0, 0.035, 0.5]]],
@@ -135,12 +135,32 @@ var descendants := {}  # target bone idx -> [self and every bone below it]
 
 
 func _init() -> void:
+	var ids := OS.get_cmdline_user_args()
+	if ids.is_empty():
+		ids = PackedStringArray(["keling"])
+	elif ids[0] == "all":
+		ids = PackedStringArray(["keling", "blossom", "sunflower", "lavender", "toadstool"])
+	var ok := true
+	for id in ids:
+		ok = _retarget(id) and ok
+	quit(0 if ok else 1)
+
+
+func _retarget(id: String) -> bool:
+	TARGET = "res://assets/characters/%s/%s.glb" % [id, id]
+	OUTPUT = "res://assets/characters/%s/%s_animations.res" % [id, id]
+	BODY_PROFILE = "res://assets/characters/%s/%s_body.json" % [id, id]
+	src_rest_global.clear()
+	tgt_rest_global.clear()
+	align.clear()
+	tgt_to_src.clear()
+	arm_side.clear()
+	descendants.clear()
 	var doc := GLTFDocument.new()
 	var state := GLTFState.new()
 	if doc.append_from_file(ProjectSettings.globalize_path(SOURCE), state) != OK:
 		push_error("cannot read %s" % SOURCE)
-		quit(1)
-		return
+		return false
 	var src_scene: Node = doc.generate_scene(state)
 	src_skel = _find_skeleton(src_scene)
 	var player: AnimationPlayer = src_scene.find_child("AnimationPlayer", true, false)
@@ -169,7 +189,16 @@ func _init() -> void:
 			var is_limb := name.contains("Left") or name.contains("Right")
 			align[ti] = align[p] if (p != -1 and is_limb) else Quaternion.IDENTITY
 
-	body_rows = JSON.parse_string(FileAccess.get_file_as_string(BODY_PROFILE))["rows"]
+	var body: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(BODY_PROFILE))
+	body_rows = body["rows"]
+	if id != "keling":
+		# Hands on the belly where the Keling has them: three quarters of the
+		# way from the hips to the shoulders, 60% of the way out to the side.
+		var hy := tgt_rest_global[tgt_skel.find_bone("Hips")].origin.y as float
+		var sy := tgt_rest_global[tgt_skel.find_bone("LeftUpperArm")].origin.y as float
+		var wy := lerpf(hy, sy, 0.77)
+		BELLY_WRIST = Vector3(_half_width(wy) * 0.62, wy, 0.0)
+		BELLY_FINGERS = Vector3(_half_width(wy - 0.035) * 0.3, wy - 0.035, 0.0)
 	for i in tgt_skel.get_bone_count():
 		descendants[i] = [i]
 	for i in range(tgt_skel.get_bone_count() - 1, -1, -1):
@@ -205,7 +234,15 @@ func _init() -> void:
 	print("saved %s (%s)" % [OUTPUT, error_string(err)])
 	src_scene.free()
 	tgt_scene.free()
-	quit(0 if err == OK else 1)
+	return err == OK
+
+
+func _half_width(h: float) -> float:
+	var best: Array = body_rows[0]
+	for r in body_rows:
+		if absf(r[0] - h) < absf(best[0] - h):
+			best = r
+	return best[1]
 
 
 func _find_skeleton(n: Node) -> Skeleton3D:

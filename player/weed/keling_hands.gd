@@ -112,8 +112,7 @@ func _setup_fingers(skel: Skeleton3D, s: String) -> void:
 	var mid_base: Vector3 = rest.call("MiddleProximal").origin
 	var mid_dir: Vector3 = (rest.call("MiddleIntermediate").origin - mid_base).normalized()
 	var thumb_tip: Vector3 = rest.call("ThumbTip").origin
-	var palm: Vector3 = thumb_tip - knuckles
-	palm = (palm - mid_dir * palm.dot(mid_dir)).normalized()
+	var palm := KelingBody.palm_normal(thumb_tip, knuckles, mid_dir, rest.call("IndexProximal").origin, rest.call("RingProximal").origin)
 	_palm_normal[s] = hand_q.inverse() * palm
 	_finger_dir[s] = hand_q.inverse() * (knuckles - hand_xf.origin).normalized()
 	_fingers[s] = {}

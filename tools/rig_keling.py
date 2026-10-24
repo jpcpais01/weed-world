@@ -518,7 +518,13 @@ def main(src, dst):
     prof[:, 3] = np.minimum(prof[:, 3], -0.12)
     profile = np.round(prof, 4).tolist()
     with open(dst.rsplit(".", 1)[0] + "_body.json", "w") as fh:
-        json.dump({"columns": ["y", "half_width", "front_z", "back_z"], "rows": profile}, fh, indent=0)
+        # Landmarks the rolling choreography was authored against (see
+        # KelingBody), the crown springs and the leg length the gaits use.
+        json.dump({"columns": ["y", "half_width", "front_z", "back_z"], "rows": profile,
+                   "landmarks": {"mouth": [0.0, 0.835, 0.455], "work": [0.0, 0.725, 0.62], "shoulder_l": [0.289, 0.774, 0.149],
+                                 "shoulder_r": [-0.282, 0.774, 0.149], "pouch_l": [0.27, 0.53, 0.34], "pouch_r": [-0.27, 0.53, 0.34]},
+                   "springs": [[c[0], 0.23, 1.1] if c[0] == "Crown_Top" else [c[0], 0.16, 1.5] for c in CHAINS],
+                   "height": 1.7, "leg_length": 0.233}, fh, indent=0)
 
     # Leafy crown + flower stalks: foliage only, never the face.
     front = smoothstep(0.15, 0.30, z)

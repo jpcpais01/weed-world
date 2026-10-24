@@ -53,6 +53,9 @@ signal state_finished(state: StringName)
 var walk_speed := 0.45
 var jog_speed := 1.6
 var sprint_speed := 2.8
+## Natural gait speeds scale with leg length (KelingBody.gait_scale): longer
+## legs cover more ground per step, so they step slower at the same speed.
+var gait_scale := 1.0
 
 var _playback: AnimationNodeStateMachinePlayback
 var _fidget_node: AnimationNodeAnimation
@@ -79,6 +82,14 @@ func configure_speeds(walk: float, jog: float, sprint: float) -> void:
 	gait.set_blend_point_position(1, jog)
 	gait.set_blend_point_position(2, sprint)
 	gait.max_space = sprint + 0.5
+
+
+## Puts another character's clips in (same states, same skeleton layout).
+func set_library(lib: AnimationLibrary) -> void:
+	if has_animation_library(&""):
+		remove_animation_library(&"")
+	add_animation_library(&"", lib)
+	clear_caches()
 
 
 ## Called every physics frame by the controller with the real ground speed.
@@ -166,7 +177,7 @@ func _cadence(speed: float) -> float:
 		w[i + 1] = t
 	var natural := 0.0
 	for i in 3:
-		natural += w[i] * GAIT[names[i]][1]
+		natural += w[i] * GAIT[names[i]][1] * gait_scale
 	# Walk steps can slow right down when easing in; runs never go slow-mo.
 	var floor_scale := lerpf(0.55, 0.85, clampf(inverse_lerp(walk_speed, jog_speed, speed), 0.0, 1.0))
 	return clampf(speed / natural, floor_scale, 2.2)
