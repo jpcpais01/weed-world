@@ -1,5 +1,12 @@
 # Patch notes
 
+## 24 Oct 2026 · 16:55 UTC
+- **Rolling, up close.** When you roll a joint the camera now swings round to the front and leans in on your Keling's hands, then glides back to where you had it once the joint is ready. Move the camera yourself and it stays where you put it.
+- **Real hands at work.** Your Keling now rolls with every finger: it reaches out properly, pinches the paper by its corners between finger and thumb, crumbles the bud with little rubs, walks its fingers along as it rolls, presses the seam and twists the tip, then taps the joint down and shows it off with a jazz hand.
+- **A proper little ritual.** It takes out a bud and gives it a good sniff (hearts!), breaks it up chunk by chunk onto the paper, dusts off its fingers, folds the paper into a taco round the filling, tucks and rolls it shut, gives the gum strip a lick with a cute pink tongue, and a shine runs along the seam as it seals. Ta-da! The finished joint twinkles at its tip.
+- **Paper that curls.** The rolling paper is bigger and bends for real, curling round a log of crumbled bud in the strain's colour, and the glue strip goes glossy once it's licked. Joints read crisp and white in your hand, even in the shade.
+- **Every step sounds right.** New sounds for the pouch, the crinkly paper, the sniff, the crumbling bud, the rolling, the lick, the twist, the tap-taps and the ta-da. Walk off before the lick and you still keep your bud.
+
 ## 24 Oct 2026 · 16:05 UTC
 - **A much lighter forest.** The Whispering Glade now draws well under half the triangles it used to from any spot in the valley, so it runs smoother on phones and laptops alike, without losing its look. Every tree, bush, flower and tuft of grass now picks its own level of detail by how far it is from you, instead of whole patches of forest switching at once, and plants stop drawing the moment they have faded away.
 - **Fuller leaves at a distance.** Faraway crowns and meadows keep their fullness as they simplify: some leaves and grass blades step aside and the rest grow a little to fill the gap, so a distant tree still looks like a leafy tree, not a lumpy blob.

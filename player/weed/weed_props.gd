@@ -1,26 +1,30 @@
 class_name WeedProps
 extends RefCounted
 ## Little hand-held props for rolling and smoking, all built in code: the
-## rolling paper (a sheet that curls itself into a tube in its shader), the
+## rolling paper (a sheet that folds, tucks and rolls itself up in its shader),
+## the log of ground bud inside it, the Keling's tongue for the lick, the
 ## finished joint with its glowing ember, the soft smoke puffs, the crumbs
-## that fall while the bud is broken up, and a fairy-spark lighter flame.
+## that fall while the bud is broken up, glints, little hearts, and a
+## fairy-spark lighter flame.
 
-const PAPER_W := 0.085   ## across the sheet (becomes the joint's girth)
-const PAPER_L := 0.115   ## along the joint
-const JOINT_L := 0.12
-const JOINT_R_TIP := 0.0115   ## the lit end
-const JOINT_R_MOUTH := 0.0065
+const PAPER_W := 0.105   ## across the sheet (becomes the joint's girth)
+const PAPER_L := 0.145   ## along the joint
+const PAPER_R := 0.0115  ## the rolled tube (and the filling log) radius
+const JOINT_L := 0.145
+const JOINT_R_TIP := 0.0135   ## the lit end
+const JOINT_R_MOUTH := 0.0078
 
 static var _soft_dot: GradientTexture2D
 
 
-## A sheet of rolling paper. Its shader curls it round the X axis as `roll`
-## goes 0 -> 1, and fills it with ground bud as `fill` rises.
+## A sheet of rolling paper along X, pivoting on the filling log above its
+## middle. Its shader folds, tucks and rolls it (fold, wrap_a, wrap_b) and
+## scatters crumbs on it (fill).
 static func paper(tint: Color) -> MeshInstance3D:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var nu := 12
-	var nv := 3
+	var nu := 28
+	var nv := 4
 	for j in nv + 1:
 		for i in nu + 1:
 			var u := float(i) / nu
@@ -45,11 +49,108 @@ static func paper(tint: Color) -> MeshInstance3D:
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://player/weed/rolling_paper.gdshader")
 	mat.set_shader_parameter("width", PAPER_W)
+	mat.set_shader_parameter("radius", PAPER_R)
 	mat.set_shader_parameter("fill_color", tint)
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.extra_cull_margin = 0.1
 	return mi
+
+
+## The ground bud: a loose mound on the open paper that gets shaped into a
+## neat log along X (scale it from mound to log). Centred on the paper pivot.
+static func filling(tint: Color) -> Node3D:
+	var log_mesh := CapsuleMesh.new()
+	log_mesh.radius = PAPER_R * 0.86
+	log_mesh.height = PAPER_L * 0.86
+	log_mesh.radial_segments = 10
+	log_mesh.rings = 3
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://player/weed/weed_filling.gdshader")
+	mat.set_shader_parameter("tint", tint)
+	var mi := MeshInstance3D.new()
+	mi.name = "Filling"
+	mi.mesh = log_mesh
+	mi.material_override = mat
+	# The capsule stands on Y; lay it along X.
+	mi.rotation.z = PI * 0.5
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var root := Node3D.new()
+	root.name = "FillingRoot"
+	root.add_child(mi)
+	return root
+
+
+## The Keling's tongue, poking out along +Z from the root (scale Z 0 -> 1).
+static func tongue() -> Node3D:
+	var root := Node3D.new()
+	root.name = "Tongue"
+	var cap := CapsuleMesh.new()
+	cap.radius = 0.016
+	cap.height = 0.06
+	cap.radial_segments = 10
+	cap.rings = 3
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.93, 0.42, 0.5)
+	mat.roughness = 0.35
+	mat.rim_enabled = true
+	mat.rim = 0.4
+	cap.material = mat
+	var mi := MeshInstance3D.new()
+	mi.mesh = cap
+	mi.rotation.x = PI * 0.5
+	mi.position.z = 0.022
+	mi.scale = Vector3(1.0, 1.0, 0.55)  # flatter than round
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(mi)
+	root.visible = false
+	return root
+
+
+## A four-point star glint (billboard, additive): the shine that runs along
+## the seam, the twinkle on the finished joint.
+static func glint(size := 0.05) -> MeshInstance3D:
+	var q := QuadMesh.new()
+	q.size = Vector2.ONE * size
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://player/weed/glint.gdshader")
+	q.material = mat
+	var mi := MeshInstance3D.new()
+	mi.mesh = q
+	mi.name = "Glint"
+	mi.visible = false
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+
+## Little hearts that float up after a good sniff.
+static func hearts() -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	p.name = "Hearts"
+	p.emitting = false
+	p.one_shot = true
+	p.amount = 5
+	p.lifetime = 1.4
+	p.explosiveness = 0.7
+	p.local_coords = false
+	p.direction = Vector3.UP
+	p.spread = 35.0
+	p.initial_velocity_min = 0.18
+	p.initial_velocity_max = 0.3
+	p.gravity = Vector3(0, 0.05, 0)
+	p.damping_min = 0.1
+	p.damping_max = 0.2
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.0
+	p.scale_amount_curve = _grow_curve(0.3, 1.0)
+	p.color_ramp = _fade(0.15, 1.0)
+	var q := QuadMesh.new()
+	q.size = Vector2.ONE * 0.065
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://player/weed/heart.gdshader")
+	q.material = mat
+	p.mesh = q
+	return p
 
 
 ## The rolled joint along +X: the twisted mouth end at the origin, the lit tip
@@ -68,6 +169,12 @@ static func joint(tint: Color) -> Dictionary:
 	mat.roughness = 0.8
 	mat.backlight_enabled = true
 	mat.backlight = tint * 0.5
+	# A touch of glow and rim so the paper reads white, not grey, in shade.
+	mat.emission_enabled = true
+	mat.emission = Color(0.97, 0.94, 0.86) * 0.16
+	mat.rim_enabled = true
+	mat.rim = 0.35
+	mat.rim_tint = 0.6
 	body.material = mat
 	var mi := MeshInstance3D.new()
 	mi.mesh = body
@@ -79,7 +186,7 @@ static func joint(tint: Color) -> Dictionary:
 	var twist := CylinderMesh.new()
 	twist.top_radius = 0.0
 	twist.bottom_radius = JOINT_R_TIP * 0.95
-	twist.height = 0.016
+	twist.height = 0.02
 	twist.radial_segments = 8
 	twist.rings = 1
 	twist.material = mat
@@ -87,13 +194,13 @@ static func joint(tint: Color) -> Dictionary:
 	tw.mesh = twist
 	tw.name = "Twist"
 	tw.rotation.z = -PI * 0.5
-	tw.position.x = JOINT_L + 0.008
+	tw.position.x = JOINT_L + 0.01
 	tw.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(tw)
 	var crutch := CylinderMesh.new()
 	crutch.top_radius = JOINT_R_MOUTH * 1.02
 	crutch.bottom_radius = JOINT_R_MOUTH * 1.02
-	crutch.height = 0.018
+	crutch.height = 0.022
 	crutch.radial_segments = 8
 	crutch.rings = 1
 	var cmat := StandardMaterial3D.new()
@@ -103,7 +210,7 @@ static func joint(tint: Color) -> Dictionary:
 	var cr := MeshInstance3D.new()
 	cr.mesh = crutch
 	cr.rotation.z = -PI * 0.5
-	cr.position.x = 0.009
+	cr.position.x = 0.011
 	cr.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(cr)
 	# The ember: a glowing cap that brightens on every draw.
@@ -237,18 +344,25 @@ static func crumbs(color: Color) -> CPUParticles3D:
 	var p := CPUParticles3D.new()
 	p.name = "Crumbs"
 	p.emitting = false
-	p.amount = 20
-	p.lifetime = 0.45
+	p.amount = 28
+	p.lifetime = 0.32
 	p.local_coords = false
 	p.direction = Vector3.DOWN
-	p.spread = 25.0
+	p.spread = 30.0
 	p.initial_velocity_min = 0.05
-	p.initial_velocity_max = 0.15
-	p.gravity = Vector3(0, -2.2, 0)
-	p.scale_amount_min = 0.5
+	p.initial_velocity_max = 0.18
+	p.gravity = Vector3(0, -2.6, 0)
+	p.angle_min = -180.0
+	p.angle_max = 180.0
+	p.angular_velocity_min = -400.0
+	p.angular_velocity_max = 400.0
+	p.particle_flag_rotate_y = true
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 0.008
+	p.scale_amount_min = 0.35
 	p.scale_amount_max = 1.0
 	var q := BoxMesh.new()
-	q.size = Vector3.ONE * 0.007
+	q.size = Vector3(0.006, 0.004, 0.005)
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.4, 0.62, 0.25).lerp(color, 0.35)
 	mat.roughness = 0.9
@@ -283,6 +397,19 @@ static func sparkles(color: Color, amount := 16, size := 0.03) -> CPUParticles3D
 	q.size = Vector2.ONE * size
 	q.material = _particle_material(Color.WHITE, true)
 	p.mesh = q
+	return p
+
+
+## Star-shaped twinkles for the rolling beats (tint with the particle colour).
+static func stars(color: Color, amount := 12, size := 0.03) -> CPUParticles3D:
+	var p := sparkles(color, amount, size)
+	p.name = "Stars"
+	p.color = color
+	p.angle_min = -30.0
+	p.angle_max = 30.0
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://player/weed/sparkle_star.gdshader")
+	(p.mesh as QuadMesh).material = mat
 	return p
 
 

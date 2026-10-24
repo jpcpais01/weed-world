@@ -41,6 +41,19 @@ var _view_blend := 0.0
 var _view_zoom := 0.0
 var _saved_zoom := 0.0
 var _view_excluded: Array[RID] = []
+# Close-ups (rolling a joint): swing round to the front, close and low.
+var _close_active := false
+var _close_blend := 0.0
+var _close_yaw := 0.0
+var _close_fwd := Vector3.FORWARD
+var _close_moved := false        # the player looked around during the close-up
+var _close_saved := Vector3.ZERO # yaw, pitch, zoom to go back to
+var _returning := false
+const CLOSE_ZOOM := 1.2
+const CLOSE_PITCH := -0.3
+const CLOSE_HEIGHT := 0.74
+const CLOSE_AHEAD := 0.3        # pivot this far in front of the character (its hands)       # pivot at the hands, not the belly
+const CLOSE_FRAME := 0.5
 
 
 func _ready() -> void:
@@ -117,6 +130,29 @@ func frame_view(point: Vector3, view_distance := 4.2, exclude: Array[RID] = []) 
 		arm.add_excluded_object(rid)
 
 
+## Swings round to a front three-quarter close-up of the character (who faces
+## `facing`), for a good look at something in its hands. Manual look still
+## works; end_closeup() glides back to where the camera was.
+func begin_closeup(facing: float) -> void:
+	if not _close_active:
+		_close_saved = Vector3(yaw, pitch, _zoom)
+	_close_active = true
+	_returning = false
+	_close_moved = false
+	# In front, a little off to the character's right (the busy hand).
+	_close_yaw = facing - 0.32
+	_close_fwd = Vector3(sin(facing), 0.0, cos(facing))
+	_since_manual = 99.0
+
+
+func end_closeup() -> void:
+	if not _close_active:
+		return
+	_close_active = false
+	_returning = not _close_moved
+	_zoom = _close_saved.z
+
+
 func release_view() -> void:
 	if not _view_active:
 		return
@@ -174,13 +210,33 @@ func _process(delta: float) -> void:
 		yaw = lerp_angle(yaw, behind, t)
 		pitch = lerpf(pitch, deg_to_rad(-20.0), t * 0.5)
 
-	if _view_active:
-		_frame_view(delta)
+	if _close_active:
+		if _since_manual < 0.1:
+			_close_moved = true
+		_close_blend = move_toward(_close_blend, 1.0, delta * 1.4)
+		var k := 1.0 - exp(-(2.6 if _since_manual > 2.5 else 0.0) * delta)
+		yaw = lerp_angle(yaw, _close_yaw, k)
+		pitch = lerpf(pitch, CLOSE_PITCH, k)
+		_zoom = lerpf(_zoom, CLOSE_ZOOM, 1.0 - exp(-2.2 * delta))
 	else:
+		_close_blend = move_toward(_close_blend, 0.0, delta * 1.1)
+		if _returning:
+			if _since_manual < 0.1 or flat_speed > 0.4:
+				_returning = false
+			else:
+				var k := 1.0 - exp(-2.4 * delta)
+				yaw = lerp_angle(yaw, _close_saved.x, k)
+				pitch = lerpf(pitch, _close_saved.y, k)
+				if absf(wrapf(yaw - _close_saved.x, -PI, PI)) < 0.01:
+					_returning = false
+	if _view_active and not _close_active:
+		_frame_view(delta)
+	elif not _view_active:
 		_view_blend = move_toward(_view_blend, 0.0, delta * 0.8)
 
 	# Smooth follow: stiffer vertically when falling so we don't lose the player.
-	var focus_target := target_pos + Vector3.UP * target_height
+	var cb := smoothstep(0.0, 1.0, _close_blend)
+	var focus_target := target_pos + Vector3.UP * lerpf(target_height, CLOSE_HEIGHT * _target_scale(), cb) + _close_fwd * CLOSE_AHEAD * _target_scale() * cb
 	var k := 1.0 - exp(-follow_lag * delta)
 	var ky := 1.0 - exp(-(follow_lag * (2.0 if vel.y < -6.0 else 0.6)) * delta)
 	_focus.x = lerpf(_focus.x, focus_target.x, k)
@@ -194,7 +250,7 @@ func _process(delta: float) -> void:
 	var sprinting := flat_speed > 2.0
 	var fov_target := base_fov + (6.0 if sprinting else 0.0) + 5.0 * smoothstep(0.0, 1.0, _view_blend)
 	camera.fov = lerpf(camera.fov, fov_target, 1.0 - exp(-(1.2 if _view_active else 3.0) * delta))
-	camera.rotation.x = _frame_tilt()
+	camera.rotation.x = _frame_tilt(lerpf(frame_height, CLOSE_FRAME, cb))
 
 	if _shake > 0.001:
 		_shake_t += delta * 40.0
@@ -207,8 +263,15 @@ func _process(delta: float) -> void:
 
 
 ## Upward tilt of the camera off the arm that puts the pivot at frame_height.
-func _frame_tilt() -> float:
-	return atan((1.0 - 2.0 * frame_height) * tan(deg_to_rad(camera.fov) * 0.5))
+func _frame_tilt(at := -1.0) -> float:
+	var fh := frame_height if at < 0.0 else at
+	return atan((1.0 - 2.0 * fh) * tan(deg_to_rad(camera.fov) * 0.5))
+
+
+## The character's visual scale (a giant Keling gets a higher close-up).
+func _target_scale() -> float:
+	var v = _target.get("visual") if _target else null
+	return (v as Node3D).scale.y if v is Node3D else 1.0
 
 
 func _frame_view(delta: float) -> void:
