@@ -65,6 +65,16 @@ func set_yaw(value: float) -> void:
 	yaw = value
 
 
+## Jumps straight to the target with no follow lag (after a teleport).
+func snap() -> void:
+	if _target == null:
+		return
+	_focus = _target.global_position + Vector3.UP * target_height
+	global_position = _focus
+	rotation = Vector3(pitch, yaw, 0.0)
+	reset_physics_interpolation()
+
+
 ## Yaw-only basis used to make movement camera relative.
 func get_flat_basis() -> Basis:
 	return Basis(Vector3.UP, yaw)

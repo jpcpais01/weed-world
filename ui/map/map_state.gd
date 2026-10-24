@@ -53,6 +53,8 @@ static func players(tree: SceneTree) -> Array[Dictionary]:
 		var idx = n.get("player_index")
 		var index: int = idx if idx != null else i
 		var nm = n.get("player_name")
+		if nm is String and (nm == "" or n.get("is_local") == true):
+			nm = null
 		var local: bool = n.get("is_local") if has_local_flag else i == 0
 		out.append({
 			"node": n, "pos": Vector2(p.x, p.z), "heading": atan2(sin(facing), -cos(facing)),

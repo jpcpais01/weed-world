@@ -94,6 +94,26 @@ func _glyph(c: Vector2, s: float, col: Color) -> void:
 				draw_line(c + Vector2(-0.42, y) * s, c + Vector2(0.42 - (0.3 if k == 2 else 0.0), y) * s, col, w * 0.6, true)
 			draw_line(c + Vector2(-1.0, -0.85) * s, c + Vector2(1.0, -0.85) * s, col, w * 1.1, true)
 			draw_line(c + Vector2(-1.0, 0.85) * s, c + Vector2(1.0, 0.85) * s, col, w * 1.1, true)
+		"friends":
+			# Two Kelings side by side, the nearer one with a little sprout.
+			var a := c + Vector2(-0.42, 0.05) * s
+			var b := c + Vector2(0.4, -0.08) * s
+			draw_arc(a + Vector2(0, 0.95) * s, s * 0.62, PI * 1.12, PI * 1.88, 16, Color(col, 0.75), w * 0.8, true)
+			draw_circle(a, s * 0.36, Color(col, 0.75), false, w * 0.8, true)
+			draw_arc(b + Vector2(0, 1.05) * s, s * 0.7, PI * 1.12, PI * 1.88, 16, col, w * 0.9, true)
+			draw_circle(b, s * 0.42, col, false, w * 0.9, true)
+			MapIcons.leaf(self, b + Vector2(0, -0.42) * s, Vector2(0.5, -0.86), s * 0.55, s * 0.3, HudTheme.LEAF)
+		"dice":
+			var r := Rect2(c - Vector2(s, s) * 0.85, Vector2(s, s) * 1.7)
+			draw_rect(r, col, false, w * 0.8, true)
+			for k in [-0.45, 0.0, 0.45]:
+				draw_circle(c + Vector2(k, k) * s, s * 0.15, col)
+		"copy":
+			var back := Rect2(c + Vector2(-0.8, -0.8) * s, Vector2(1.15, 1.25) * s)
+			var front := Rect2(c + Vector2(-0.3, -0.4) * s, Vector2(1.15, 1.25) * s)
+			draw_rect(back, Color(col, 0.6), false, w * 0.7, true)
+			draw_rect(front, Color(HudTheme.INK if light else HudTheme.GLASS, 1.0), true)
+			draw_rect(front, col, false, w * 0.8, true)
 		"pin_off":
 			MapIcons.star(self, c, s * 0.95, Color(HudTheme.GOLD, 0.9), HudTheme.INK)
 			draw_line(c - Vector2(s, s), c + Vector2(s, s), HudTheme.INK, w * 1.6, true)

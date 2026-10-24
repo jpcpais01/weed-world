@@ -2,7 +2,8 @@ extends CanvasLayer
 ## In-game HUD: the minimap and world map, place-name banners, touch controls
 ## on phones, key-cap control hints on desktop / gamepad, an FPS / triangle
 ## counter (tap it, or press 0, for the debug readout) and a "What's new"
-## scroll fed by PATCH_NOTES.md. Everything is built in code
+## scroll fed by PATCH_NOTES.md, and the "Play together" co-op button, card
+## and join/leave toasts. Everything is built in code
 ## and laid out for a phone first: big touch targets, notch-safe margins.
 
 const PATCH_NOTES := "res://PATCH_NOTES.md"
@@ -38,6 +39,10 @@ var _current_place := ""
 var _place_seen := {}            ## place id -> time it was last announced
 var _clock := 0.0
 var _notes_hash := ""
+var _coop_btn: RoundIconButton
+var _coop: CoopPanel
+var _toasts: CoopToasts
+var _net: Node
 
 
 func _ready() -> void:
@@ -71,6 +76,8 @@ func _ready() -> void:
 	_world_map.opened.connect(_on_map_opened)
 	_world_map.closed.connect(_on_map_closed)
 	_root.add_child(_world_map)
+
+	_build_coop()
 
 	map_state.waypoint_changed.connect(_on_waypoint_changed)
 	GameInput.input_method_changed.connect(func(_m): _refresh())
@@ -334,6 +341,50 @@ func _toggle_notes() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Co-op
+
+func _build_coop() -> void:
+	_net = get_node_or_null("/root/Net")
+	_toasts = CoopToasts.new()
+	_root.add_child(_toasts)
+	_coop_btn = RoundIconButton.new("friends", 52.0)
+	_coop_btn.tooltip_text = "Play together"
+	_coop_btn.pressed.connect(_toggle_coop)
+	_coop_btn.draw.connect(_draw_coop_badge)
+	_root.add_child(_coop_btn)
+	_coop = CoopPanel.new()
+	_coop.opened.connect(func():
+		_world_map.close()
+		if _notes_panel.visible:
+			_toggle_notes()
+		_touch.visible = false)
+	_coop.closed.connect(func(): _touch.visible = GameInput.method == GameInput.Method.TOUCH and not _world_map.is_open and not _notes_panel.visible)
+	_root.add_child(_coop)
+	if _net:
+		_net.notice.connect(_toasts.push)
+		_net.roster_changed.connect(_coop_btn.queue_redraw)
+		_net.status_changed.connect(_coop_btn.queue_redraw)
+
+
+func _toggle_coop() -> void:
+	_coop.toggle()
+
+
+## How many Kelings are here, on the co-op button, once a forest is open.
+func _draw_coop_badge() -> void:
+	if _net == null or not _net.online:
+		return
+	var n: int = _net.players().size()
+	var c := Vector2(_coop_btn.size.x - 8.0, 8.0)
+	_coop_btn.draw_circle(c, 11.0, HudTheme.LEAF)
+	_coop_btn.draw_arc(c, 11.0, 0, TAU, 20, HudTheme.INK, 1.8, true)
+	var f := HudTheme.title_font(650)
+	var t := str(n)
+	var w := f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+	_coop_btn.draw_string(f, c + Vector2(-w * 0.5, 5.5), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, HudTheme.INK)
+
+
+# ---------------------------------------------------------------------------
 # Layout
 
 func _safe_insets() -> Vector4:
@@ -371,6 +422,9 @@ func _layout() -> void:
 	else:
 		_notes_btn.position = Vector2(s.x - right - nb.x, top)
 
+	_coop_btn.position = _notes_btn.position + Vector2((nb.x - _coop_btn.size.x) * 0.5, nb.y + 12.0)
+	_toasts.top_margin = top + 2.0
+
 	_hints.reset_size()
 	_hints.position = Vector2(left, s.y - bottom - _hints.size.y)
 	_hints_chip.reset_size()
@@ -400,7 +454,7 @@ func _refresh() -> void:
 		_:
 			rows = [
 				[[["W", "A", "S", "D"], "move"], [["Shift"], "sprint"], [["C"], "walk"], [["R"], "roll · smoke"]],
-				[[["Space"], "jump"], [["E"], "grab"], [["M"], "map"], [["Esc"], "free mouse"]],
+				[[["Space"], "jump"], [["E"], "grab"], [["M"], "map"], [["P"], "play together"], [["Esc"], "free mouse"]],
 				[[["1", "2", "3", "4"], "dance · cheer · sit · nod"], [["0"], "debug"], [["F11"], "fullscreen"]],
 			]
 	for r in rows:
@@ -455,6 +509,8 @@ func _search_forest(n: Node, depth: int) -> Forest:
 
 
 func _on_map_opened() -> void:
+	_coop.close()
+	_coop_btn.visible = false
 	_touch.visible = false
 	_minimap.visible = false
 	_area_pill.visible = false
@@ -472,6 +528,7 @@ func _on_map_closed() -> void:
 	_hints.visible = _hints_open
 	_hints_chip.visible = true
 	_notes_btn.visible = true
+	_coop_btn.visible = true
 
 
 func _on_waypoint_changed() -> void:
@@ -534,6 +591,9 @@ func _store_setting(key: String, value: Variant) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
 		_toggle_debug()
+	elif event.is_action_pressed("coop") and not _world_map.is_open:
+		if not (get_viewport().gui_get_focus_owner() is LineEdit):
+			_toggle_coop()
 	elif event.is_action_pressed("controls_help") and GameInput.method != GameInput.Method.TOUCH:
 		_hints_open = not _hints_open
 		_hint_timer = 14.0 if _hints_open else 0.0
@@ -567,6 +627,6 @@ func _process(delta: float) -> void:
 		var tris := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
 		_stats.text = "%d FPS  ·  %s triangles" % [Engine.get_frames_per_second(), _short(tris)]
 	if _debug_on:
-		var player := get_tree().get_first_node_in_group("player")
+		var player := get_tree().get_first_node_in_group("local_player")
 		if player and player.has_method("get_debug_text"):
 			_debug.text = player.get_debug_text()

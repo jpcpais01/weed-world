@@ -151,14 +151,14 @@ func _press_button(finger: int, id: String) -> void:
 		"emote":
 			_emote_open = not _emote_open
 		"grab":
-			var player := get_tree().get_first_node_in_group("player")
+			var player := get_tree().get_first_node_in_group("local_player")
 			if player and player.has_method("try_grab"):
 				player.try_grab()
 			Input.vibrate_handheld(10)
 		_:
 			if id.begins_with("emote_"):
 				var i := int(id.get_slice("_", 1))
-				var player := get_tree().get_first_node_in_group("player")
+				var player := get_tree().get_first_node_in_group("local_player")
 				if player and player.has_method("play_emote"):
 					player.play_emote(EMOTES[i][0])
 				_emote_open = false
