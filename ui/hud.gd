@@ -3,7 +3,8 @@ extends CanvasLayer
 ## on phones, key-cap control hints on desktop / gamepad, an FPS / triangle
 ## counter (tap it, or press 0, for where the frame time goes and the debug
 ## readout) and a "What's new"
-## scroll fed by PATCH_NOTES.md, the "Play together" co-op button, card
+## scroll fed by PATCH_NOTES.md, the "Play together" co-op button, the
+## "Choose your Keling" button (T) with its picker, card
 ## and join/leave toasts, and the pause menu with all the settings (Esc,
 ## Start, the pause button top left). Everything is built in code
 ## and laid out for a phone first: big touch targets, notch-safe margins.
@@ -47,6 +48,8 @@ var _coop: CoopPanel
 var _toasts: CoopToasts
 var _net: Node
 var _pause_btn: RoundIconButton
+var _char_btn: RoundIconButton
+var _picker: CharacterPicker
 var _pause: PauseMenu
 var _settings: Node
 var _music: ForestMusic
@@ -85,6 +88,7 @@ func _ready() -> void:
 	_root.add_child(_world_map)
 
 	_build_coop()
+	_build_picker()
 	_build_pause()
 
 	map_state.waypoint_changed.connect(_on_waypoint_changed)
@@ -376,6 +380,8 @@ func _build_coop() -> void:
 	_coop = CoopPanel.new()
 	_coop.opened.connect(func():
 		_world_map.close()
+		if _picker:
+			_picker.close()
 		if _notes_panel.visible:
 			_toggle_notes()
 		_touch.visible = false)
@@ -406,6 +412,56 @@ func _draw_coop_badge() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Choose your Keling
+
+func _build_picker() -> void:
+	_char_btn = RoundIconButton.new("swap", 52.0)
+	_char_btn.tooltip_text = "Choose your Keling"
+	_char_btn.pressed.connect(_toggle_picker)
+	_root.add_child(_char_btn)
+	_picker = CharacterPicker.new()
+	_picker.blocked_reason = _morph_blocked
+	_picker.opened.connect(func():
+		_world_map.close()
+		_coop.close()
+		if _notes_panel.visible:
+			_toggle_notes()
+		_touch.visible = false)
+	_picker.closed.connect(func(): _touch.visible = GameInput.method == GameInput.Method.TOUCH and not _world_map.is_open and not _notes_panel.visible and not _coop.is_open)
+	_picker.chosen.connect(func(id: String):
+		var me := get_tree().get_first_node_in_group("local_player")
+		if me and me.has_method("morph_to"):
+			me.morph_to(id))
+	_root.add_child(_picker)
+
+
+func open_picker() -> void:
+	if not _picker.is_open:
+		_toggle_picker()
+
+
+func _toggle_picker() -> void:
+	var me := get_tree().get_first_node_in_group("local_player")
+	_picker.toggle(String(me.get("character_id")) if me else KelingCharacters.DEFAULT)
+
+
+## Why the local Keling can't transform right now ("" when it can).
+func _morph_blocked() -> String:
+	var me := get_tree().get_first_node_in_group("local_player")
+	if me == null or not me.has_method("can_morph"):
+		return "No Keling here yet"
+	if me.can_morph():
+		return ""
+	if me.morph != null:
+		return "Transforming..."
+	if me.weed and me.weed.busy():
+		return "Finish what's in your hands first"
+	if me.is_sitting():
+		return "Hop off the bench first"
+	return "Stand on the ground first"
+
+
+# ---------------------------------------------------------------------------
 # Pause menu and settings
 
 func _build_pause() -> void:
@@ -420,13 +476,13 @@ func _build_pause() -> void:
 	# Not while the level is still loading (it doesn't process yet), nor over
 	# another panel: Esc closes that first.
 	_pause.blocked = func() -> bool:
-		return not can_process() or _world_map.is_open or _coop.is_open or _notes_panel.visible
+		return not can_process() or _world_map.is_open or _coop.is_open or _notes_panel.visible or _picker.is_open
 	_pause.opened.connect(func():
 		_touch.visible = false
 		_pause_btn.visible = false)
 	_pause.closed.connect(func():
 		_pause_btn.visible = true
-		_touch.visible = GameInput.method == GameInput.Method.TOUCH and not _world_map.is_open and not _notes_panel.visible and not _coop.is_open)
+		_touch.visible = GameInput.method == GameInput.Method.TOUCH and not _world_map.is_open and not _notes_panel.visible and not _coop.is_open and not _picker.is_open)
 	_root.add_child(_pause)
 	if _settings:
 		_settings.changed.connect(_on_setting_changed)
@@ -507,6 +563,7 @@ func _layout() -> void:
 		_notes_btn.position = Vector2(s.x - right - nb.x, top)
 
 	_coop_btn.position = _notes_btn.position + Vector2((nb.x - _coop_btn.size.x) * 0.5, nb.y + 12.0)
+	_char_btn.position = _coop_btn.position + Vector2((_coop_btn.size.x - _char_btn.size.x) * 0.5, _coop_btn.size.y + 12.0)
 	_toasts.top_margin = top + 2.0
 
 	_hints.reset_size()
@@ -540,9 +597,11 @@ func _refresh() -> void:
 			rows = [
 				[[[k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")], "move"],
 					[[k.call("sprint")], "sprint"], [[k.call("walk_toggle")], "walk"], [[k.call("weed")], "roll · smoke"]],
-				[[[k.call("jump")], "jump"], [[k.call("grab")], "grab"], [[k.call("map")], "map"], [[k.call("coop")], "play together"], [["Esc"], "menu"]],
+				[[[k.call("jump")], "jump"], [[k.call("grab")], "grab"], [[k.call("map")], "map"], [["Esc"], "menu"]],
 				[[[k.call("emote_dance"), k.call("emote_cheer"), k.call("emote_sit"), k.call("emote_nod")], "dance · cheer · sit · nod"],
 					[[k.call("toggle_debug")], "debug"], [["F11"], "fullscreen"]],
+				# Kept short so the panel stays clear of the centred action prompt.
+				[[[k.call("coop")], "play together"], [[k.call("character")], "change keling"]],
 			]
 	for r in rows:
 		_hints_box.add_child(_hint_row(r, pad))
@@ -603,7 +662,9 @@ func _search_forest(n: Node, depth: int) -> Forest:
 
 func _on_map_opened() -> void:
 	_coop.close()
+	_picker.close()
 	_coop_btn.visible = false
+	_char_btn.visible = false
 	_pause_btn.visible = false
 	_touch.visible = false
 	_minimap.visible = false
@@ -623,6 +684,7 @@ func _on_map_closed() -> void:
 	_hints_chip.visible = _hints_enabled()
 	_notes_btn.visible = true
 	_coop_btn.visible = true
+	_char_btn.visible = true
 	_pause_btn.visible = true
 
 
@@ -689,6 +751,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("coop") and not _world_map.is_open:
 		if not (get_viewport().gui_get_focus_owner() is LineEdit):
 			_toggle_coop()
+	elif event.is_action_pressed("character") and not _world_map.is_open and not is_paused():
+		if not (get_viewport().gui_get_focus_owner() is LineEdit):
+			_toggle_picker()
 	elif event.is_action_pressed("controls_help") and GameInput.method != GameInput.Method.TOUCH and _hints_enabled():
 		_hints_open = not _hints_open
 		_hint_timer = 14.0 if _hints_open else 0.0

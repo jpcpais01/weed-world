@@ -107,16 +107,29 @@ var _prompt_tick := 0.0
 var _prompt_bud: WeedBud
 var _joint_hidden := 0.0
 var _remote_element: StringName = &"none"
+## Whose body the hands are on. The choreography was authored on the
+## original Keling; its landmarks and key tracks are fitted to this body.
+var body: KelingBody
+var _mouth := MOUTH
+var _tray_l := TRAY_L
+var _hold_r := HOLD_R
+var _swim_hold_r := SWIM_HOLD_R
+var _to_mouth_r := TO_MOUTH_R
+var _w0 := W0
+var _to_mouth_front_r := TO_MOUTH_FRONT_R
+var _nose := NOSE
+var _light_ready := Vector3(0.13, 0.74, 0.54)
+var _light_rest := Vector3(0.16, 0.7, 0.5)
+var _r_keys: Array = R_KEYS
+var _l_keys: Array = L_KEYS
 
 
 func setup(p_keling: KelingController, skeleton: Skeleton3D) -> void:
 	keling = p_keling
 	_skel = skeleton
 	name = "Weed"
-	hands = KelingHands.new()
-	hands.name = "Hands"
-	_skel.add_child(hands)
-	hands.modification_processed.connect(_place_props)
+	_fit_body(p_keling.get("body") if p_keling.get("body") is KelingBody else KelingCharacters.body(KelingCharacters.DEFAULT))
+	_add_hands()
 	_rig = Node3D.new()
 	_rig.name = "WeedProps"
 	_skel.add_child(_rig)
@@ -127,6 +140,52 @@ func setup(p_keling: KelingController, skeleton: Skeleton3D) -> void:
 	keling.grabbed.connect(_on_grabbed)
 	_build_props()
 	_load()
+
+
+func _add_hands() -> void:
+	hands = KelingHands.new()
+	hands.name = "Hands"
+	_skel.add_child(hands)
+	hands.modification_processed.connect(_place_props)
+
+
+## Moves the hands and props onto another character's skeleton (the player
+## swapped Keling). Only while nothing is in the hands.
+func rebind(skeleton: Skeleton3D, p_body: KelingBody) -> void:
+	_stop_act()
+	hands.queue_free()
+	_skel = skeleton
+	_fit_body(p_body)
+	_add_hands()
+	_rig.reparent(_skel, false)
+	_bind_mouth()
+
+
+func _fit_body(b: KelingBody) -> void:
+	body = b
+	_mouth = b.fit(MOUTH)
+	_tray_l = b.fit(TRAY_L)
+	_hold_r = b.fit(HOLD_R)
+	_swim_hold_r = b.fit(SWIM_HOLD_R)
+	_to_mouth_r = b.fit(TO_MOUTH_R)
+	_w0 = b.fit(W0)
+	_to_mouth_front_r = b.fit(TO_MOUTH_FRONT_R)
+	_nose = b.fit(NOSE)
+	_light_ready = b.fit(Vector3(0.13, 0.74, 0.54))
+	_light_rest = b.fit(Vector3(0.16, 0.7, 0.5))
+	_r_keys = _fit_keys(R_KEYS)
+	_l_keys = _fit_keys(L_KEYS)
+
+
+func _fit_keys(track: Array) -> Array:
+	if body.identity:
+		return track
+	var out := []
+	for k in track:
+		var f: Array = k.duplicate()
+		f[1] = body.fit(k[1])
+		out.append(f)
+	return out
 
 
 func _ready() -> void:
@@ -651,8 +710,8 @@ func _pose_roll() -> void:
 	var t := act_t
 	var bd := hands.body_delta
 	var w_in := _e(0.0, 0.45)
-	var r := _keys(R_KEYS, t, "Right")
-	var l := _keys(L_KEYS, t, "Left")
+	var r := _keys(_r_keys, t, "Right")
+	var l := _keys(_l_keys, t, "Left")
 	var r_off := Vector3.ZERO
 	var l_off := Vector3.ZERO
 	var rf: Dictionary = r.f
@@ -911,7 +970,7 @@ func _roll_events(t: float, bd: Vector3) -> void:
 	if _event("sniff", 0.96):
 		_sfx("sniff")
 	if _event("hearts", 1.36):
-		_hearts.position = MOUTH + bd + Vector3(0.0, 0.08, 0.06)
+		_hearts.position = _mouth + bd + Vector3(0.0, 0.08, 0.06)
 		_hearts.restart()
 		_hearts.emitting = true
 		_sfx("happy")
@@ -985,10 +1044,10 @@ func _pose_smoke() -> void:
 		m = _e(0.0, 0.5) * (1.0 - _e(1.55, 1.95))
 
 	# The right hand brings the joint to the lips, filter first.
-	var rg := HOLD_R.lerp(TO_MOUTH_R.lerp(TO_MOUTH_FRONT_R, forward), m)
+	var rg := _hold_r.lerp(_to_mouth_r.lerp(_to_mouth_front_r, forward), m)
 	_arm("Right", rg, 1.0, P_WRIST, Vector3(0.0, 0.3, 1.0).lerp(Vector3(0.6, 0.25, 1.0), m), Vector3(1.0, 0.3, 0.0), "hold")
 	var g := hands.grip_point("Right")
-	var at_mouth := MOUTH + bd
+	var at_mouth := _mouth + bd
 	var out := MOUTH_OUT.normalized().lerp(LIGHT_OUT.normalized(), forward)
 	var dir := _hold_dir().lerp(out, m).normalized()
 	_set_joint(g.lerp(at_mouth, m), dir)
@@ -1004,9 +1063,9 @@ func _pose_smoke() -> void:
 		var draws := _pulse(t, 0.88, 0.13) + _pulse(t, 1.18, 0.13) + _pulse(t, 1.48, 0.13)
 		var shake := _e(1.62, 1.66) * (1.0 - _e(1.86, 1.96))
 		var catch := _e(0.85, 1.55)
-		var ready := Vector3(0.13, 0.74, 0.54) + bd
+		var ready := _light_ready + bd
 		var under := tip + Vector3(0.012, -0.062, 0.004)
-		var goal := ready.lerp(under, _e(0.52, 0.74)).lerp(Vector3(0.16, 0.7, 0.5) + bd, _e(1.62, 1.95))
+		var goal := ready.lerp(under, _e(0.52, 0.74)).lerp(_light_rest + bd, _e(1.62, 1.95))
 		goal += Vector3(sin(t * 46.0) * 0.016 * shake, 0.002 * sin(t * 11.0) * _e(0.7, 0.8), 0.0)
 		_arm("Left", goal, lw, P_PINCH, Vector3(-0.35, 0.6, 1.0), Vector3(-1.0, -0.2, -0.2), {"curl": 0.2, "index": 0.22, "middle": 0.5, "ring": 0.7, "pinch": 1.0 - 0.7 * flick, "rub": flick, "wiggle": 0.4 * shake})
 		var flame_at := hands.pinch_point("Left") + Vector3(0.0, 0.008, 0.0)
@@ -1038,7 +1097,7 @@ func _pose_smoke() -> void:
 		if _event("light_exhale", 1.95):
 			_sfx("exhale", 1.25)
 	else:
-		_arm("Left", TRAY_L, 0.0)
+		_arm("Left", _tray_l, 0.0)
 		# Draw deep (the ember flares and crackles), lower the joint, hold
 		# it in for a moment, then tip the head back and let it roll out.
 		var inhale := _e(0.5, 1.5)
@@ -1086,7 +1145,7 @@ func _exhale_stream(rig: Transform3D, dt: float, rate: float, speed: float, size
 
 func _mouth_xf() -> Transform3D:
 	if _head_bone < 0:
-		return Transform3D(Basis.looking_at(Vector3(0.0, -0.35, 1.0), Vector3.UP, true), MOUTH + hands.body_delta)
+		return Transform3D(Basis.looking_at(Vector3(0.0, -0.35, 1.0), Vector3.UP, true), _mouth + hands.body_delta)
 	return _skel.get_bone_global_pose(_head_bone) * _mouth_local
 
 
@@ -1115,6 +1174,20 @@ func _apply_burn(k: float) -> void:
 	body.position.x = WeedProps.JOINT_L * k * 0.5
 	(_joint.ember as Node3D).position.x = WeedProps.JOINT_L * k
 	(_joint.twist as Node3D).position.x = WeedProps.JOINT_L * k + 0.01
+
+
+## The tongue comes out of the mouth and turns with the head.
+func _bind_mouth() -> void:
+	_head_bone = _skel.find_bone("Head")
+	_nose_local.clear()
+	if _head_bone >= 0:
+		var head_rest := _skel.get_bone_global_rest(_head_bone)
+		var mouth := Transform3D(Basis.looking_at(Vector3(0.0, -0.35, 1.0), Vector3.UP, true), _mouth + Vector3(0.0, -0.004, -0.012))
+		_mouth_local = head_rest.affine_inverse() * mouth
+		# The nostrils, under the nose, breathing out down and away.
+		for sx in [-1.0, 1.0]:
+			var nose := Transform3D(Basis.looking_at(Vector3(sx * 0.45, -0.75, 0.55), Vector3.UP, true), _nose + Vector3(sx * NOSTRIL_X, 0.0, 0.0))
+			_nose_local.append(head_rest.affine_inverse() * nose)
 
 
 func _pulse(t: float, at: float, width: float) -> float:
@@ -1178,7 +1251,7 @@ func _place_props() -> void:
 func _pose_rest() -> void:
 	var w := _hold
 	_swim_hold = move_toward(_swim_hold, 1.0 if keling.mode == KelingController.Mode.SWIM else 0.0, 0.04)
-	var goal := HOLD_R.lerp(SWIM_HOLD_R, smoothstep(0.0, 1.0, _swim_hold))
+	var goal := _hold_r.lerp(_swim_hold_r, smoothstep(0.0, 1.0, _swim_hold))
 	_arm("Right", goal, w * 0.9, P_WRIST, Vector3(0.0, 0.3 + 0.5 * _swim_hold, 1.0), Vector3(1.0, 0.3, 0.0), "hold")
 	var l: Dictionary = hands.arms["Left"]
 	l.w = move_toward(l.w, 0.0, 0.05)
@@ -1218,16 +1291,7 @@ func _build_props() -> void:
 	_rig.add_child(_hearts)
 	var aabb := WeedKit.bud_mesh().get_aabb()
 	_bud_radius = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * 0.5
-	# The tongue comes out of the mouth and turns with the head.
-	_head_bone = _skel.find_bone("Head")
-	if _head_bone >= 0:
-		var head_rest := _skel.get_bone_global_rest(_head_bone)
-		var mouth := Transform3D(Basis.looking_at(Vector3(0.0, -0.35, 1.0), Vector3.UP, true), MOUTH + Vector3(0.0, -0.004, -0.012))
-		_mouth_local = head_rest.affine_inverse() * mouth
-		# The nostrils, under the big round nose, breathing out down and away.
-		for sx in [-1.0, 1.0]:
-			var nose := Transform3D(Basis.looking_at(Vector3(sx * 0.45, -0.75, 0.55), Vector3.UP, true), NOSE + Vector3(sx * NOSTRIL_X, 0.0, 0.0))
-			_nose_local.append(head_rest.affine_inverse() * nose)
+	_bind_mouth()
 	for i in 3:
 		var v := AudioStreamPlayer3D.new()
 		v.name = "WeedSfx%d" % i
@@ -1273,7 +1337,7 @@ func _sfx(clip: String, pitch := 1.0) -> void:
 		return
 	var v := _voices[_voice]
 	_voice = (_voice + 1) % _voices.size()
-	v.position = W0 + hands.body_delta
+	v.position = _w0 + hands.body_delta
 	v.stream = stream
 	v.pitch_scale = pitch * randf_range(0.96, 1.04)
 	v.play()

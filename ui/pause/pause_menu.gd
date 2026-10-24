@@ -32,6 +32,7 @@ var _art: Control
 var _resume: MenuRow
 var _settings_btn: MenuRow
 var _coop_btn: MenuRow
+var _char_btn: MenuRow
 var _notes_btn: MenuRow
 var _quit: MenuRow
 var _settings: SettingsPanel
@@ -122,6 +123,8 @@ func _build() -> void:
 	_settings_btn.activated.connect(open_settings)
 	_coop_btn = _menu_button(box, "Play together", "friends", HudTheme.WATER)
 	_coop_btn.activated.connect(_open_coop)
+	_char_btn = _menu_button(box, "Choose your Keling", "swap", HudTheme.BLOSSOM)
+	_char_btn.activated.connect(_open_picker)
 	_notes_btn = _menu_button(box, "What's new", "notes", HudTheme.LILAC)
 	_notes_btn.activated.connect(_open_notes)
 	_quit = _menu_button(box, "Quit to desktop" if not OS.has_feature("mobile") else "Quit game", "door", HudTheme.BLOSSOM)
@@ -343,6 +346,12 @@ func _open_coop() -> void:
 	close()
 	if hud and hud.has_method("open_coop"):
 		hud.open_coop()
+
+
+func _open_picker() -> void:
+	close()
+	if hud and hud.has_method("open_picker"):
+		hud.open_picker()
 
 
 func _open_notes() -> void:

@@ -1,5 +1,11 @@
 # Patch notes
 
+## 24 Oct 2026 · 21:25 UTC
+- **Four new Kelings!** Meet Blossom (a cherry tree in spring, petals everywhere), Sunflower (ripe wheat, a proud moustache and a sunflower on top), Lavender (silver sage and purple spikes) and Toadstool (mossy, sturdy and sprouting little mushrooms). Each one walks, runs, jumps, sits on benches, picks buds, rolls and smokes just like the original Sprout, with its own bouncing twigs, spikes, flowers or mushrooms on top. Long-legged Sunflower takes slower, longer strides.
+- **Transform!** Tap the new swap button under the co-op button (or press T, or pick "Choose your Keling" in the menu) and pick who you want to be. Your Keling lifts off in a whirl inside a column of light while a circle of magic opens on the ground, a glowing line sweeps up its body, the old Keling crumbles into its own leaves and petals as the new one is woven from a spiral of theirs, and then a flash, a burst of petals, a landing and a cheer. With its own sound, too.
+- **Friends see it.** In co-op your friends watch you transform, and anyone who joins later sees whichever Keling you are. Your pick is saved for next time.
+- **Better hands.** Fingers curl the right way on every Keling's twiggy hands, so grabs, pinches and holding a joint look right on all of them.
+
 ## 24 Oct 2026 · 21:09 UTC
 - **Go for a swim.** Walk out into the Lotus Pond and once your Keling can't touch the bottom it starts swimming: it tips forward, arches its back to keep its big head above water and doggy-paddles with alternating little paws while its legs flutter behind. Stop and it treads water, bobbing gently with its hands sculling. Sprint to paddle faster, press jump to hop up out of the water, and swim to the shore to wade back out. Holding a joint? It keeps it up high and dry while it paddles one-handed.
 - **Splash!** Every step in the shallows now sends out a ripple ring with a little splash and sound, bigger and wetter the faster you run and the deeper you wade (and wading past your knees slows you down). Land a jump in the water and it splashes; jump in where it's deep and you get a real cannonball, with a crown of droplets, a burst of white foam, spray and a big sploosh.
