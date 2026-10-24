@@ -1,5 +1,9 @@
 # Patch notes
 
+## 24 Oct 2026 · 18:40 UTC
+- **Lighter tree shadows to draw.** The evening sun shines low through the forest, and the big leafy trees were casting their shadows from every single leaf, about 35 layers deep, so the graphics card painted each spot of the shadow map around a dozen times. Trees now cast from just enough leaves to block the sun: the shadows look the same (up close the dappling lets through about 3% more light; further away the shadows are actually fuller than before) and the shadow work drops by about 40%.
+- **Catch the hitches.** The frame-time panel now names whichever part of the game had the slowest single frame in the last few seconds, so stutters show up even when the averages look fine. The part measurement now times glow instead of the sky, fog and anti-aliasing, which made the graphics card rebuild shaders mid-measurement and gave nonsense numbers.
+
 ## 24 Oct 2026 · 16:54 UTC
 - **Rolling, up close.** When you roll a joint the camera now swings round to the front and leans in on your Keling's hands, then glides back to where you had it once the joint is ready. Move the camera yourself and it stays where you put it.
 - **Real hands at work.** Your Keling now rolls with every finger: it reaches out properly, pinches the paper by its corners between finger and thumb, crumbles the bud with little rubs, walks its fingers along as it rolls, presses the seam and twists the tip, then taps the joint down and shows it off with a jazz hand.

@@ -44,9 +44,17 @@ const MAX_BANDS := 5
 const THIN := [0.5, 0.25, 0.125]
 ## ...reached when a card is this many pixels across on screen,
 const THIN_PX := [20.0, 10.0, 5.0]
-## Shadow casters keep every card in the near split, where leaf dapples land
-## round the Keling, then thin to a quarter and an eighth.
-const THIN_SHADOW := [[SHADOW_SPLIT, 2], [30.0, 3]]
+## Shadow casters: [from, share of cards kept, layers deep at most]. Near
+## the Keling a crown keeps enough cards to stay 12 deep from the sun (the
+## dapples then match the full crown within ~3% more light through, measured
+## in light space), then thins to a quarter and an eighth, the survivors
+## growing back only as far as those depths. Crowns thinner than that keep
+## every card up close and thin as before. The cards were the bulk of the
+## shadow pass: the shadow map is 16M texels and each one was drawn ~12
+## times, ~10 of them leaf cards.
+const SHADOW_THIN := [[0.0, 1.0, 12.0], [SHADOW_SPLIT, 0.25, 12.0], [30.0, 0.125, 8.0]]
+## Level id of the first shadow card set.
+const SHADOW_CARDS := 100
 ## Grass blades turn into single triangles from here (they're ~20 px tall by
 ## then and their curve is under a pixel)...
 const BLADE_TRI := 9.0
@@ -418,7 +426,12 @@ static func _make_chain(src: Dictionary, px_scale: float, shadow: bool, reach: f
 		match sf.kind:
 			"cards":
 				if shadow:
-					list = THIN_SHADOW.duplicate()
+					var last := 1.0
+					for i in SHADOW_THIN.size():
+						var keep: float = _shadow_cards(sf, i).x
+						if keep < last:
+							list.append([SHADOW_THIN[i][0], SHADOW_CARDS + i])
+							last = keep
 				else:
 					for l in THIN.size():
 						list.append([sf.card * REF_WIDTH / (LOD_MULT * THIN_PX[l] * px_scale), l + 1])
@@ -537,6 +550,9 @@ static func _make_source(mesh: Mesh, raw: Array) -> Dictionary:
 					reordered = true
 				sf.comps = comps
 				sf.card = _median_size(arrays, comps)
+				if sf.kind == "cards":
+					var sun := -ForestAtmosphere.SUN_TOWARDS.normalized()
+					sf.depth_sun = _depth(arrays, sun)
 		surfaces.append(sf)
 		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, mat)
 	im.generate_lods(25.0, 60.0, [])
@@ -562,7 +578,11 @@ static func _level_arrays(src: Dictionary, levels: PackedInt32Array) -> void:
 			if lv > 0:
 				match sf.kind:
 					"cards":
-						arrays = _thin_cards(arrays, sf.comps, THIN[lv - 1])
+						if lv >= SHADOW_CARDS:
+							var kg := _shadow_cards(sf, lv - SHADOW_CARDS)
+							arrays = _thin_cards(arrays, sf.comps, kg.x, kg.y)
+						else:
+							arrays = _thin_cards(arrays, sf.comps, THIN[lv - 1])
 					"blades":
 						arrays = _blade_tris(arrays, sf.comps, 1.0 if lv == 1 else BLADE_KEEP)
 					_:
@@ -733,10 +753,66 @@ static func _survivors(comps: Array, keep: float) -> PackedInt32Array:
 	return out
 
 
+## (share of cards kept, growth) of shadow card set `i`, see SHADOW_THIN.
+static func _shadow_cards(sf: Dictionary, i: int) -> Vector2:
+	var keep: float = minf(SHADOW_THIN[i][1], SHADOW_THIN[i][2] / sf.depth_sun)
+	if keep > 0.85:
+		keep = 1.0
+	return Vector2(keep, sqrt(clampf(SHADOW_THIN[i][2] / (keep * sf.depth_sun), 1.0, 1.0 / keep)))
+
+
+## How many cards deep a crown is, seen along `dir` (from two sides, as copies
+## turn about their trunks): card area over silhouette area, rasterised
+## coarsely on 48 cells across the crown. Alpha is ignored, so it counts
+## what the GPU draws, not what it keeps.
+static func _depth(arrays: Array, dir: Vector3) -> float:
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var total := 0.0
+	for side in 2:
+		var l := Basis(Vector3.UP, side * PI * 0.5) * dir
+		var ax := l.cross(Vector3.UP).normalized()
+		var ay := ax.cross(l).normalized()
+		var p := PackedVector2Array()
+		p.resize(verts.size())
+		var lo := Vector2(INF, INF)
+		var hi := -lo
+		for i in verts.size():
+			p[i] = Vector2(verts[i].dot(ax), verts[i].dot(ay))
+			lo = lo.min(p[i])
+			hi = hi.max(p[i])
+		var cell := maxf(hi.x - lo.x, hi.y - lo.y) / 48.0
+		if cell <= 0.0:
+			return 1.0
+		var w := int((hi.x - lo.x) / cell) + 2
+		var covered := PackedByteArray()
+		covered.resize(w * (int((hi.y - lo.y) / cell) + 2))
+		var frags := 0
+		for t in range(0, idx.size(), 3):
+			var a := (p[idx[t]] - lo) / cell
+			var b := (p[idx[t + 1]] - lo) / cell
+			var c := (p[idx[t + 2]] - lo) / cell
+			var den := (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y)
+			if absf(den) < 1e-9:
+				continue
+			for y in range(int(minf(a.y, minf(b.y, c.y))), int(maxf(a.y, maxf(b.y, c.y))) + 1):
+				for x in range(int(minf(a.x, minf(b.x, c.x))), int(maxf(a.x, maxf(b.x, c.x))) + 1):
+					var qx := x + 0.5 - c.x
+					var qy := y + 0.5 - c.y
+					var l1 := ((b.y - c.y) * qx + (c.x - b.x) * qy) / den
+					var l2 := ((c.y - a.y) * qx + (a.x - c.x) * qy) / den
+					if l1 >= 0.0 and l2 >= 0.0 and l1 + l2 <= 1.0:
+						frags += 1
+						covered[y * w + x] = 1
+		total += float(frags) / maxf(covered.count(1), 1)
+	return maxf(total * 0.5, 1.0)
+
+
 ## Keeps a share of the leaf cards and grows each survivor about its centre
-## so the crown covers as much sky as before.
-static func _thin_cards(arrays: Array, comps: Array, keep: float) -> Array:
-	var grow := 1.0 / sqrt(keep)
+## by `grow` (by default so the crown covers as much sky as before).
+static func _thin_cards(arrays: Array, comps: Array, keep: float, grow := -1.0) -> Array:
+	if grow < 0.0:
+		grow = 1.0 / sqrt(keep)
 	var verts: PackedVector3Array = (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).duplicate()
 	var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 	var out_idx := PackedInt32Array()

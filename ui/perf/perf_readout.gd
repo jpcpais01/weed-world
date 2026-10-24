@@ -7,7 +7,7 @@ extends Label
 ##
 ## The GPU can't time its passes in a release build, so "measure parts"
 ## (press 9, or tap the readout) finds each part's cost by switching it off
-## for a moment: shadows, trees, grass, water, sky and so on, one at a time,
+## for a moment: shadows, trees, grass, water, glow and so on, one at a time,
 ## and timing the GPU without it. Things blink for about 15 seconds while it
 ## runs; the results stay on screen.
 
@@ -30,6 +30,7 @@ var _scripts := 0.0           # peaks over the last second (Godot's monitors)
 var _physics := 0.0
 var _avg := {}               # last window's averages, in ms
 var _systems := {}           # last window's script time per system, ms per frame
+var _worst := ["", 0.0, -INF]  # slowest single frame of any system lately: [system, ms, when]
 
 # "Measure parts"
 var _steps: Array = []
@@ -85,8 +86,17 @@ func _summarise() -> void:
 			"setup": _setup / n, "scripts": _scripts, "physics": _physics}
 	_systems = {}
 	var taken := PerfMeter.take()
-	for k in taken:
-		_systems[k] = taken[k] / 1000.0 / n
+	for k in taken.total:
+		_systems[k] = taken.total[k] / 1000.0 / n
+	# Hitches hide in averages: keep the slowest frame of any one system in
+	# view for a few seconds.
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _worst[2] > 5.0:
+		_worst = ["", 0.0, -INF]
+	for k in taken.peak:
+		var ms: float = taken.peak[k] / 1000.0
+		if ms > _worst[1]:
+			_worst = [k, ms, now]
 	_t = 0.0
 	_frames = 0
 	_gpu = 0.0
@@ -124,6 +134,8 @@ func _panel() -> String:
 			parts.append("%s %.2f" % [k, _systems[k]])
 	if not parts.is_empty():
 		lines.append("  scripts per frame (ms): " + " · ".join(parts.slice(0, 7)))
+	if _worst[1] >= 4.0:
+		lines.append("  slowest frame lately: %s %.1f ms" % [_worst[0], _worst[1]])
 	if _step >= 0:
 		lines.append("GPU by part: measuring %s... (%d of %d)" % [_steps[_step].name if _step < _steps.size() else "baseline",
 				mini(_step + 1, _steps.size()), _steps.size()])
@@ -243,12 +255,11 @@ func _make_steps() -> Array:
 					nodes.append(node)
 			if not nodes.is_empty():
 				steps.append({"name": part[0], "off": _show_nodes.bind(nodes, false), "on": _show_nodes.bind(nodes, true)})
+	# Only switches that need no new shaders: fog, the sky and anti-aliasing
+	# make the GPU compile pipeline variants, and it runs on slow stand-in
+	# shaders meanwhile, so they read as costing less than nothing.
 	if forest and forest.atmosphere and forest.atmosphere.environment:
-		var env := forest.atmosphere.environment
-		var saved := {}
-		steps.append({"name": "Sky, fog & glow", "off": _plain_sky.bind(env, saved), "on": _restore_sky.bind(env, saved)})
-	if vp.msaa_3d != Viewport.MSAA_DISABLED:
-		steps.append(_toggle("Anti-aliasing", vp, "msaa_3d", Viewport.MSAA_DISABLED))
+		steps.append(_toggle("Glow", forest.atmosphere.environment, "glow_enabled", false))
 	steps.append(_toggle("75% resolution would save", vp, "scaling_3d_scale", vp.scaling_3d_scale * 0.75))
 	return steps
 
@@ -266,19 +277,3 @@ static func _hide_groups(lod: ForestLod, groups: Array, hidden: bool) -> void:
 static func _show_nodes(nodes: Array[Node3D], shown: bool) -> void:
 	for node in nodes:
 		node.visible = shown
-
-
-static func _plain_sky(env: Environment, saved: Dictionary) -> void:
-	saved["bg"] = env.background_mode
-	saved["fog"] = env.fog_enabled
-	saved["glow"] = env.glow_enabled
-	env.background_color = Color(0.55, 0.66, 0.82)
-	env.background_mode = Environment.BG_COLOR
-	env.fog_enabled = false
-	env.glow_enabled = false
-
-
-static func _restore_sky(env: Environment, saved: Dictionary) -> void:
-	env.background_mode = saved.bg
-	env.fog_enabled = saved.fog
-	env.glow_enabled = saved.glow
