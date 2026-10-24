@@ -10,6 +10,12 @@ extends Node3D
 
 signal built
 
+## How far build() has got, 0..BUILD_STEPS. Safe to poll from another thread
+## (the loading screen grows the forest on a worker thread).
+const BUILD_STEPS := 8
+var build_step := 0
+var is_built := false
+
 @export var build_in_editor := true
 @export_range(0.0, 2.0) var wind_strength := 0.6:
 	set(v):
@@ -37,7 +43,9 @@ var _wind_timer := 0.0
 func _ready() -> void:
 	if Engine.is_editor_hint() and not build_in_editor:
 		return
-	build()
+	# The loading screen grows the forest off the main thread before adding it.
+	if not is_built:
+		build()
 	if not Engine.is_editor_hint() and preview_camera_when_alone:
 		_spawn_preview_camera.call_deferred()
 
@@ -50,17 +58,22 @@ func build() -> void:
 	_generated.name = "Generated"
 	add_child(_generated)
 
+	is_built = false
+	build_step = 0
+
 	layout = ForestLayout.new()
 	terrain = ForestTerrain.new(layout)
 	terrain.build()
 	kit = NatureKit.new()
 	var laps := ["terrain %d" % (Time.get_ticks_msec() - t0)]
+	build_step = 1
 
 	# Trees first: they paint canopy shade into the terrain, which the ground
 	# colour, the grass tint and the undergrowth all read.
 	scatter = ForestScatter.new(layout, terrain, kit)
 	scatter.plan()
 	laps.append("trees %d" % (Time.get_ticks_msec() - t0))
+	build_step = 2
 
 	var ground := Node3D.new()
 	ground.name = "Terrain"
@@ -72,13 +85,17 @@ func build() -> void:
 	ground.add_child(terrain.build_collision())
 
 	laps.append("ground %d" % (Time.get_ticks_msec() - t0))
+	build_step = 3
 	scatter.populate()
 	laps.append("undergrowth %d" % (Time.get_ticks_msec() - t0))
+	build_step = 4
 	scatter.build(_generated)
 	laps.append("batches %d" % (Time.get_ticks_msec() - t0))
+	build_step = 5
 
 	water = ForestWater.new(layout, terrain, kit)
 	water.build(_generated)
+	build_step = 6
 
 	atmosphere = ForestAtmosphere.new()
 	atmosphere.build(_generated)
@@ -89,6 +106,7 @@ func build() -> void:
 
 	life = ForestLife.new(layout, terrain, kit)
 	life.build(_generated)
+	build_step = 7
 
 	if not Engine.is_editor_hint():
 		sound = ForestSound.new()
@@ -98,6 +116,8 @@ func build() -> void:
 	kit.set_wind(wind_direction, wind_strength)
 	_place_spawn()
 	print("Forest grown in %d ms (%s) instances %s" % [Time.get_ticks_msec() - t0, ", ".join(laps), scatter.counts])
+	build_step = BUILD_STEPS
+	is_built = true
 	built.emit()
 
 

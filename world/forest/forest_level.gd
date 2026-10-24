@@ -7,6 +7,12 @@ const KELING := preload("res://player/keling.tscn")
 @onready var forest: Forest = $Forest
 
 
+## Called by the loading screen on a worker thread before the level joins the
+## scene tree: grows the whole forest without blocking the main thread.
+func prepare_threaded() -> void:
+	($Forest as Forest).build()
+
+
 func _ready() -> void:
 	var spawn := forest.get_spawn_transform(0)
 	var look := ForestLayout.ELDER - ForestLayout.SPAWN

@@ -91,6 +91,12 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/forest.log"; then exit 1; fi
           grep -q "forest_check: PASS" "$RUNNER_TEMP/forest.log"
 
+      - name: Loading screen check
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s res://tools/loading_check.gd -- --verbose-loading 2>&1 | tee "$RUNNER_TEMP/loading.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/loading.log"; then exit 1; fi
+          grep -q "loading_check: PASS" "$RUNNER_TEMP/loading.log"
+
       - name: Restore release keystore
         if: env.PUBLISH == 'true'
         uses: actions/cache@v4

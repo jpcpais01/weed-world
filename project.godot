@@ -13,10 +13,13 @@ config_version=5
 config/name="Weed World"
 config/description="A cozy co-op magical forest adventure starring the Kelings."
 config/version="0.1.0"
-run/main_scene="res://world/forest/forest_level.tscn"
+run/main_scene="res://ui/loading/loading_screen.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
-boot_splash/bg_color=Color(0.062, 0.09, 0.075, 1)
-config/icon="res://icon.svg"
+boot_splash/bg_color=Color(0.035, 0.07, 0.045, 1)
+boot_splash/image="res://branding/splash.png"
+boot_splash/stretch_mode=4
+config/icon="res://branding/icon.png"
+config/windows_native_icon="res://branding/icon.ico"
 
 [autoload]
 
