@@ -18,7 +18,7 @@ const PATH := "user://settings.cfg"
 
 enum Shadows { OFF, LOW, MEDIUM, HIGH, ULTRA }
 enum Detail { LOW, MEDIUM, HIGH, ULTRA }
-enum AA { OFF, FXAA, MSAA_2X, MSAA_4X }
+enum AA { OFF, FXAA, MSAA_2X, MSAA_4X, SMAA }  # values are saved: append only
 
 const PRESETS := ["low", "medium", "high", "ultra"]
 ## What each quality preset sets. "high" is how the game always looked.
@@ -29,6 +29,12 @@ const PRESET_VALUES := {
 	"ultra": {"render_scale": 1.0, "shadows": Shadows.ULTRA, "trees": Detail.ULTRA, "grass": 1.0, "aa": AA.MSAA_4X, "bloom": true},
 }
 const PRESET_KEYS := ["render_scale", "shadows", "trees", "grass", "aa", "bloom"]
+
+## High's anti-aliasing on PC. MSAA multiplies the depth work of every leaf
+## layer yet leaves the cut-out leaf edges jagged (they come from the
+## texture, not the triangles); SMAA smooths those edges too, for a small
+## fixed cost. Phones keep MSAA, which tiled mobile GPUs do almost for free.
+const HIGH_AA_DESKTOP := AA.SMAA
 
 ## Resolution scale the High preset (and a first launch) uses on desktop
 ## screens taller than 1080 px, where the pixel count is the GPU's biggest
@@ -113,6 +119,7 @@ func _enter_tree() -> void:
 	values = DEFAULTS.duplicate()
 	values["render_scale"] = default_scale()
 	_load()
+	_sync_preset()
 	_ensure_buses()
 
 
@@ -182,7 +189,17 @@ static func default_scale() -> float:
 static func preset_value(name: String, key: String) -> Variant:
 	if name == "high" and key == "render_scale":
 		return default_scale()
+	if name == "high" and key == "aa" and not OS.has_feature("mobile"):
+		return HIGH_AA_DESKTOP
 	return PRESET_VALUES[name][key]
+
+
+## A named preset follows its current definition, so players on it pick up
+## changes to it (and platform differences); custom picks stay as they are.
+func _sync_preset() -> void:
+	if values.preset in PRESETS:
+		for k in PRESET_VALUES[values.preset]:
+			values[k] = preset_value(values.preset, k)
 
 
 ## The preset whose values match the current ones, or "custom".
@@ -202,6 +219,7 @@ func _matching_preset() -> String:
 func reset_section(section: String) -> void:
 	for k in SECTIONS.get(section, []):
 		values[k] = default_scale() if k == "render_scale" else DEFAULTS[k]
+	_sync_preset()
 	if section == "controls":
 		bindings.clear()
 		_apply_bindings()
@@ -283,8 +301,8 @@ func apply_graphics() -> void:
 	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if scale < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
 	vp.scaling_3d_scale = scale
 	var aa := int(values.aa)
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][aa]
-	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if aa == AA.FXAA else Viewport.SCREEN_SPACE_AA_DISABLED
+	vp.msaa_3d = Viewport.MSAA_2X if aa == AA.MSAA_2X else (Viewport.MSAA_4X if aa == AA.MSAA_4X else Viewport.MSAA_DISABLED)
+	vp.screen_space_aa = {AA.FXAA: Viewport.SCREEN_SPACE_AA_FXAA, AA.SMAA: Viewport.SCREEN_SPACE_AA_SMAA}.get(aa, Viewport.SCREEN_SPACE_AA_DISABLED)
 	if not is_mobile():
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if values.vsync else DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = int(values.fps_cap)
