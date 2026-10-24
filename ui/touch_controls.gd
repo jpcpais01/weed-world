@@ -214,6 +214,12 @@ func _camera_call(method: StringName, args: Array) -> void:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"touch controls", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if not visible:
 		return
 	_joy_alpha = lerpf(_joy_alpha, 1.0 if _joy_finger != -1 else 0.0, 1.0 - exp(-14.0 * delta))
