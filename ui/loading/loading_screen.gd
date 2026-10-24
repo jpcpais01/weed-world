@@ -17,7 +17,7 @@ signal finished(level: Node)
 
 const LEVEL := "res://world/forest/forest_level.tscn"
 const SPLASH := preload("res://branding/splash.png")
-const FONT := preload("res://assets/fonts/Fredoka.ttf")
+const FONT := preload("res://ui/fonts/Fredoka.ttf")
 
 ## Frame budget for attaching the world in phase 3.
 const ATTACH_BUDGET_USEC := 6000

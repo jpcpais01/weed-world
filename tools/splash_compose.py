@@ -16,7 +16,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-FONT = ROOT / "assets" / "fonts" / "Fredoka.ttf"
+FONT = ROOT / "ui" / "fonts" / "Fredoka.ttf"
 TITLE = "Weed World"
 TAGLINE = "a cozy forest for Kelings and friends"
 # Title centre, as a fraction of the picture. Kept inside the middle 16:9
