@@ -113,6 +113,8 @@ class Batch:
 	var imp_data := PackedFloat32Array()  # IMP_FLOATS per instance, same order as data
 	var imp_grow := 0.0                   # how far a card can swing past the mesh bounds
 	var sub_imp_cell := PackedInt32Array()
+	var thin := 0.0                       # how much ForestLod.density applies to it
+	var keep := 1.0                       # share of instances drawn right now
 
 
 ## One square of impostors: the sub-cells whose centre falls in it.
@@ -122,6 +124,17 @@ class ImpCell:
 	var main: MultiMeshInstance3D
 	var shadow: MultiMeshInstance3D
 
+
+## Player settings (autoload/settings.gd), applied at runtime without a
+## rebuild. `detail` stretches the main-pass band switch distances and where
+## trees become impostors (1 = as tuned, 1.35 = further out); shadow casters
+## keep their own. `density` keeps that share of the grass and ground
+## dressing, evenly strided through each sub-cell. Call refresh() (group
+## "forest_lod") after changing either.
+static var detail := 1.0
+static var density := 1.0
+## Groups `density` thins, and how strongly (plants only half as much).
+const DENSITY_GROUPS := {"grass": 1.0, "small": 1.0, "litter": 1.0, "plant": 0.5}
 
 ## Set before adding batches to let trees turn into impostors.
 var impostors: ForestImpostors
@@ -166,6 +179,8 @@ func add_batch(key: String, mesh: Mesh, data: PackedFloat32Array, cut: float, su
 	b.state.fill(-1)
 	b.shadow_state.resize(b.sub_start.size())
 	b.shadow_state.fill(-1)
+	b.thin = DENSITY_GROUPS.get(key.get_slice("_", 0), 0.0)
+	b.keep = 1.0 - b.thin * (1.0 - clampf(density, 0.0, 1.0))
 	batches.append(b)
 
 
@@ -937,6 +952,29 @@ static func _pick(arr, order: PackedInt32Array, vcount: int):
 # ----------------------------------------------------------------------------
 # Banding
 
+func _enter_tree() -> void:
+	add_to_group("forest_lod")
+
+
+## Re-bands everything with the current detail and density (settings changed).
+func refresh() -> void:
+	if not is_inside_tree() or batches.is_empty():
+		return
+	if _task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_task)
+		_task = -1
+		_results = []
+	for b in batches:
+		b.keep = 1.0 - b.thin * (1.0 - clampf(density, 0.0, 1.0))
+		# Unknown states make every batch rebuild its buffers.
+		b.state.fill(-2)
+	var cam := get_viewport().get_camera_3d()
+	if cam:
+		update_now(cam.global_position)
+	else:
+		_last_eye = Vector3(INF, INF, INF)
+
+
 func _process(_delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
@@ -988,7 +1026,7 @@ func _evaluate(eye: Vector3) -> Array:
 	var next_shadow := {}
 	for bi in batches.size():
 		var b := batches[bi]
-		var main := _assign(b, eye, b.bands, b.cut, b.state, b.imp_band, b.imp_from)
+		var main := _assign(b, eye, b.bands, b.cut, b.state, b.imp_band, b.imp_from * detail, 1.0 / detail)
 		var shadow := _assign(b, eye, b.shadow_bands, b.shadow_cut, b.shadow_state, b.imp_shadow_band, b.imp_shadow_from) \
 				if not b.shadow_bands.is_empty() else PackedInt32Array()
 		if main.is_empty() and shadow.is_empty():
@@ -1055,7 +1093,8 @@ func _imp_buffer(ci: int, next: Dictionary, shadow: bool) -> Dictionary:
 
 ## New band per sub-cell, or an empty array if nothing changed. Sub-cells at
 ## `imp_from` or further go to band `imp` (if there is one).
-func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: PackedInt32Array, imp: int, imp_from: float) -> PackedInt32Array:
+func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: PackedInt32Array, imp: int, imp_from: float,
+		k := 1.0) -> PackedInt32Array:
 	var nb := bands.size()
 	if nb == 0:
 		return PackedInt32Array()
@@ -1073,8 +1112,8 @@ func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: Pa
 	elif near >= imp_from:
 		whole = imp
 	else:
-		var bn := _band_of(bands, nb, near / b.scale_hi)
-		if far < cut and far < imp_from and _band_of(bands, nb, far / b.scale_lo) == bn:
+		var bn := _band_of(bands, nb, near * k / b.scale_hi)
+		if far < cut and far < imp_from and _band_of(bands, nb, far * k / b.scale_lo) == bn:
 			whole = bn
 	var out := PackedInt32Array()
 	out.resize(current.size())
@@ -1088,7 +1127,7 @@ func _assign(b: Batch, eye: Vector3, bands: Array[Band], cut: float, current: Pa
 			elif d >= imp_from:
 				out[i] = imp
 			else:
-				out[i] = _band_of(bands, nb, d / b.sub_scale[i])
+				out[i] = _band_of(bands, nb, d * k / b.sub_scale[i])
 	if out == current:
 		return PackedInt32Array()
 	return out
@@ -1113,8 +1152,7 @@ func _buffers(b: Batch, eye: Vector3, state: PackedInt32Array, nb: int, skip: in
 			if state[i] != k:
 				all = false
 				continue
-			var s := b.sub_start[i]
-			var c := b.sub_count[i]
+			var c := _kept(b, b.sub_count[i])
 			if count == 0:
 				lo = b.sub_lo[i]
 				hi = b.sub_hi[i]
@@ -1125,17 +1163,38 @@ func _buffers(b: Batch, eye: Vector3, state: PackedInt32Array, nb: int, skip: in
 		if count == 0:
 			out.append({"count": 0})
 			continue
-		if all:
+		if all and b.keep >= 1.0:
 			buf = b.data
 		else:
 			if order.is_empty():
 				order = _near_first(b, eye)
 			for i in order:
 				if state[i] == k:
-					buf.append_array(b.data.slice(b.sub_start[i] * 16, (b.sub_start[i] + b.sub_count[i]) * 16))
+					if b.keep >= 1.0:
+						buf.append_array(b.data.slice(b.sub_start[i] * 16, (b.sub_start[i] + b.sub_count[i]) * 16))
+					else:
+						_append_kept(buf, b, i)
 			buf.resize(b.count * 16)
 		out.append({"count": count, "buffer": buf, "aabb": AABB(lo, hi - lo)})
 	return out
+
+
+## How many of a sub-cell's `c` instances `density` keeps.
+static func _kept(b: Batch, c: int) -> int:
+	return c if b.keep >= 1.0 else int(floor(c * b.keep + 0.5))
+
+
+## The kept share of sub-cell `i`, evenly strided so a thinned meadow stays
+## even instead of losing whole patches.
+static func _append_kept(buf: PackedFloat32Array, b: Batch, i: int) -> void:
+	var c := b.sub_count[i]
+	var n := _kept(b, c)
+	if n <= 0:
+		return
+	var step := float(c) / n
+	for j in n:
+		var o := (b.sub_start[i] + mini(int(j * step), c - 1)) * 16
+		buf.append_array(b.data.slice(o, o + 16))
 
 
 func _apply(changes: Array) -> void:

@@ -22,6 +22,10 @@ extends Node3D
 @export var follow_lag := 12.0
 @export var recentre_delay := 1.6
 @export var base_fov := 60.0
+## Player settings (autoload/settings.gd sets these and the sensitivities).
+var invert_y := false
+var invert_x := false
+var auto_follow := true   ## drift back behind a moving character
 
 @onready var arm: SpringArm3D = $SpringArm3D
 @onready var camera: Camera3D = $SpringArm3D/Camera3D
@@ -72,6 +76,9 @@ func _ready() -> void:
 	camera.fov = base_fov
 	_focus = _target.global_position + Vector3.UP * target_height
 	global_position = _focus
+	var settings := get_node_or_null("/root/Settings")
+	if settings:
+		settings.apply_camera(self)
 
 
 func set_yaw(value: float) -> void:
@@ -94,8 +101,8 @@ func get_flat_basis() -> Basis:
 
 
 func add_look_input(delta_radians: Vector2) -> void:
-	yaw -= delta_radians.x
-	pitch = clampf(pitch - delta_radians.y, min_pitch, max_pitch)
+	yaw -= delta_radians.x * (-1.0 if invert_x else 1.0)
+	pitch = clampf(pitch - delta_radians.y * (-1.0 if invert_y else 1.0), min_pitch, max_pitch)
 	_since_manual = 0.0
 
 
@@ -175,8 +182,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT:
 				if GameInput.method == GameInput.Method.KEYBOARD_MOUSE and not OS.has_feature("mobile"):
 					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	elif event.is_action_pressed("toggle_mouse"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED else Input.MOUSE_MODE_CAPTURED
 
 
 func _process(delta: float) -> void:
@@ -207,7 +212,7 @@ func _process_timed(delta: float) -> void:
 
 	# Drift behind the character once the player stops steering the camera.
 	var facing = _target.get("facing")
-	if _since_manual > recentre_delay and flat_speed > 0.4 and facing != null:
+	if auto_follow and _since_manual > recentre_delay and flat_speed > 0.4 and facing != null:
 		var behind: float = facing + PI
 		# Only when running away or across: running towards the camera must not
 		# swing it around (that would steer the run into a circle).

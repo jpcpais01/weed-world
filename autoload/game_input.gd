@@ -20,8 +20,8 @@ var sprint_toggled := false
 var walk_toggled := false
 ## Set while the touch joystick is pushed past its ring.
 var push_sprint := false
-## Set while a full-screen UI (the world map) owns the controls: the Keling
-## stands still and ignores jump, grab and emotes.
+## Set while a full-screen UI (the world map, the pause menu) owns the
+## controls: the Keling stands still and ignores jump, grab and emotes.
 var ui_locked := false
 
 
@@ -51,7 +51,10 @@ func _enter_tree() -> void:
 	_add("controls_help", [KEY_H, KEY_F1], [], [])
 	_add("coop", [KEY_P], [], [])
 	_add("toggle_debug", [KEY_0, KEY_KP_0, KEY_F3], [JOY_BUTTON_BACK], [])
+	# Esc / Start: closes whatever panel is open, otherwise opens the pause
+	# menu. Panels listen for "toggle_mouse", the menu for "pause".
 	_add("toggle_mouse", [KEY_ESCAPE], [JOY_BUTTON_START], [])
+	_add("pause", [KEY_ESCAPE], [JOY_BUTTON_START], [])
 	_add("fullscreen", [KEY_F11], [], [])
 	if DisplayServer.is_touchscreen_available() and OS.has_feature("mobile"):
 		method = Method.TOUCH

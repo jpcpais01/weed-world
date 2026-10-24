@@ -20,10 +20,12 @@ boot_splash/image="res://branding/splash.png"
 boot_splash/stretch_mode=4
 config/icon="res://branding/icon.png"
 config/windows_native_icon="res://branding/icon.ico"
+config/quit_on_go_back=false
 
 [autoload]
 
 GameInput="*res://autoload/game_input.gd"
+Settings="*res://autoload/settings.gd"
 Updater="*res://autoload/updater.gd"
 Net="*res://autoload/net.gd"
 
