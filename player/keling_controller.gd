@@ -955,7 +955,9 @@ func _update_look() -> void:
 	# speak of, so it only turns a little.
 	var target_yaw := 0.0
 	var target_pitch := 0.0
-	if is_sitting() and _bench:
+	if weed and weed.act == KelingWeed.Act.ROLL:
+		pass  # the rolling choreography turns the head itself
+	elif is_sitting() and _bench:
 		# Drink in the view, glancing now and then towards the camera.
 		var to := _bench.view_point - (global_position + Vector3(0, 1.1, 0))
 		target_yaw = wrapf(atan2(to.x, to.z) - facing, -PI, PI)

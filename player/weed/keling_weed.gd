@@ -31,7 +31,9 @@ const HITS := 3
 const MAX_BUDS := 12
 const SAVE_PATH := "user://weed.cfg"
 ## Rolling stages for the HUD: start time and caption.
-const ROLL_STAGES := [[0.0, "Getting ready"], [0.8, "Breaking up the bud"], [3.4, "Rolling"], [6.6, "Sealing"], [8.0, "Twisting the tip"], [9.0, "Ready!"]]
+const ROLL_STAGES := [[0.0, "Taking out a bud"], [0.8, "A good sniff"], [1.6, "Breaking up the bud"], [3.6, "Shaping"], [4.6, "Rolling"], [6.3, "A lick to seal it"], [7.4, "Sealing"], [8.0, "Twisting the tip"], [8.7, "Packing it"], [9.3, "Ready!"]]
+## Rolling can be walked away from (bud back in the pouch) until the lick.
+const ROLL_POINT_OF_NO_RETURN := 6.3
 
 ## Skeleton-space landmarks (+Z forward, +X the Keling's left).
 const MOUTH := Vector3(0.0, 0.835, 0.455)
@@ -64,6 +66,16 @@ var _float_bud: MeshInstance3D
 var _float_bud_strain: StringName = &""
 var _paper: MeshInstance3D
 var _paper_mat: ShaderMaterial
+var _filling: Node3D
+var _filling_mat: ShaderMaterial
+var _tongue: Node3D
+var _glint: MeshInstance3D
+var _hearts: CPUParticles3D
+var _head_bone := -1
+var _mouth_local := Transform3D.IDENTITY
+var _voices: Array[AudioStreamPlayer3D] = []
+var _voice := 0
+var _clips := {}
 var _joint: Dictionary
 var _crumbs: CPUParticles3D
 var _sparkle: CPUParticles3D
@@ -246,6 +258,8 @@ func _start(a: int) -> void:
 	_hit_counted = false
 	if a == Act.ROLL:
 		_prepare_roll(_roll_strain)
+		if local:
+			_closeup(true)
 	elif joint_strain != &"":
 		_paint_joint(joint_strain)
 	act_changed.emit(act)
@@ -309,12 +323,11 @@ func interrupt() -> void:
 	if act == Act.NONE:
 		return
 	if act == Act.ROLL:
-		if act_t < 6.6:
+		if act_t < ROLL_POINT_OF_NO_RETURN:
 			if local:
 				pouch[_roll_strain] = pouch.get(_roll_strain, 0) + 1
 				pouch_changed.emit()
-			_float_bud.visible = false
-			_paper.visible = false
+			_hide_roll_props()
 			_joint.root.visible = false
 		else:
 			_finish_roll()
@@ -324,12 +337,11 @@ func interrupt() -> void:
 
 
 func _stop_act() -> void:
-	_float_bud.visible = false
-	_paper.visible = false
-	_crumbs.emitting = false
+	if act == Act.ROLL and local:
+		_closeup(false)
+	_hide_roll_props()
 	_flame.visible = false
 	hands.chest_swell = 0.0
-	hands.head_pitch = 0.0
 	act = Act.NONE
 	act_changed.emit(act)
 
@@ -403,15 +415,130 @@ func _event(key: String, at: float) -> bool:
 
 # ---------------------------------------------------------------------------
 # Rolling choreography
+#
+# Ten seconds, beat by beat (the HUD captions follow ROLL_STAGES):
+#   0.0  the right hand dips into the hip pouch and comes up pinching a bud
+#   0.8  a good sniff (two little sniffs, a happy shiver, hearts); the left
+#        hand pops a paper out and shows it off by a corner
+#   1.6  the paper lies on the left fingers; the right thumb rubs the bud to
+#        crumbs over it, sliding along, until the bud is gone; dust off
+#   3.6  both hands take the paper by its ends, fold it round the pile into a
+#        taco and rock it to pack a neat log
+#   4.6  thumbs tuck the near edge over and roll it up
+#   6.4  up to the mouth like a harmonica: the tongue pops out and the gum
+#        strip slides along it
+#   7.4  back down, pressed shut with a shine running down the seam
+#   8.0  the left fingers twist the tip closed
+#   8.7  tap, tap on the left palm to pack it
+#   9.25 ta-da, held up to admire, then into a relaxed hold
+#
+# Each hand follows keyframes (below) eased into each other in wrist space,
+# with procedural overlays (rubbing, rocking, the lick slide, taps) on top.
+# The props are laid into the real fingertips every frame, so the paper
+# always sits between the two pinches and the bud between thumb and index.
+
+const W0 := Vector3(0.0, 0.725, 0.62)         # the paper's home, out in front of the beard
+const END_X := 0.07                             # pinches hold the paper this far out
+const LICK_Y := 0.842
+const LICK_Z := 0.535
+const P_PINCH := KelingHands.Pin.PINCH
+const P_PADS := KelingHands.Pin.PADS
+const P_WRIST := KelingHands.Pin.WRIST
+
+## Finger poses (see KelingHands.arms for what each value does).
+const POSES := {
+	"open": {"curl": 0.08, "spread": 0.2},
+	"reach": {"curl": 0.3, "index": 0.0, "middle": 0.15, "ring": 0.3, "thumb": 0.1},
+	"pinch": {"curl": 0.2, "index": 0.22, "middle": 0.5, "ring": 0.7, "pinch": 1.0},
+	"pinch_soft": {"curl": 0.15, "index": 0.15, "middle": 0.35, "ring": 0.5, "pinch": 0.85},
+	"cup": {"curl": 0.18, "index": -0.05, "middle": 0.0, "ring": 0.06, "spread": -0.35, "thumb": 0.25},
+	"dust": {"curl": -0.12, "spread": 0.7, "wiggle": 1.0},
+	"jazz": {"curl": -0.2, "spread": 1.0, "wiggle": 0.55},
+	"hold": {"curl": 0.2, "index": 0.1, "middle": 0.1, "ring": 0.7, "thumb": 0.35},
+}
+
+## Keyframes: [time, goal, pinned point, finger direction, palm normal, pose].
+const R_KEYS := [
+	[0.0, Vector3(-0.27, 0.53, 0.34), P_PINCH, Vector3(0.15, -1.0, 0.35), Vector3(1.0, 0.0, 0.25), "open"],
+	[0.3, Vector3(-0.275, 0.49, 0.33), P_PINCH, Vector3(0.15, -1.0, 0.35), Vector3(1.0, 0.0, 0.25), "pinch"],
+	[0.82, Vector3(-0.02, 0.868, 0.585), P_PINCH, Vector3(0.65, 0.4, 0.6), Vector3(0.2, -0.3, -1.0), "pinch"],
+	[1.45, Vector3(-0.02, 0.868, 0.585), P_PINCH, Vector3(0.65, 0.4, 0.6), Vector3(0.2, -0.3, -1.0), "pinch"],
+	[1.78, Vector3(0.0, 0.79, 0.62), P_PINCH, Vector3(0.5, -0.4, 0.65), Vector3(0.4, -1.0, 0.0), "pinch"],
+	[3.3, Vector3(0.0, 0.79, 0.62), P_PINCH, Vector3(0.5, -0.4, 0.65), Vector3(0.4, -1.0, 0.0), "pinch"],
+	[3.42, Vector3(-0.07, 0.79, 0.6), P_PINCH, Vector3(0.35, -0.1, 1.0), Vector3(0.6, -1.0, 0.0), "dust"],
+	[3.62, Vector3(-0.09, 0.77, 0.58), P_PINCH, Vector3(0.35, -0.1, 1.0), Vector3(0.6, -1.0, 0.0), "dust"],
+	[3.88, Vector3(-END_X, W0.y, W0.z), P_PINCH, Vector3(0.55, -0.05, 0.85), Vector3(0.9, -0.5, -0.3), "pinch"],
+	[6.25, Vector3(-END_X, W0.y, W0.z), P_PINCH, Vector3(0.55, -0.05, 0.85), Vector3(0.9, -0.5, -0.3), "pinch"],
+	[6.45, Vector3(-END_X, LICK_Y, LICK_Z), P_PINCH, Vector3(0.45, 0.2, 0.85), Vector3(0.9, -0.4, -0.3), "pinch"],
+	[7.22, Vector3(-END_X, LICK_Y, LICK_Z), P_PINCH, Vector3(0.45, 0.2, 0.85), Vector3(0.9, -0.4, -0.3), "pinch"],
+	[7.5, Vector3(-END_X, W0.y, W0.z), P_PINCH, Vector3(0.55, -0.05, 0.85), Vector3(0.9, -0.5, -0.3), "pinch"],
+	[8.0, Vector3(-0.044, W0.y, W0.z), P_PINCH, Vector3(0.55, -0.05, 0.85), Vector3(0.9, -0.5, -0.3), "pinch"],
+	[8.62, Vector3(-0.044, W0.y, W0.z), P_PINCH, Vector3(0.55, -0.05, 0.85), Vector3(0.9, -0.5, -0.3), "pinch"],
+	[8.85, Vector3(0.04, 0.78, 0.62), P_PINCH, Vector3(0.6, 0.05, 0.8), Vector3(0.7, -0.2, -0.7), "pinch"],
+	[9.22, Vector3(0.04, 0.78, 0.62), P_PINCH, Vector3(0.6, 0.05, 0.8), Vector3(0.7, -0.2, -0.7), "pinch"],
+	[9.55, Vector3(-0.3, 0.93, 0.5), P_PINCH, Vector3(0.05, 0.9, 0.3), Vector3(1.0, -0.1, 0.1), "pinch"],
+	[9.72, Vector3(-0.3, 0.93, 0.5), P_PINCH, Vector3(0.05, 0.9, 0.3), Vector3(1.0, -0.1, 0.1), "pinch"],
+	[10.0, HOLD_R, P_WRIST, Vector3(0.0, 0.3, 1.0), Vector3(1.0, 0.3, 0.0), "hold"],
+]
+const L_KEYS := [
+	[0.0, Vector3(0.2, 0.62, 0.42), P_PINCH, Vector3(-0.2, -0.3, 1.0), Vector3(-1.0, 0.2, 0.0), "open"],
+	[0.5, Vector3(0.2, 0.62, 0.42), P_PINCH, Vector3(-0.2, -0.3, 1.0), Vector3(-1.0, 0.2, 0.0), "open"],
+	[0.78, Vector3(0.14, 0.8, 0.56), P_PINCH, Vector3(-0.35, 0.35, 1.0), Vector3(-1.0, -0.2, -0.2), "pinch"],
+	[1.35, Vector3(0.13, 0.81, 0.57), P_PINCH, Vector3(-0.35, 0.35, 1.0), Vector3(-1.0, -0.2, -0.2), "pinch"],
+	[1.62, Vector3(END_X + 0.01, W0.y + 0.01, W0.z), P_PINCH, Vector3(-0.5, 0.05, 0.85), Vector3(-0.9, -0.5, -0.3), "pinch"],
+	[3.55, Vector3(END_X + 0.01, W0.y + 0.01, W0.z), P_PINCH, Vector3(-0.5, 0.05, 0.85), Vector3(-0.9, -0.5, -0.3), "pinch"],
+	[3.88, Vector3(END_X, W0.y, W0.z), P_PINCH, Vector3(-0.55, -0.05, 0.85), Vector3(-0.9, -0.5, -0.3), "pinch"],
+	[6.25, Vector3(END_X, W0.y, W0.z), P_PINCH, Vector3(-0.55, -0.05, 0.85), Vector3(-0.9, -0.5, -0.3), "pinch"],
+	[6.45, Vector3(END_X, LICK_Y, LICK_Z), P_PINCH, Vector3(-0.45, 0.2, 0.85), Vector3(-0.9, -0.4, -0.3), "pinch"],
+	[7.22, Vector3(END_X, LICK_Y, LICK_Z), P_PINCH, Vector3(-0.45, 0.2, 0.85), Vector3(-0.9, -0.4, -0.3), "pinch"],
+	[7.5, Vector3(END_X, W0.y, W0.z), P_PINCH, Vector3(-0.55, -0.05, 0.85), Vector3(-0.9, -0.5, -0.3), "pinch"],
+	[8.0, Vector3(0.062, W0.y, W0.z), P_PINCH, Vector3(-0.5, 0.0, 0.85), Vector3(-0.9, -0.5, -0.3), "pinch"],
+	[8.6, Vector3(0.062, W0.y, W0.z), P_PINCH, Vector3(-0.5, 0.0, 0.85), Vector3(-0.9, -0.5, -0.3), "pinch"],
+	[8.85, Vector3(0.05, 0.665, 0.62), P_PADS, Vector3(-0.6, 0.05, 0.8), Vector3(0.0, 1.0, 0.15), "open"],
+	[9.25, Vector3(0.05, 0.665, 0.62), P_PADS, Vector3(-0.6, 0.05, 0.8), Vector3(0.0, 1.0, 0.15), "open"],
+	[9.52, Vector3(0.2, 0.9, 0.46), P_PADS, Vector3(-0.15, 1.0, 0.3), Vector3(0.0, 0.0, 1.0), "jazz"],
+	[10.0, Vector3(0.22, 0.86, 0.44), P_PADS, Vector3(-0.15, 1.0, 0.3), Vector3(0.0, 0.0, 1.0), "jazz"],
+]
+## Head: [time, pitch (+ back), yaw (+ left), roll].
+const HEAD_KEYS := [
+	[0.0, 0.0, 0.0, 0.0],
+	[0.3, -0.14, -0.22, 0.05],
+	[0.82, -0.04, -0.05, 0.0],
+	[1.28, -0.02, 0.0, 0.0],
+	[1.48, 0.13, 0.05, 0.16],
+	[1.75, -0.16, 0.0, 0.0],
+	[3.3, -0.16, 0.0, 0.0],
+	[3.5, -0.08, -0.16, -0.06],
+	[3.9, -0.15, 0.0, 0.0],
+	[6.25, -0.15, 0.0, 0.0],
+	[6.45, -0.04, 0.0, 0.07],
+	[7.22, -0.04, 0.0, 0.07],
+	[7.5, -0.15, 0.0, 0.0],
+	[8.0, -0.15, 0.06, -0.06],
+	[8.62, -0.15, 0.06, -0.06],
+	[8.85, -0.18, 0.0, 0.0],
+	[9.22, -0.18, 0.0, 0.0],
+	[9.55, 0.08, -0.26, -0.15],
+	[9.75, 0.08, -0.26, -0.15],
+	[10.0, 0.0, 0.0, 0.0],
+]
+
+var _bud_radius := 0.03     # model radius of the bud mesh at scale 1
+var _paper_home := W0       # where the paper is this frame (skeleton space)
+
 
 func _prepare_roll(strain: StringName) -> void:
 	var info := WeedStrains.info(strain)
 	_float_bud.material_override = WeedKit.bud_material(strain)
 	_float_bud_strain = strain
-	_paper_mat.set_shader_parameter("fill_color", info.bud_tint.lerp(Color(0.42, 0.66, 0.28), 0.55))
-	_paper_mat.set_shader_parameter("roll", 0.0)
-	_paper_mat.set_shader_parameter("fill", 0.0)
+	var crumb: Color = info.bud_tint.lerp(Color(0.42, 0.66, 0.28), 0.55)
+	_paper_mat.set_shader_parameter("fill_color", crumb)
+	for k in ["fold", "wrap_a", "wrap_b", "fill", "wet"]:
+		_paper_mat.set_shader_parameter(k, 0.0)
+	_filling_mat.set_shader_parameter("tint", crumb)
 	_crumbs.mesh.surface_get_material(0).albedo_color = Color(0.4, 0.62, 0.25).lerp(info.bud_tint, 0.35)
+	(_joint.root as Node3D).scale = Vector3.ONE
+	(_joint.twist as Node3D).visible = false
 	_paint_joint(strain)
 
 
@@ -419,11 +546,22 @@ func _finish_roll() -> void:
 	joint_strain = _roll_strain
 	joint_puffs = HITS
 	lit = false
-	_float_bud.visible = false
-	_paper.visible = false
+	_hide_roll_props()
+	(_joint.twist as Node3D).visible = true
+	(_joint.twist as Node3D).scale = Vector3.ONE
+	_hold = 1.0
 	joint_rolled.emit(joint_strain)
 	joint_changed.emit()
 	_save()
+
+
+func _hide_roll_props() -> void:
+	_float_bud.visible = false
+	_paper.visible = false
+	_filling.visible = false
+	_tongue.visible = false
+	_glint.visible = false
+	_crumbs.emitting = false
 
 
 func _clear_joint() -> void:
@@ -444,154 +582,359 @@ func _e(a: float, b: float) -> float:
 	return smoothstep(a, b, act_t)
 
 
-func _arm(side: String, goal: Vector3, w: float, curl := 0.2, pinch := 0.0, wiggle := 0.0, fingers := Vector3(0, 0.1, 1), palm := Vector3.UP) -> void:
+## Sets one arm: goal, weight, pinned point, finger direction, palm normal
+## and the finger pose (a POSES entry or a dictionary of finger settings).
+func _arm(side: String, goal: Vector3, w: float, pin: int = P_WRIST, fingers := Vector3(0, 0.1, 1), palm := Vector3.UP, pose: Variant = {}) -> void:
 	var a: Dictionary = hands.arms[side]
+	hands.reset_fingers(side)
 	a.goal = goal
 	a.w = w
-	a.curl = curl
-	a.pinch = pinch
-	a.wiggle = wiggle
+	a.pin = pin
 	a.fingers = fingers
 	a.palm = palm
+	var fs: Dictionary = POSES.get(pose, {}) if pose is String else pose
+	for k in fs:
+		a[k] = fs[k]
+
+
+## Eases between the keyframes around time t. Returns the wrist goal (the
+## pins are turned into wrist positions first, so a change of pin between
+## keys glides), finger direction, palm normal and blended finger settings.
+func _keys(track: Array, t: float, side: String) -> Dictionary:
+	var i := 0
+	while i < track.size() - 1 and t >= track[i + 1][0]:
+		i += 1
+	var a: Array = track[i]
+	var b: Array = track[mini(i + 1, track.size() - 1)]
+	var u := smoothstep(a[0], b[0], t) if b[0] > a[0] else 0.0
+	var wa := hands.wrist_goal(side, a[1], a[2], a[3], a[4])
+	var wb := hands.wrist_goal(side, b[1], b[2], b[3], b[4])
+	var pa: Dictionary = POSES[a[5]]
+	var pb: Dictionary = POSES[b[5]]
+	var fs := {}
+	for k in pa:
+		fs[k] = lerpf(pa[k], pb.get(k, 0.0), u)
+	for k in pb:
+		if not fs.has(k):
+			fs[k] = lerpf(0.0, pb[k], u)
+	return {
+		"wrist": wa.lerp(wb, u),
+		"fingers": (a[3] as Vector3).normalized().lerp((b[3] as Vector3).normalized(), u),
+		"palm": (a[4] as Vector3).normalized().lerp((b[4] as Vector3).normalized(), u),
+		"f": fs,
+	}
+
+
+func _head_keys(t: float) -> Vector3:
+	var i := 0
+	while i < HEAD_KEYS.size() - 1 and t >= HEAD_KEYS[i + 1][0]:
+		i += 1
+	var a: Array = HEAD_KEYS[i]
+	var b: Array = HEAD_KEYS[mini(i + 1, HEAD_KEYS.size() - 1)]
+	var u := smoothstep(a[0], b[0], t) if b[0] > a[0] else 0.0
+	return Vector3(lerpf(a[1], b[1], u), lerpf(a[2], b[2], u), lerpf(a[3], b[3], u))
 
 
 func _pose_roll() -> void:
 	var t := act_t
-	var w_in := _e(0.0, 0.6)
-	var left_w := w_in * (1.0 - _e(9.2, 9.9))
 	var bd := hands.body_delta
-	var work := WORK + bd
+	var w_in := _e(0.0, 0.45)
+	var r := _keys(R_KEYS, t, "Right")
+	var l := _keys(L_KEYS, t, "Left")
+	var r_off := Vector3.ZERO
+	var l_off := Vector3.ZERO
+	var rf: Dictionary = r.f
+	var lf: Dictionary = l.f
 
-	# Left hand: offers the paper, conducts the magic, then lets go.
-	var lg := TRAY_L
-	var lpalm := Vector3(-0.5, 1.0, 0.0)
-	var lfing := Vector3(-0.35, 0.1, 1.0)
-	var lwig := 0.0
-	var lcurl := 0.15
-	# Right hand: offers the bud, crumbles it, rolls, licks, shows it off.
-	var rg := TRAY_R
-	var rpalm := Vector3(0.5, 1.0, 0.0)
-	var rfing := Vector3(0.35, 0.1, 1.0)
-	var rwig := 0.0
-	var rcurl := 0.15
-	var rpinch := 0.0
+	# Sniff: the bud bobs under the nose with each sniff.
+	var sniff := _pulse(t, 1.02, 0.09) + _pulse(t, 1.22, 0.09)
+	r_off += Vector3(0.0, -0.006, -0.008) * sniff
+	# Crumbling: the thumb rubs, the hand drifts along the paper and dips.
+	var crumble := _e(1.75, 1.95) * (1.0 - _e(3.15, 3.3))
+	if crumble > 0.0:
+		rf["rub"] = crumble
+		r_off += Vector3(sin((t - 1.75) * 3.6) * 0.026, -0.006 * absf(sin(t * 9.5)), 0.0) * crumble
+		l_off += Vector3(0.0, sin(t * 9.5) * 0.002, 0.0) * crumble
+	# Dusting off: a quick shake of the fingers.
+	var dust := _e(3.3, 3.4) * (1.0 - _e(3.55, 3.7))
+	r_off += Vector3(sin(t * 46.0) * 0.012, sin(t * 31.0) * 0.006, 0.0) * dust
+	# Packing the taco: the paper rocks back and forth between the pinches.
+	var rock := _e(4.15, 4.3) * (1.0 - _e(4.5, 4.62))
+	var rock_a := sin((t - 4.15) * 21.0) * rock
+	r_off += Vector3(0.0, 0.006, -0.004) * rock_a
+	l_off += Vector3(0.0, 0.006, -0.004) * rock_a
+	# Rolling: thumbs push the paper over, fingers walk, hands nudge in and out.
+	var rolling := _e(4.6, 4.75) * (1.0 - _e(6.05, 6.25))
+	if rolling > 0.0:
+		var ph := (t - 4.6) * 11.0
+		rf["rub"] = 0.6 * rolling
+		lf["rub"] = 0.6 * rolling
+		rf["middle"] = rf.get("middle", 0.0) + 0.25 * sin(ph) * rolling
+		lf["middle"] = lf.get("middle", 0.0) + 0.25 * sin(ph + PI) * rolling
+		var nudge := Vector3(0.0, 0.003 * sin(ph), 0.006 * sin(ph * 0.5)) * rolling
+		r_off += nudge
+		l_off += nudge
+	# The lick: the tube slides along the tongue, left to right and back a bit.
+	var lick := _e(6.48, 6.6) * (1.0 - _e(7.08, 7.2))
+	var slide := 0.0
+	if lick > 0.0:
+		slide = lerpf(0.042, -0.042, smoothstep(6.55, 7.05, t)) * lick
+		r_off.x += slide
+		l_off.x += slide
+	# Sealing: thumbs press along the seam.
+	var press := _e(7.55, 7.65) * (1.0 - _e(7.85, 7.95))
+	rf["rub"] = rf.get("rub", 0.0) + 0.5 * press
+	lf["rub"] = lf.get("rub", 0.0) + 0.5 * press
+	# Twisting the tip: the left hand rolls back and forth around the joint.
+	var twist := _e(8.02, 8.12) * (1.0 - _e(8.5, 8.6))
+	var twist_a := sin((t - 8.02) * 22.0) * twist
+	var l_palm: Vector3 = l.palm
+	if twist > 0.0:
+		l_palm = l_palm.rotated(Vector3.RIGHT, 0.75 * twist_a)
+		lf["rub"] = twist
+		l_off += Vector3(0.0, 0.004 * twist_a, 0.0)
+	# Tap, tap: the joint knocks down onto the left palm.
+	var tap := _pulse(t, 8.98, 0.07) + _pulse(t, 9.14, 0.07)
+	r_off.y -= 0.022 * tap
+	# Ta-da wiggle.
+	var tada := _e(9.5, 9.6) * (1.0 - _e(9.75, 9.9))
+	r_off += Vector3(0.0, sin(t * 30.0) * 0.006, 0.0) * tada
 
-	if t < 3.4:
-		var k := _e(0.8, 1.3)
-		var circ := Vector3(0.0, sin(t * 7.0) * 0.018, cos(t * 7.0) * 0.014) * k
-		lg = TRAY_L.lerp(Vector3(0.15, 0.83, 0.5), k) + circ
-		rg = TRAY_R.lerp(Vector3(-0.15, 0.83, 0.5), k) + Vector3(circ.x, -circ.y, circ.z)
-		lpalm = lpalm.lerp(Vector3(-1.0, 0.2, 0.1), k)
-		rpalm = rpalm.lerp(Vector3(1.0, 0.2, 0.1), k)
-		lwig = 0.8 * k
-		rwig = 0.5 * k
-		rcurl = lerpf(0.15, 0.45 + 0.2 * sin(t * 16.0), k * (1.0 - _e(3.1, 3.4)))
-	elif t < 6.6:
-		var r := sin(t * 9.0) * 0.03
-		var k := _e(3.4, 3.7) * (1.0 - _e(6.3, 6.6))
-		lg = Vector3(0.15, 0.82 + absf(r) * 0.3, 0.5 + r * k)
-		rg = Vector3(-0.15, 0.82 + absf(r) * 0.3, 0.5 - r * k)
-		lpalm = Vector3(-0.7, -1.0, 0.2)
-		rpalm = Vector3(0.7, -1.0, 0.2)
-		lcurl = 0.1
-		rcurl = 0.1
-		lwig = 0.25
-		rwig = 0.25
-	elif t < 8.0:
-		# Pinch the tube and lick it closed.
-		var up := _e(6.8, 7.3) * (1.0 - _e(7.75, 8.0))
-		var slide := sin(clampf((t - 7.3) / 0.45, 0.0, 1.0) * PI * 2.0) * 0.035 * up
-		rg = Vector3(-0.15, 0.82, 0.5).lerp(TO_MOUTH_R + Vector3(slide, 0.0, 0.0), up)
-		rfing = Vector3(0.6, 0.15, 1.0)
-		rpalm = Vector3(0.3, -0.2, 0.0)
-		rpinch = _e(6.7, 6.95)
-		lg = TRAY_L + Vector3(0.0, -0.03, 0.0)
-		hands.head_pitch = -0.12 * up
-	elif t < 9.0:
-		# The tube floats between the hands and twists its tip.
-		var k := _e(8.0, 8.3)
-		rg = TO_MOUTH_R.lerp(Vector3(-0.16, 0.82, 0.5), k)
-		rpinch = 1.0 - k
-		lg = Vector3(0.15, 0.84, 0.5) + Vector3(0.0, sin(t * 18.0) * 0.012, 0.0)
-		lpalm = Vector3(-1.0, 0.0, 0.2)
-		lwig = 1.0
-		rwig = 0.4
-		hands.head_pitch = 0.0
-	else:
-		# Ta-da! Up it goes, then down into a relaxed hold.
-		var up := _e(9.0, 9.35) * (1.0 - _e(9.55, 10.0))
-		var down := _e(9.55, 10.0)
-		rg = Vector3(-0.16, 0.82, 0.5).lerp(TADA_R, up).lerp(HOLD_R, down)
-		rpinch = 1.0
-		rfing = Vector3(0.0, 0.6, 1.0).lerp(Vector3(0.0, 0.3, 1.0), down)
-		rpalm = Vector3(1.0, 0.3, 0.0)
-		lg = TRAY_L.lerp(TRAY_L + Vector3(0.05, -0.12, -0.05), _e(9.2, 9.9))
-		lcurl = 0.3
-	_arm("Left", lg, left_w, lcurl, 0.0, lwig, lfing, lpalm)
-	_arm("Right", rg, w_in, rcurl, rpinch, rwig, rfing, rpalm)
+	# While crumbling, the bud hand hovers over wherever the paper really is;
+	# while packing, the joint comes down onto wherever the left palm is.
+	var over_paper := _e(1.6, 1.78) * (1.0 - _e(3.3, 3.42))
+	if over_paper > 0.0:
+		var over := _paper_home - bd + Vector3(0.0, 0.065, 0.0)
+		r.wrist = (r.wrist as Vector3).lerp(hands.wrist_goal("Right", over, P_PINCH, r.fingers, r.palm), over_paper)
+	var over_palm := _e(8.62, 8.85) * (1.0 - _e(9.22, 9.5))
+	if over_palm > 0.0:
+		var over := hands.pads_point("Left") - bd + Vector3(0.0, WeedProps.JOINT_L * 0.55 + 0.03, 0.0)
+		r.wrist = (r.wrist as Vector3).lerp(hands.wrist_goal("Right", over, P_PINCH, r.fingers, r.palm), over_palm)
 
-	# Props: the bud floats from the right palm to the middle and crumbles.
-	var bud_from := TRAY_R + Vector3(0.05, 0.08, 0.06) + bd
-	var bud_at := bud_from.lerp(work + Vector3(0, 0.07, 0), _e(0.8, 1.3))
-	var bud_s := _e(0.15, 0.55) * (1.0 - _e(1.2, 3.3))
-	_float_bud.visible = bud_s > 0.01
-	_float_bud.position = bud_at + Vector3(0, sin(t * 3.0) * 0.006, 0)
-	_float_bud.rotation = Vector3(0.2 * sin(t * 2.0), t * 2.4, 0.0)
-	_float_bud.scale = Vector3.ONE * WeedKit.BUD_SCALE * 0.75 * maxf(bud_s, 0.001)
-	_crumbs.position = bud_at - Vector3(0, 0.02, 0)
-	var crumbling := t > 1.2 and t < 3.3
+	var r_w := w_in * lerpf(1.0, 0.9, _e(9.75, 10.0))
+	var l_w := w_in * (1.0 - _e(9.68, 9.98))
+	_arm("Right", (r.wrist as Vector3) + r_off, r_w, P_WRIST, r.fingers, r.palm, rf)
+	_arm("Left", (l.wrist as Vector3) + l_off, l_w, P_WRIST, l.fingers, l_palm, lf)
+
+	# Head and body.
+	var head := _head_keys(t)
+	hands.head_pitch = head.x - 0.03 * sniff + 0.03 * lick
+	hands.head_yaw = head.y - slide * 2.2
+	hands.head_roll = head.z
+	hands.chest_swell = 0.45 * sniff + 0.3 * _pulse(t, 6.4, 0.25)
+	var shiver := _e(1.3, 1.38) * (1.0 - _e(1.62, 1.75))
+	hands.sway = sin(t * 40.0) * 0.04 * shiver + sin((t - 9.5) * 13.0) * 0.05 * tada
+	hands.lean = 0.1 * _e(1.5, 1.9) * (1.0 - _e(9.3, 9.6)) - 0.05 * _e(6.25, 6.45) * (1.0 - _e(7.22, 7.5))
+
+	_place_roll_props(t, bd)
+	_roll_events(t, bd)
+
+
+## Lays the bud, paper, filling, joint and tongue into the hands (current pose).
+func _place_roll_props(t: float, bd: Vector3) -> void:
+	var lp := hands.pinch_point("Left")
+	var rp := hands.pinch_point("Right")
+	var info := WeedStrains.info(_roll_strain)
+
+	# The bud: out of the pouch into the right pinch, crumbled away to nothing.
+	var bud_in := _e(0.28, 0.42)
+	var crumbled := _e(1.85, 3.25)
+	var chunks := floorf(crumbled * 7.0) / 7.0
+	var bud_s := bud_in * (1.0 - lerpf(crumbled, chunks, 0.6))
+	_float_bud.visible = bud_s > 0.02
+	if _float_bud.visible:
+		var fd := hands.finger_direction("Right")
+		var pd := hands.palm_direction("Right")
+		var size := 0.05 * bud_s
+		_float_bud.position = rp + fd * size * 0.8 - pd * size * 0.1
+		var jolt := sin(crumbled * 7.0 * TAU) * 0.25 * _e(1.85, 2.0)
+		# Broad side to the front (the bud model is flat-ish along its Z).
+		_float_bud.rotation = Vector3(0.15 * sin(t * 1.7) + jolt, -0.5 + 0.3 * sin(t * 1.3), 0.2 * sin(t * 2.0))
+		_float_bud.scale = Vector3.ONE * size / maxf(_bud_radius, 0.001)
+	_crumbs.position = rp + Vector3(0, -0.012, 0)
+	var crumbling := t > 1.85 and t < 3.25
 	if _crumbs.emitting != crumbling:
 		_crumbs.emitting = crumbling
-	if _event("bud_in", 0.25):
-		_burst(bud_from, WeedStrains.info(_roll_strain).glow, 10)
-	if _event("paper_in", 0.45):
-		_burst(TRAY_L + Vector3(-0.05, 0.07, 0.06) + bd, Color(1, 0.95, 0.85), 8)
 
-	# Paper: up off the left palm, to the middle, filled, curled, licked, twisted.
-	var paper_from := TRAY_L + Vector3(-0.05, 0.07, 0.06) + bd
-	var paper_s := _e(0.35, 0.75)
-	var fill := _e(1.2, 3.4)
-	var roll := _e(3.6, 6.3)
-	roll = clampf(roll + sin(t * 9.0) * 0.025 * roll * (1.0 - roll) * 4.0, 0.0, 1.0)
-	_paper_mat.set_shader_parameter("fill", fill)
-	_paper_mat.set_shader_parameter("roll", roll)
-	var paper_pos := paper_from.lerp(work, _e(0.8, 1.4))
-	var tube_spin := roll * PI * 0.7
-	var joint_show := t >= 6.9
+	# The paper: by a corner, on the left fingers, then between both pinches.
+	var paper_s := _e(0.74, 0.92)
+	var joint_show := t >= 7.95
 	_paper.visible = paper_s > 0.01 and not joint_show
-	_paper.position = paper_pos + Vector3(0, sin(t * 2.6) * 0.004, 0)
-	_paper.rotation = Vector3(tube_spin, 0.0, 0.0)
-	_paper.scale = Vector3.ONE * maxf(paper_s, 0.001)
+	var flag := _paper_flag(lp)
+	var held := _paper_held(lp)
+	var ends := _paper_ends(lp, rp, t)
+	var xf := flag.interpolate_with(held, _e(1.38, 1.62))
+	xf = xf.interpolate_with(ends, _e(3.62, 3.88))
+	if paper_s < 1.0:
+		xf.basis = xf.basis.scaled(Vector3.ONE * maxf(paper_s, 0.001))
+		# Pop out of the pinch.
+		xf.origin = lp.lerp(xf.origin, paper_s)
+	_paper.transform = xf
+	_paper_home = xf.origin
+	var fill := _e(1.9, 3.3)
+	var fold := _e(3.92, 4.25)
+	var wrap_a := _e(4.62, 5.3)
+	var wrap_b := _e(5.3, 6.2) * 0.8 + _e(7.58, 7.88) * 0.2
+	_paper_mat.set_shader_parameter("fill", fill * (1.0 - fold))
+	_paper_mat.set_shader_parameter("fold", lerpf(0.32 * _e(1.45, 1.75), 1.0, fold))
+	_paper_mat.set_shader_parameter("wrap_a", wrap_a)
+	_paper_mat.set_shader_parameter("wrap_b", wrap_b)
+	_paper_mat.set_shader_parameter("wet", _e(6.55, 7.1))
+
+	# The ground bud: a mound on the sheet, shaped into a log in the taco.
+	_filling.visible = fill > 0.01 and not joint_show and _paper.visible
+	if _filling.visible:
+		var shape := _e(3.95, 4.5)
+		var r := WeedProps.PAPER_R * 0.86
+		var mound := Vector3(0.35 + 0.35 * fill, 0.15 + 0.4 * fill, 1.5 - 0.3 * fill)
+		var sc := mound.lerp(Vector3.ONE, shape)
+		var y := lerpf(-WeedProps.PAPER_R + r * sc.y, 0.0, shape)
+		_filling.transform = xf * Transform3D(Basis.from_scale(sc), Vector3(0.0, y, 0.0))
+
+	# The joint: swapped in for the sealed tube, twisted, tapped, shown off.
 	var jroot: Node3D = _joint.root
 	jroot.visible = joint_show
 	if joint_show:
 		var twist: Node3D = _joint.twist
-		twist.visible = t > 8.4
-		twist.scale = Vector3.ONE * _e(8.3, 8.8)
-		if t < 8.0:
-			# In the right hand's pinch, licked across the lips.
-			var g := hands.grip_point("Right")
-			var dir := Vector3(1.0, 0.05, 0.15).normalized()
-			_set_joint(g - dir * 0.02, dir)
-		elif t < 9.0:
-			var k := _e(8.0, 8.3)
-			var g := hands.grip_point("Right")
-			var dir := Vector3(1.0, 0.0, 0.0)
-			var centre := work + Vector3(-JOINT_HALF, 0.02, 0)
-			var p := g.lerp(centre, k)
-			var spin := (t - 8.0) * 9.0
-			_set_joint(p, dir, spin)
-		else:
-			var k := _e(9.0, 9.3)
-			var g := hands.grip_point("Right")
-			var hold_dir := _hold_dir()
-			var centre := work + Vector3(-JOINT_HALF, 0.02, 0)
-			_set_joint(centre.lerp(g, k), Vector3(1, 0, 0).lerp(hold_dir, k).normalized())
-	if _event("sealed", 7.85):
-		_burst(MOUTH + bd + Vector3(0, 0, 0.05), Color(1, 1, 1), 8)
-	if _event("tada", 9.3):
-		_burst(hands.grip_point("Right") + Vector3(0, 0.05, 0), WeedStrains.info(_roll_strain).glow, 22)
-		Input.vibrate_handheld(20)
+		twist.visible = t > 8.05
+		twist.scale = Vector3.ONE * maxf(_e(8.05, 8.55), 0.001)
+		var axis := (lp - rp).normalized() if lp.distance_to(rp) > 0.01 else Vector3.RIGHT
+		var mid := (lp + rp) * 0.5 + _up_from(axis) * 0.002
+		var spin := sin((t - 8.02) * 22.0) * 0.3 * _e(8.02, 8.12) * (1.0 - _e(8.5, 8.6))
+		var held_mid := mid - axis * WeedProps.JOINT_L * 0.5
+		var up_dir := Vector3.UP
+		var fd := hands.finger_direction("Right")
+		var tada_dir := (fd + Vector3(-0.2, 0.5, 0.0)).normalized()
+		var dir := axis.lerp(up_dir, _e(8.62, 8.85)).lerp(tada_dir, _e(9.25, 9.55)).normalized()
+		var at := held_mid
+		var on_r := rp - dir * WeedProps.JOINT_L * lerpf(0.55, 0.25, _e(9.25, 9.55))
+		at = held_mid.lerp(on_r, _e(8.62, 8.85))
+		# Settle into the everyday hold between the fingers.
+		var rest := _e(9.72, 10.0)
+		if rest > 0.0:
+			at = at.lerp(hands.grip_point("Right"), rest)
+			dir = dir.lerp(_hold_dir(), rest).normalized()
+		_set_joint(at, dir, spin)
+
+	# The tongue, out under the moustache for the lick.
+	var tongue := _e(6.4, 6.52) * (1.0 - _e(7.12, 7.26))
+	_tongue.visible = tongue > 0.01
+	if _tongue.visible:
+		var mouth: Transform3D = _skel.get_bone_global_pose(_head_bone) * _mouth_local
+		_tongue.transform = Transform3D(mouth.basis * Basis.from_scale(Vector3(1.0, 1.0, maxf(tongue, 0.001))), mouth.origin)
+
+	# A shine that runs down the seam as it seals.
+	var shine := _e(7.58, 7.62) * (1.0 - _e(7.9, 7.96))
+	var star := _pulse(t, 9.56, 0.22)
+	_glint.visible = shine > 0.01 or star > 0.01
+	if shine > 0.01:
+		var u := smoothstep(7.6, 7.92, t)
+		var seam := rp.lerp(lp, u) + _up_from((lp - rp).normalized()) * (WeedProps.PAPER_R + 0.003)
+		_glint.position = seam
+		_glint.scale = Vector3.ONE * 0.6
+		_glint.set_instance_shader_parameter("strength", shine)
+		_glint.set_instance_shader_parameter("spin", t * 3.0)
+	elif star > 0.01:
+		_glint.position = _tip_world_skel()
+		_glint.scale = Vector3.ONE * 1.6
+		_glint.set_instance_shader_parameter("strength", star)
+		_glint.set_instance_shader_parameter("spin", t * 2.0)
+
+
+## The paper hanging from the left pinch by its corner, face to the front.
+func _paper_flag(lp: Vector3) -> Transform3D:
+	var axis := Vector3(1.0, 0.45, 0.1).normalized()
+	var face := Vector3(0.1, -0.15, 1.0)
+	var b := _paper_basis(axis, face)
+	var origin := lp - axis * (WeedProps.PAPER_L * 0.5 - 0.008) + b.y * WeedProps.PAPER_R
+	return Transform3D(b, origin)
+
+
+## The paper held out flat by its end in the left pinch (a little V fold in
+## it keeps it stiff), tipped towards the Keling's eyes and the camera.
+func _paper_held(lp: Vector3) -> Transform3D:
+	var axis := Vector3(1.0, 0.1, -0.05).normalized()
+	var b := _paper_basis(axis, Vector3(0.0, 1.0, 0.35))
+	return Transform3D(b, lp - axis * (WeedProps.PAPER_L * 0.5 - 0.006) + b.y * WeedProps.PAPER_R)
+
+
+## The paper held at both ends, rocked and rolled about its own axis.
+func _paper_ends(lp: Vector3, rp: Vector3, t: float) -> Transform3D:
+	var axis := (lp - rp).normalized() if lp.distance_to(rp) > 0.01 else Vector3.RIGHT
+	var turn := 0.35 * sin((t - 4.15) * 21.0) * _e(4.15, 4.3) * (1.0 - _e(4.5, 4.62))
+	turn += 0.25 * sin((t - 4.6) * 11.0) * _e(4.6, 4.75) * (1.0 - _e(6.05, 6.25))
+	# Gum strip towards the mouth for the lick.
+	turn -= 0.35 * _e(6.25, 6.45) * (1.0 - _e(7.22, 7.5))
+	var up := _up_from(axis).rotated(axis, turn)
+	var b := _paper_basis(axis, up)
+	return Transform3D(b, (lp + rp) * 0.5 + b.y * WeedProps.PAPER_R * (1.0 - _e(4.0, 4.4)))
+
+
+## A paper frame: X along the sheet, Y its face normal (bent towards `face`).
+static func _paper_basis(axis: Vector3, face: Vector3) -> Basis:
+	var x := axis.normalized()
+	var y := face - x * face.dot(x)
+	if y.length() < 0.01:
+		y = Vector3.UP - x * x.y
+	y = y.normalized()
+	return Basis(x, y, x.cross(y))
+
+
+static func _up_from(axis: Vector3) -> Vector3:
+	var y := Vector3.UP - axis * axis.dot(Vector3.UP)
+	return y.normalized() if y.length() > 0.01 else Vector3.BACK
+
+
+## One-off beats: pops, bursts, hearts, sounds.
+func _roll_events(t: float, bd: Vector3) -> void:
+	var info := WeedStrains.info(_roll_strain)
+	if _event("pouch", 0.22):
+		_sfx("pouch")
+	if _event("bud_in", 0.32):
+		_burst(hands.pinch_point("Right"), info.glow, 10)
+		_sfx("bling", 1.1)
+	if _event("paper_in", 0.76):
+		_burst(hands.pinch_point("Left"), Color(1, 0.95, 0.85), 8)
+		_sfx("paper", 1.25)
+	if _event("sniff", 0.96):
+		_sfx("sniff")
+	if _event("hearts", 1.36):
+		_hearts.position = MOUTH + bd + Vector3(0.0, 0.08, 0.06)
+		_hearts.restart()
+		_hearts.emitting = true
+		_sfx("happy")
+	if _event("crumble", 1.86):
+		_sfx("crumble")
+	for i in 6:
+		if _event("chunk%d" % i, 2.05 + i * 0.2):
+			_burst(hands.pinch_point("Right"), info.glow * 0.8, 3)
+	if _event("dust", 3.34):
+		_sfx("pat")
+		_crumbs.restart()
+		_crumbs.emitting = true
+	if _event("fold", 3.92):
+		_sfx("paper", 0.9)
+	if _event("roll", 4.62):
+		_sfx("roll")
+	if _event("lick", 6.5):
+		_sfx("lick")
+	if _event("seal", 7.58):
+		_sfx("glint")
+	if _event("sealed", 7.94):
+		_burst((hands.pinch_point("Left") + hands.pinch_point("Right")) * 0.5, Color(1, 1, 1), 10)
+	if _event("twist", 8.04):
+		_sfx("twist")
+	if _event("tap1", 8.97):
+		_sfx("tap")
+	if _event("tap2", 9.13):
+		_sfx("tap", 1.08)
+	if _event("tada", 9.52):
+		_burst(_tip_world_skel(), info.glow, 22)
+		_sfx("tada")
+		if local:
+			Input.vibrate_handheld(20)
+	if _event("camera_back", 9.8) and local:
+		_closeup(false)
 
 const JOINT_HALF := WeedProps.JOINT_L * 0.5
 
@@ -611,7 +954,6 @@ func _set_joint(mouth_end: Vector3, dir: Vector3, spin := 0.0) -> void:
 	var jroot: Node3D = _joint.root
 	jroot.transform = Transform3D(b, mouth_end)
 
-
 # ---------------------------------------------------------------------------
 # Smoking choreography
 
@@ -625,7 +967,7 @@ func _pose_smoke() -> void:
 		m = _e(0.0, 0.45)
 		# Snap a fairy flame off the left fingertips and send it to the tip.
 		var snap := _e(0.1, 0.35) * (1.0 - _e(1.15, 1.5))
-		_arm("Left", Vector3(0.2, 0.86, 0.42), snap, 0.2 + 0.6 * _pulse(t, 0.3, 0.12), 0.0, 0.2, Vector3(-0.3, 0.5, 1.0), Vector3(-1, 0, 0))
+		_arm("Left", Vector3(0.2, 0.86, 0.42), snap, P_WRIST, Vector3(-0.3, 0.5, 1.0), Vector3(-1, 0, 0), {"curl": 0.2 + 0.6 * _pulse(t, 0.3, 0.12), "wiggle": 0.2, "thumb": 0.5 * _pulse(t, 0.3, 0.12)})
 		var tip := _tip_world_skel()
 		var finger := Vector3(0.12, 0.92, 0.52) + bd
 		_flame.visible = t > 0.32 and t < 1.3
@@ -657,7 +999,7 @@ func _pose_smoke() -> void:
 			if _event("roach", 3.4):
 				_burst(hands.grip_point("Right"), info.glow, 14)
 	var rg := HOLD_R.lerp(TO_MOUTH_R, m)
-	_arm("Right", rg, 1.0, 0.2, 1.0, 0.0, Vector3(0.0, 0.3, 1.0).lerp(Vector3(0.6, 0.25, 1.0), m), Vector3(1.0, 0.3, 0.0))
+	_arm("Right", rg, 1.0, P_WRIST, Vector3(0.0, 0.3, 1.0).lerp(Vector3(0.6, 0.25, 1.0), m), Vector3(1.0, 0.3, 0.0), "hold")
 	_set_ember(ember)
 	var g := hands.grip_point("Right")
 	var at_mouth := MOUTH + bd
@@ -719,11 +1061,15 @@ func _place_props() -> void:
 
 func _pose_rest() -> void:
 	var w := _hold
-	_arm("Right", HOLD_R, w * 0.9, 0.2, 1.0, 0.0, Vector3(0.0, 0.3, 1.0), Vector3(1.0, 0.3, 0.0))
+	_arm("Right", HOLD_R, w * 0.9, P_WRIST, Vector3(0.0, 0.3, 1.0), Vector3(1.0, 0.3, 0.0), "hold")
 	var l: Dictionary = hands.arms["Left"]
 	l.w = move_toward(l.w, 0.0, 0.05)
 	hands.chest_swell = move_toward(hands.chest_swell, 0.0, 0.05)
 	hands.head_pitch = move_toward(hands.head_pitch, 0.0, 0.02)
+	hands.head_yaw = move_toward(hands.head_yaw, 0.0, 0.02)
+	hands.head_roll = move_toward(hands.head_roll, 0.0, 0.02)
+	hands.lean = move_toward(hands.lean, 0.0, 0.01)
+	hands.sway = move_toward(hands.sway, 0.0, 0.01)
 	if not has_joint():
 		(_joint.root as Node3D).scale = Vector3.ONE
 
@@ -742,9 +1088,36 @@ func _build_props() -> void:
 	_joint = WeedProps.joint(Color(0.6, 1.0, 0.4))
 	(_joint.root as Node3D).visible = false
 	_rig.add_child(_joint.root)
+	_filling = WeedProps.filling(Color(0.45, 0.7, 0.3))
+	_filling_mat = (_filling.get_child(0) as MeshInstance3D).material_override
+	_filling.visible = false
+	_rig.add_child(_filling)
+	_tongue = WeedProps.tongue()
+	_rig.add_child(_tongue)
+	_glint = WeedProps.glint()
+	_rig.add_child(_glint)
+	_hearts = WeedProps.hearts()
+	_rig.add_child(_hearts)
+	var aabb := WeedKit.bud_mesh().get_aabb()
+	_bud_radius = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * 0.5
+	# The tongue comes out of the mouth and turns with the head.
+	_head_bone = _skel.find_bone("Head")
+	if _head_bone >= 0:
+		var head_rest := _skel.get_bone_global_rest(_head_bone)
+		var mouth := Transform3D(Basis.looking_at(Vector3(0.0, -0.35, 1.0), Vector3.UP, true), MOUTH + Vector3(0.0, -0.004, -0.012))
+		_mouth_local = head_rest.affine_inverse() * mouth
+	for i in 3:
+		var v := AudioStreamPlayer3D.new()
+		v.name = "WeedSfx%d" % i
+		v.unit_size = 2.5
+		v.max_distance = 18.0
+		v.volume_db = -4.0
+		v.attenuation_filter_cutoff_hz = 9000.0
+		_rig.add_child(v)
+		_voices.append(v)
 	_crumbs = WeedProps.crumbs(Color(0.5, 0.8, 0.3))
 	_rig.add_child(_crumbs)
-	_sparkle = WeedProps.sparkles(Color(1, 1, 1))
+	_sparkle = WeedProps.stars(Color(1, 1, 1), 12, 0.035)
 	_rig.add_child(_sparkle)
 	_exhale = WeedProps.smoke_puff(Color(0.9, 0.9, 0.9))
 	_exhale.explosiveness = 0.55
@@ -766,10 +1139,39 @@ func _build_props() -> void:
 		_paint_joint(joint_strain)
 
 
+## Plays one of the rolling sounds (assets/audio/weed/<name>.ogg) at the hands.
+func _sfx(clip: String, pitch := 1.0) -> void:
+	if _voices.is_empty():
+		return
+	if not _clips.has(clip):
+		var path := "res://assets/audio/weed/%s.ogg" % clip
+		_clips[clip] = load(path) if ResourceLoader.exists(path) else null
+	var stream: AudioStream = _clips[clip]
+	if stream == null:
+		return
+	var v := _voices[_voice]
+	_voice = (_voice + 1) % _voices.size()
+	v.position = W0 + hands.body_delta
+	v.stream = stream
+	v.pitch_scale = pitch * randf_range(0.96, 1.04)
+	v.play()
+
+
+## Swings the camera round to the front for a close look at the rolling.
+func _closeup(on: bool) -> void:
+	var cam = keling.get("camera_rig") if keling else null
+	if cam == null or not cam.has_method("begin_closeup"):
+		return
+	if on:
+		cam.begin_closeup(keling.facing)
+	else:
+		cam.end_closeup()
+
+
 func _burst(at: Vector3, color: Color, amount: int) -> void:
 	_sparkle.position = at
 	_sparkle.amount = amount
-	(_sparkle.mesh.surface_get_material(0) as StandardMaterial3D).albedo_color = color * 1.6
+	_sparkle.color = color
 	_sparkle.restart()
 	_sparkle.emitting = true
 
