@@ -10,8 +10,15 @@ extends RefCounted
 ##   rocks:        r moss bias, g brightness, b ground blend band (m)
 
 const CHUNK := {"tree": 40.0, "far": 60.0, "rock": 30.0, "bush": 24.0, "plant": 16.0, "grass": 14.0, "small": 16.0, "litter": 16.0, "roots": 24.0}
+## Sub-cells ForestLod bands and culls by, see forest_lod.gd.
+const SUB := {"tree": 8.0, "far": 15.0, "rock": 6.0, "bush": 6.0, "plant": 4.0, "grass": 3.5, "small": 4.0, "litter": 4.0, "roots": 6.0}
+## Distant silhouettes in the haze can simplify a little sooner.
+const PX_SCALE := {"far": 2.0}
+## Draw distance (0: always). Plants also stop where their shader has
+## shrunk them to nothing.
 const VIS_END := {"tree": 0.0, "far": 0.0, "rock": 0.0, "bush": 70.0, "plant": 48.0, "grass": 38.0, "small": 34.0, "litter": 28.0, "roots": 46.0}
-const SHADOWS := {"tree": true, "far": false, "rock": true, "bush": true, "plant": false, "grass": false, "small": false, "litter": false, "roots": false}
+const SHADOWS := {"tree": ForestLod.Shadow.PROXY, "far": ForestLod.Shadow.NONE, "rock": ForestLod.Shadow.SAME, "bush": ForestLod.Shadow.PROXY,
+		"plant": ForestLod.Shadow.NONE, "grass": ForestLod.Shadow.NONE, "small": ForestLod.Shadow.NONE, "litter": ForestLod.Shadow.NONE, "roots": ForestLod.Shadow.NONE}
 
 var layout: ForestLayout
 var terrain: ForestTerrain
@@ -31,6 +38,7 @@ var counts := {}                           # instances per group, for the build 
 var _grng := RandomNumberGenerator.new()   # ground dressing, kept apart so it never shifts the forest
 var _roots := {}
 var keep_clear: Array[Vector3] = []          # x, z, radius: no rocks here (weed patches)
+var lod: ForestLod                         # the Vegetation node, see forest_lod.gd
 
 
 func _init(p_layout: ForestLayout, p_terrain: ForestTerrain, p_kit: NatureKit) -> void:
@@ -76,32 +84,18 @@ func populate() -> void:
 
 
 func build(parent: Node3D) -> void:
-	var root := Node3D.new()
-	root.name = "Vegetation"
-	parent.add_child(root)
+	lod = ForestLod.new()
+	lod.name = "Vegetation"
+	parent.add_child(lod)
 	var keys := _batches.keys()
 	keys.sort()
 	for key in keys:
 		var b: Dictionary = _batches[key]
 		var data: PackedFloat32Array = b.data
-		var count := data.size() / 16
-		if count == 0:
+		if data.is_empty():
 			continue
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.use_custom_data = true
-		mm.mesh = b.mesh
-		mm.instance_count = count
-		mm.buffer = data
-		var mmi := MultiMeshInstance3D.new()
-		mmi.name = key
-		mmi.multimesh = mm
 		var group: String = b.group
-		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if SHADOWS[group] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if VIS_END[group] > 0.0:
-			mmi.visibility_range_end = VIS_END[group]
-			mmi.visibility_range_end_margin = 4.0
-		root.add_child(mmi)
+		lod.add_batch(key, b.mesh, data, _cut(group, b.mesh), SUB[group], SHADOWS[group], PX_SCALE.get(group, 1.0))
 
 	var body := StaticBody3D.new()
 	body.name = "PropColliders"
@@ -111,6 +105,20 @@ func build(parent: Node3D) -> void:
 		cs.transform = c.xform
 		body.add_child(cs)
 	parent.add_child(body)
+
+
+## Where a batch stops drawing: its group's range, or sooner if its plant
+## shader has already shrunk it away by then.
+func _cut(group: String, mesh: Mesh) -> float:
+	var cut: float = VIS_END[group] if VIS_END[group] > 0.0 else INF
+	var fade := 0.0
+	for s in mesh.get_surface_count():
+		var m := mesh.surface_get_material(s)
+		if m is ShaderMaterial and (m as ShaderMaterial).shader == NatureKit.SH_PLANT:
+			fade = maxf(fade, float((m as ShaderMaterial).get_shader_parameter("fade_end")))
+		else:
+			fade = INF
+	return minf(cut, fade) if fade > 0.0 else cut
 
 
 # ----------------------------------------------------------------------------
