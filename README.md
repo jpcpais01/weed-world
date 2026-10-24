@@ -12,6 +12,14 @@ Every merge to `main` publishes a [release](../../releases/latest) with:
 
 After that the game updates itself. A few seconds into play it checks the latest release, offers the update with every patch note you missed, downloads it with progress and checks its SHA-256. On Android it then opens the system installer (the first time, Android asks you to allow installs from Weed World, and the card walks you through it). On Windows it swaps in the new `WeedWorld.exe` and reopens. "Check for updates" sits at the bottom of the What's new scroll. Keep the game in a folder you can write to (not Program Files) so the Windows update can replace it. Android updates only install over a build signed with the same key, so keep the `ANDROID_KEYSTORE_*` secrets stable.
 
+## Playing together
+
+Up to four players share one forest, on any mix of phones and PCs, over the internet with no port forwarding and no accounts. Tap the friends button under the What's new scroll (or press P), choose **Open my forest** and send the six-letter code; friends type it under **Join a friend** and pop out of a leaf puff beside you. Everyone's Keling wears its own flower colour (gold, coral, blue, lilac), matching its dot on the map, with its name floating overhead.
+
+Every device grows the same forest from the same seed, so only the Kelings and what they do travel: movement, animations and emotes, grabs, bench seats, picked and regrown buds, and the whole roll, light and puff ritual with its powers. A dropped connection (an app switch, a tunnel) reconnects to the same forest on its own for up to 40 seconds.
+
+Under the hood: Godot's high-level multiplayer (`@rpc`, peer ids) over `net/relay_peer.gd`, a `MultiplayerPeerExtension` that tunnels packets through a free public MQTT broker over secure WebSockets (`net/mqtt_link.gd`). The host is peer 1 and keeps the guest list; everyone else talks to everyone directly through the relay, one hop. The room code picks the relay (its first letter), the topic and the AES-256 key every frame is sealed with. `autoload/net.gd` runs sessions, spawns friends' Kelings as puppets (`player/keling_sync.gd` packs a Keling into ~35 bytes at 15 Hz and plays snapshots back 140 ms in the past) and offers `Net.send_world_event()` / `world_event` for anything that changes the shared world.
+
 ## Controls
 
 | | Phone | Keyboard + mouse | Gamepad |
@@ -24,6 +32,7 @@ After that the game updates itself. A few seconds into play it checks the latest
 | Emotes | Smiley button | 1 dance, 2 cheer, 3 sit, 4 nod | D-pad |
 | World map | Tap the minimap | M (or click the minimap) | Y |
 | On the map | Drag, pinch, tap to set a waypoint | Drag, wheel, click to set a waypoint, E finds you | Left stick, LB/RB, A marks, X finds you, B closes |
+| Play together | Friends button | P | (friends button) |
 
 The top-left corner shows FPS and triangles drawn. Tap it, or press 0 (Back on a gamepad), for the debug readout. F11 toggles fullscreen, H shows the control hints again.
 
@@ -33,6 +42,7 @@ The top-left corner shows FPS and triangles drawn. Tap it, or press 0 (Back on a
 - `camera/`: third-person orbit camera
 - `ui/`: HUD (shared look in `hud_theme.gd`, Fredoka and Nunito fonts under OFL), touch controls, place-name banners
 - `ui/map/`: the world map. `map_baker.gd` paints it once at load from the forest's own terrain fields and tree list (storybook shader + brushed crowns), `minimap.gd` and `world_map.gd` share it through `map_state.gd`; named places live in `map_landmarks.gd`
+- `autoload/net.gd`, `net/`, `ui/coop/`: co-op (sessions, relay transport, Play together card, roster, join/leave toasts)
 - `autoload/updater.gd`, `autoload/update_feed.gd`, `ui/update/`: in-game updates (GitHub releases feed, download and SHA-256 check, Android installer hand-off, Windows swap-and-relaunch) and the update card
 - `ui/loading/`: the loading screen and main scene (threaded load, forest grown on a worker thread, shader warm-up)
 - `branding/`: app icons and the boot splash, made by `tools/icon_compose.py` and `tools/splash_compose.py` from renders of the real Keling and forest
@@ -61,6 +71,8 @@ godot --headless --path . -s res://tools/grab_test.gd       # grab reach: hand-t
 godot --headless --path . -s res://tools/forest_check.gd    # grow the forest, walk the Keling across it
 godot --headless --path . -s res://tools/loading_check.gd   # boot through the loading screen into the forest
 godot --headless --path . -s res://tools/update_check.gd    # updater logic: feed, versions, notes, SHA-256, Windows swap, card states
+godot --headless --path . -s res://tools/net_check.gd       # co-op: host + 4 guests in one process (add `-- --relay=ws://...` for a real broker)
+godot --headless --path . -s res://tools/net_probe.gd       # can we reach each public relay, and how fast
 # HUD / map screenshots (needs a GPU or xvfb + GL; looks only)
 xvfb-run godot --path . --rendering-method gl_compatibility -s res://tools/map_preview.gd -- /tmp/map_preview
 ```

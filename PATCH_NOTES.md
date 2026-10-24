@@ -1,5 +1,11 @@
 # Patch notes
 
+## 24 Oct 2026 · 16:00 UTC
+- **Play together.** Up to four Kelings can now share the Whispering Glade, on phones and PCs, over the internet with nothing to set up. Tap the new friends button under the scroll (or press P), choose Open my forest and send your friends the six-letter code. They type it in and pop out of a puff of leaves right beside you.
+- **Everyone in their own colours.** Each player's Keling wears its own crown of flowers (buttercup gold, coral, forget-me-not blue or lilac), matching its dot on the minimap and world map, with its name floating over its head. Pick your name in the Play together card, or roll the dice for a random one like Mossy Toes.
+- **Gather and smoke together.** Friends see you walk, run, jump, dance, cheer and sit on the benches beside them. A bud one of you picks vanishes from the plant for everyone, and when someone rolls a joint, lights up and puffs, the others watch the whole ritual, the smoke and the bench power it brings.
+- **Holds on through hiccups.** Switch apps for a moment or lose signal in a tunnel and the game quietly reconnects you to the same forest. If the host heads home, everyone is gently sent back to their own forest, and the card shows who's in and how good each connection is.
+
 ## 24 Oct 2026 · 15:30 UTC
 - **Wild weed in the Whispering Glade.** Three strains grow in little patches beside the paths: warm Ember Kush, violet Starlit Haze and fresh Verdant Dream. The first patch grows just ahead of where you start. Walk up and press grab (E, X on gamepad, or the hand button) to pluck a glowing bud. The plant shivers, sheds a few leaves and slowly grows the bud back, and every new strain you find gets its own little fanfare.
 - **Roll your own.** With a bud in your pouch, press R (right trigger, or the new leaf button). A little forest magic floats the bud and a rolling paper up between your Keling's hands: the bud crumbles onto the paper, the paper curls itself up, gets a lick and a twist, and ten seconds later, ta-da, a joint ready to smoke. Walk off halfway and you keep your bud.
