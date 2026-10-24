@@ -1,5 +1,8 @@
 # Patch notes
 
+## 24 Oct 2026 · 19:25 UTC
+- **Sharper stutter hunting.** The frame-time panel now also times your Keling's hands and poses, the world map, the co-op card, the touch controls and the updater, so whatever causes a hitch gets named on the "slowest frame lately" line. Work that runs in the background (like the forest's level-of-detail sorting) no longer shows up there, since it can't cause a stutter.
+
 ## 24 Oct 2026 · 18:40 UTC
 - **Lighter tree shadows to draw.** The evening sun shines low through the forest, and the big leafy trees were casting their shadows from every single leaf, about 35 layers deep, so the graphics card painted each spot of the shadow map around a dozen times. Trees now cast from just enough leaves to block the sun: the shadows look the same (up close the dappling lets through about 3% more light; further away the shadows are actually fuller than before) and the shadow work drops by about 40%.
 - **Catch the hitches.** The frame-time panel now names whichever part of the game had the slowest single frame in the last few seconds, so stutters show up even when the averages look fine. The part measurement now times glow instead of the sky, fog and anti-aliasing, which made the graphics card rebuild shaders mid-measurement and gave nonsense numbers.

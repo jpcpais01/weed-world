@@ -46,6 +46,12 @@ func show_place(title: String, subtitle: String, accent := HudTheme.GOLD, hold :
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"area banner", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if _t < 0.0:
 		return
 	_t += delta

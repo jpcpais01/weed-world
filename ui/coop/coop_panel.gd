@@ -438,6 +438,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_timed(delta)
+	PerfMeter.add(&"co-op panel", Time.get_ticks_usec() - t0)
+
+
+func _process_timed(delta: float) -> void:
 	if not is_open:
 		return
 	_t += delta
