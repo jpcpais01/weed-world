@@ -500,7 +500,7 @@ func _sit_mode(delta: float) -> void:
 				_kick_compression(0.03)
 				Input.vibrate_handheld(12)
 				var ignore: Array[RID] = [_bench.body.get_rid()]
-				camera_rig.frame_view(_bench.view_point, 4.3, ignore)
+				camera_rig.frame_view(_bench.view_point, _bench.site.get("cam", 3.4), ignore)
 				BenchCaption.show_for(get_tree(), _bench)
 				sat_down.emit(_bench)
 			if t >= 1.0:

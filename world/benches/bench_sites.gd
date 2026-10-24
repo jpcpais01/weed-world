@@ -16,34 +16,35 @@ extends RefCounted
 const SEAT_SPACING := 0.68
 const END_MARGIN := 0.2
 
-## Hand-authored sites. `pos` is the bench centre, `look` the point the seated
+## Hand-authored sites. `cam` is how far back the camera frames the seated
+## view (closer where trees crowd behind). `pos` is the bench centre, `look` the point the seated
 ## Keling gazes at (XZ; height from `look_y` metres above the ground there or
 ## an absolute `look_h`), `trail` waypoints from the nearest footpath (may be
 ## empty). The rest is flavour and the view tag.
 const SITES := [
 	{
-		"id": &"brookside", "title": "Brookside Bench", "style": &"driftwood", "seats": 2,
+		"id": &"brookside", "title": "Brookside Bench", "style": &"driftwood", "seats": 2, "cam": 3.6,
 		"view": &"river", "element": &"water",
 		"caption": "The stream chatters past, cool and quick.",
 		"pos": Vector2(17.55, 12.85), "look": Vector2(23.2, 16.4), "look_y": 0.2,
 		"trail": [Vector2(12.0, 7.4)],
 	},
 	{
-		"id": &"lotus", "title": "Lotus Pond Bench", "style": &"lotus", "seats": 2,
+		"id": &"lotus", "title": "Lotus Pond Bench", "style": &"lotus", "seats": 2, "cam": 2.6,
 		"view": &"pond", "element": &"spirit",
 		"caption": "Koi drift beneath the glowing lotus.",
 		"pos": Vector2(6.35, -11.6), "look": Vector2(11.0, -18.0), "look_y": 0.1,
 		"trail": [],
 	},
 	{
-		"id": &"falls", "title": "Misty Falls Bench", "style": &"stone", "seats": 2,
+		"id": &"falls", "title": "Misty Falls Bench", "style": &"stone", "seats": 2, "cam": 2.6,
 		"view": &"waterfall", "element": &"air",
 		"caption": "Spray drifts down the tumbling falls.",
 		"pos": Vector2(9.9, -28.7), "look": Vector2(15.2, -32.0), "look_y": 0.9,
 		"trail": [Vector2(-2.5, -25.5), Vector2(3.5, -27.3)],
 	},
 	{
-		"id": &"sunset", "title": "Sunset Ridge Bench", "style": &"sunset", "seats": 4,
+		"id": &"sunset", "title": "Sunset Ridge Bench", "style": &"sunset", "seats": 4, "cam": 3.4,
 		"view": &"mountains", "element": &"earth",
 		"caption": "The far mountains blush gold at sundown.",
 		# Placed from the overlook and the vista direction in plan().
@@ -51,7 +52,7 @@ const SITES := [
 		"trail": [],
 	},
 	{
-		"id": &"meadow", "title": "Elder's Meadow Bench", "style": &"living", "seats": 2,
+		"id": &"meadow", "title": "Elder's Meadow Bench", "style": &"living", "seats": 2, "cam": 3.2,
 		"view": &"forest", "element": &"life",
 		"caption": "The Elder tree hums over the meadow.",
 		"pos": Vector2(-10.6, -3.9), "look": Vector2(-15.0, -11.0), "look_y": 5.5,

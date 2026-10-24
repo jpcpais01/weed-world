@@ -1,7 +1,7 @@
 # Patch notes
 
 ## 24 Oct 2026 · 03:00 UTC
-- **Five scenic benches.** Little Keling-sized benches now wait at the best views in the Whispering Glade: a silvered driftwood log on the riverbank, a cream-and-teal garden bench by the Lotus Pond, a mossy stone seat facing Misty Falls, a grand four-seat sunset bench with a glowing lantern on the ridge, and a bench the forest grew from living roots and boughs in Elder's Meadow. Trodden trails lead out to them.
+- **Five scenic benches.** Little Keling-sized benches now wait at the best views in the Whispering Glade: a silvered driftwood log on the riverbank, a cream-and-teal garden bench by the Lotus Pond, a mossy stone seat facing Misty Falls, a grand four-seat sunset bench with a glowing lantern on the ridge, and a bench the forest grew from living roots and boughs in Elder's Meadow. Trodden trails lead out to them, and each one has its own little bench badge on the minimap and the big map.
 - **Sit and take it in.** Walk up and press grab (E, X on gamepad, or the hand button) when the prompt floats up. Your Keling trots over, turns round and hops up onto the seat, little feet dangling and kicking happily. The camera drifts round to frame the view and the bench's name fades in. Move, jump or press grab again to hop back down.
 - **Every view has a spirit.** Each bench carries a carved emblem for what it looks out on (water, earth, air, spirit or life) that glows and sparkles while someone sits there. Remember them: they'll matter soon.
 

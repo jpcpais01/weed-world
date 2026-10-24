@@ -59,15 +59,9 @@ func _physics_process(delta: float) -> bool:
 		var out: Vector3 = _bench.global_transform.basis.z.normalized()
 		_keling.global_position = sp + out * 0.45 + Vector3.UP * 0.1
 		_keling.reset_physics_interpolation()
-		for cs in _bench.body.get_children():
-			print("  shape ", cs.shape, " size ", cs.shape.get("size"), " at ", cs.global_position)
-		print("  teleport to ", sp + out * 0.45 + Vector3.UP * 0.1, " now ", _keling.global_position, " out ", out)
 		return false
 	match _stage:
 		0:
-			if fmod(_t, 0.25) < delta:
-				print("  local=%s" % _bench.to_local(_keling.global_position))
-				print("  pre t=%.2f pos=%s sp=%s mode=%d floor=%s" % [_t, _keling.global_position, _bench.stand_point(0), _keling.mode, _keling.is_on_floor()])
 			if _t > 1.5:
 				if _bench.find_free_seat(self, _keling.global_position).is_empty():
 					_fail("no seat in reach at %s" % _keling.global_position)
@@ -75,12 +69,6 @@ func _physics_process(delta: float) -> bool:
 				_stage = 1
 				_t = 0.0
 		1:
-			if fmod(_t, 0.5) < delta:
-				var sp: Vector3 = _bench.stand_point(0)
-				for c in _keling.get_slide_collision_count():
-					var col = _keling.get_slide_collision(c)
-					print("    hit ", col.get_collider(), " ", col.get_collider().name if col.get_collider() else "", " n=", col.get_normal())
-				print("  t=%.1f phase=%d pos=%s d=%.2f vel=%s facing=%.2f" % [_t, _keling.get("_sit_phase"), _keling.global_position, Vector2(sp.x - _keling.global_position.x, sp.z - _keling.global_position.z).length(), _keling.velocity, _keling.facing])
 			if _t > 4.0:
 				if not _keling.is_sitting():
 					_fail("not seated after 4 s (mode %d)" % _keling.mode)

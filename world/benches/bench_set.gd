@@ -42,7 +42,7 @@ func decorate() -> void:
 				_put(site, Vector2(-half - 0.35, -0.2), ferns[0], 0.6, "plant")
 			&"lotus":
 				for x: float in ends:
-					_put(site, Vector2(x, -0.1), _named(flowers[rng.randi() % 2]), rng.randf_range(0.7, 0.9), "plant", 0.0, rng.randf())
+					_put(site, Vector2(x, -0.1), _named(flowers[rng.randi() % 2]), rng.randf_range(0.3, 0.4), "plant", 0.0, rng.randf())
 					_put(site, Vector2(x * 1.2, -0.55), bells, 0.9, "plant")
 				for i in 4:
 					_put(site, Vector2(rng.randf_range(-half, half), rng.randf_range(-0.9, -0.5)), _named(petals[i % 3]), 0.9, "plant", 0.0, rng.randf())
@@ -53,15 +53,15 @@ func decorate() -> void:
 				_put(site, Vector2(0.0, -0.75), ferns[0], 0.75, "plant")
 			&"sunset":
 				for x: float in ends:
-					_put(site, Vector2(x, -0.35), _named(flowers[rng.randi() % 4]), rng.randf_range(0.6, 0.8), "plant", 0.0, rng.randf())
+					_put(site, Vector2(x, -0.35), _named(flowers[rng.randi() % 4]), rng.randf_range(0.28, 0.38), "plant", 0.0, rng.randf())
 				for i in 5:
 					_put(site, Vector2(rng.randf_range(-half, half), rng.randf_range(-0.9, -0.45)), _named(petals[i % 3]), 0.8, "plant", 0.0, rng.randf())
 			&"living":
 				# Flowers crowd round the roots, mushrooms at their feet.
 				for i in 10:
 					var side := -1.0 if i % 2 == 0 else 1.0
-					var p := Vector2(side * (half + rng.randf_range(-0.1, 0.45)), rng.randf_range(-0.5, 0.25))
-					_put(site, p, _named(flowers[rng.randi() % 4]), rng.randf_range(0.55, 0.85), "plant", 0.0, rng.randf())
+					var p := Vector2(side * (half + rng.randf_range(0.15, 0.6)), rng.randf_range(-0.5, 0.2))
+					_put(site, p, _named(flowers[rng.randi() % 4]), rng.randf_range(0.25, 0.4), "plant", 0.0, rng.randf())
 				for i in 6:
 					_put(site, Vector2(rng.randf_range(-half, half), rng.randf_range(-0.85, -0.4)), _named(petals[i % 3]), 0.9, "plant", 0.0, rng.randf())
 				for x: float in [-half + 0.1, half - 0.1]:

@@ -10,7 +10,6 @@ var _i := 0
 var _stage := 0
 var _out := "user://"
 var _only := -1
-var _cam: Camera3D
 
 
 func _initialize() -> void:
@@ -42,20 +41,18 @@ func _process(delta: float) -> bool:
 				_t = 0.0
 		1:
 			if _t > 0.5:
+				# Swing the camera round to the front for a look at the bench.
 				var b: Node3D = _benches[_i]
-				_cam = Camera3D.new()
-				root.add_child(_cam)
-				var c: Vector3 = b.to_global(Vector3(1.6, 0.9, 2.3))
-				_cam.look_at_from_position(c, b.to_global(Vector3(-0.2, 0.45, 0.0)))
-				_cam.fov = 50.0
-				_cam.make_current()
+				var rig = _k.camera_rig
+				rig.release_view()
+				rig.yaw = b.facing_yaw() + 0.7
+				rig.pitch = -0.22
+				rig.zoom_by(0.6)
 				_stage = 2
 				_t = 0.0
 		2:
 			if _t > 1.0:
 				_shot("%s_bench" % _benches[_i].site.id)
-				_cam.queue_free()
-				_k.get_node("CameraRig/SpringArm3D/Camera3D").make_current()
 				_i += 1
 				if _only >= 0 or _i >= _benches.size():
 					quit()

@@ -14,7 +14,7 @@ const SEAT_H := 0.25            ## top of the seat
 const SEAT_FRONT := 0.2
 const SEAT_BACK := -0.24
 const HIP_ABOVE_SEAT := 0.06    ## hip joint above the seat surface
-const HIP_Z := 0.03             ## hip joint along the seat depth
+const HIP_Z := 0.12             ## hip joint along the seat depth (the round back needs room)
 
 ## Glow colour of each element's emblem.
 const ELEMENT_GLOW := {
