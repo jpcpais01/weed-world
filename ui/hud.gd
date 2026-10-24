@@ -42,6 +42,7 @@ var _notes_hash := ""
 
 func _ready() -> void:
 	layer = 10
+	add_to_group("hud")
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -277,36 +278,46 @@ func _build_notes() -> void:
 	text.add_theme_constant_override("line_separation", 4)
 	var md := _notes_text()
 	_notes_hash = str(md.hash())
-	text.text = _notes_bbcode(md)
+	text.text = HudTheme.notes_bbcode(md)
 	box.add_child(text)
+	box.add_child(_build_update_row())
 	_root.add_child(_notes_panel)
 	_notes_btn.dot = _setting("notes_seen", "") != _notes_hash and md != ""
+
+
+## Footer of the notes scroll: the running version and a "Check for updates"
+## button that hands over to the update card (autoload/updater.gd).
+func _build_update_row() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var ver := Label.new()
+	ver.text = "You're playing v%s" % ProjectSettings.get_setting("application/config/version", "0.1")
+	HudTheme.style_label(ver, 15, Color(HudTheme.CREAM, 0.6), HudTheme.body_font(700), false)
+	ver.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ver.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(ver)
+	var updater := get_node_or_null("/root/Updater")
+	if updater and updater.enabled:
+		var btn := Button.new()
+		btn.text = "Check for updates"
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.add_theme_font_size_override("font_size", 16)
+		btn.pressed.connect(func():
+			_toggle_notes()
+			updater.request_card())
+		row.add_child(btn)
+	return row
+
+
+## Opens the "What's new" scroll (used by the update card's welcome note).
+func open_notes() -> void:
+	if not _notes_panel.visible:
+		_toggle_notes()
 
 
 func _notes_text() -> String:
 	var f := FileAccess.open(PATCH_NOTES, FileAccess.READ)
 	return f.get_as_text() if f else ""
-
-
-func _notes_bbcode(md: String) -> String:
-	if md == "":
-		return "[b]No patch notes yet.[/b]"
-	var out := PackedStringArray()
-	for line in md.split("\n"):
-		if line.begins_with("# "):
-			continue
-		elif line.begins_with("## "):
-			out.append("\n[color=#ffd479][font_size=20][b]%s[/b][/font_size][/color]" % line.substr(3))
-		elif line.begins_with("- "):
-			var body := line.substr(2)
-			# **Headline.** rest -> leafy bullet, bold cream headline.
-			var parts := body.split("**")
-			if parts.size() >= 3:
-				body = "[b][color=#fff6df]%s[/color][/b]%s" % [parts[1], "**".join(parts.slice(2))]
-			out.append("[color=#b8e588]•[/color]  " + body.replace("**", ""))
-		elif not line.strip_edges().is_empty():
-			out.append("[color=#cfd8cc]%s[/color]" % line)
-	return "\n".join(out).strip_edges()
 
 
 func _toggle_notes() -> void:

@@ -24,6 +24,7 @@ config/windows_native_icon="res://branding/icon.ico"
 [autoload]
 
 GameInput="*res://autoload/game_input.gd"
+Updater="*res://autoload/updater.gd"
 
 [display]
 

@@ -87,6 +87,29 @@ static func style_label(l: Label, size: int, color := CREAM, font: Font = null, 
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
+## PATCH_NOTES.md-style Markdown (## hour headings, "- **Headline.** text"
+## bullets) as BBCode for a RichTextLabel.
+static func notes_bbcode(md: String) -> String:
+	if md == "":
+		return "[b]No patch notes yet.[/b]"
+	var out := PackedStringArray()
+	for line in md.split("\n"):
+		if line.begins_with("# "):
+			continue
+		elif line.begins_with("## "):
+			out.append("\n[color=#ffd479][font_size=20][b]%s[/b][/font_size][/color]" % line.substr(3))
+		elif line.begins_with("- "):
+			var body := line.substr(2)
+			# **Headline.** rest -> leafy bullet, bold cream headline.
+			var parts := body.split("**")
+			if parts.size() >= 3:
+				body = "[b][color=#fff6df]%s[/color][/b]%s" % [parts[1], "**".join(parts.slice(2))]
+			out.append("[color=#b8e588]•[/color]  " + body.replace("**", ""))
+		elif not line.strip_edges().is_empty():
+			out.append("[color=#cfd8cc]%s[/color]" % line)
+	return "\n".join(out).strip_edges()
+
+
 ## Theme for the whole HUD tree, so stray Labels and Buttons look right too.
 static func theme() -> Theme:
 	if _theme:
