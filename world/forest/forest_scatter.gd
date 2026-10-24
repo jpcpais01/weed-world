@@ -115,7 +115,19 @@ func build(parent: Node3D) -> void:
 # ----------------------------------------------------------------------------
 # Instance batching
 
+## Meshes that belong standing in water; every other small plant is kept out
+## of it so nothing floats on the shallows.
+const WATER_PLANTS := ["Reeds_"]
+
+
 func add(mesh: Mesh, xform: Transform3D, custom: Color, group: String) -> void:
+	if group in ["plant", "small", "litter", "grass"] and terrain.water_depth_at(xform.origin.x, xform.origin.z) > 0.02:
+		var wet_ok := false
+		for prefix in WATER_PLANTS:
+			if mesh.resource_name.begins_with(prefix):
+				wet_ok = true
+		if not wet_ok:
+			return
 	var size: float = CHUNK[group]
 	var cell := Vector2i(int(floor((xform.origin.x + 200.0) / size)), int(floor((xform.origin.z + 200.0) / size)))
 	var per_mesh: Dictionary = _lookup.get(mesh, {})

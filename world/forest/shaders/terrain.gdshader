@@ -51,9 +51,14 @@ void fragment() {
 	float far = smoothstep(blade_fade_start, blade_fade_end, length(VERTEX));
 	c = mix(c, c * 0.55 + blade_tint * (0.55 - m.a * 0.3), grassy * far * 0.55);
 
+	// A wet, darker film on the bank right at the waterline and on the
+	// shallowest bed, so ground and water meet without a hard seam.
+	float wetfilm = UV.y * (1.0 - smoothstep(0.1, 0.35, UV.x));
+	c *= mix(1.0, 0.6, wetfilm);
+
 	ALBEDO = c;
-	ROUGHNESS = mix(0.95, 0.35, mudm);
-	SPECULAR = mix(0.2, 0.45, mudm);
+	ROUGHNESS = mix(mix(0.95, 0.35, mudm), 0.22, wetfilm * 0.8);
+	SPECULAR = mix(mix(0.2, 0.45, mudm), 0.5, wetfilm * 0.8);
 	AO = (1.0 - m.a * 0.55) * (1.0 - contact * 0.55);
 	AO_LIGHT_AFFECT = 0.15 + contact * 0.25;
 }

@@ -143,6 +143,22 @@ func is_under_water(x: float, z: float) -> bool:
 	return water_level[i] > heights[i] - 0.03
 
 
+## How deep the water stands over the ground here (negative or zero when dry).
+func water_depth_at(x: float, z: float) -> float:
+	if absf(x) >= EXTENT or absf(z) >= EXTENT:
+		return -1.0
+	var gx := int(floor((x + EXTENT) / STEP))
+	var gz := int(floor((z + EXTENT) / STEP))
+	var surface := -1.0e6
+	for dz in 2:
+		for dx in 2:
+			var i := clampi(gz + dz, 0, N - 1) * N + clampi(gx + dx, 0, N - 1)
+			surface = maxf(surface, water_level[i])
+	if surface < -1.0e5:
+		return -1.0
+	return surface - height_at(x, z)
+
+
 func is_in_pond(x: float, z: float, margin: float = 0.0) -> bool:
 	var v := Vector2(x, z) - ForestLayout.POND
 	return v.length() < layout.pond_radius(v.angle()) + margin
@@ -212,7 +228,7 @@ func _carve_pond() -> void:
 				h = lerpf(pond_level - 0.1, maxf(h, pond_level + 0.28), s)
 			heights[i] = h
 			water_dist[i] = minf(water_dist[i], d - r)
-			if d < r + 1.2:
+			if d < r + 2.5:
 				water_level[i] = pond_level
 
 
@@ -432,7 +448,10 @@ func _chunk_mesh(x0: int, z0: int, cells: int) -> ArrayMesh:
 			verts[k] = Vector3(_gx(gx), heights[i], _gx(gz))
 			norms[k] = normals[i]
 			cols[k] = mask_color(i)
-			uvs[k] = Vector2(maxf(water_level[i] - heights[i], 0.0), 0.0)
+			# UV.x: depth under water. UV.y: a wet film on the bank just above
+			# the waterline, fading out over the first 15 cm of height.
+			var above := heights[i] - water_level[i]
+			uvs[k] = Vector2(maxf(-above, 0.0), 1.0 - clampf(above / 0.15, 0.0, 1.0) if above > -0.05 else 0.0)
 	var idx := PackedInt32Array()
 	idx.resize(cells * cells * 6)
 	var t := 0

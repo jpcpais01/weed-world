@@ -35,11 +35,13 @@ func setup(p_forest: Forest) -> void:
 	name = "Soundscape"
 	_bed = _flat("wind_leaves", -13.0)
 	_crickets = _flat("crickets", -27.0)
+	# Water sits under the birds and wind, not on top of them. Paired players
+	# start at different points and pitches so they never phase or repeat in step.
 	for i in 2:
-		_brooks.append(_spatial("brook", -4.0, 3.5, 26.0))
+		_brooks.append(_spatial("brook", -13.0, 3.0, 20.0, i))
 	for i in 2:
-		_falls.append(_spatial("waterfall", -2.0, 4.0, 34.0))
-	_pond = _spatial("pond", -8.0, 4.0, 22.0)
+		_falls.append(_spatial("waterfall", -11.0, 3.5, 26.0, i))
+	_pond = _spatial("pond", -17.0, 3.0, 16.0)
 	_bees = _spatial("bees", -12.0, 1.2, 9.0)
 	var fire := _spatial("campfire", -4.0, 2.0, 16.0)
 	fire.position = _ground(ForestLayout.OVERLOOK + ForestLayout.vista_dir() * 0.5, 0.3)
@@ -81,15 +83,21 @@ func _flat(clip: String, db: float) -> AudioStreamPlayer:
 	return p
 
 
-func _spatial(clip: String, db: float, unit: float, max_d: float) -> AudioStreamPlayer3D:
+func _spatial(clip: String, db: float, unit: float, max_d: float, voice := 0) -> AudioStreamPlayer3D:
 	var p := AudioStreamPlayer3D.new()
 	p.stream = _stream(clip)
 	p.volume_db = db
 	p.unit_size = unit
 	p.max_distance = max_d
-	p.autoplay = true
-	p.attenuation_filter_cutoff_hz = 9000.0
+	p.pitch_scale = [1.0, 0.93, 1.06][voice % 3]
+	p.attenuation_filter_cutoff_hz = 6000.0
 	add_child(p)
+	var from := fmod(voice * 0.37 + rng.randf() * 0.2, 1.0) * p.stream.get_length()
+	# The forest may be grown off-screen first; start once the player is live.
+	if p.is_inside_tree():
+		p.play(from)
+	else:
+		p.ready.connect(p.play.bind(from), CONNECT_ONE_SHOT)
 	return p
 
 

@@ -4,7 +4,8 @@ original and free to ship: wind in the leaves, a babbling brook, waterfalls,
 pond lapping, bees, crickets, a crackling campfire, frogs and a choir of
 songbirds. Writes Ogg Vorbis files to assets/audio/forest/.
 
-    python3 tools/synth_forest_audio.py
+    python3 tools/synth_forest_audio.py            # everything
+    python3 tools/synth_forest_audio.py --water    # brook, waterfall, pond only
 
 Needs numpy, scipy and ffmpeg (with libvorbis) on the PATH.
 """
@@ -118,63 +119,76 @@ def save(name, x, quality=4):
 # ----------------------------------------------------------------------------
 # Water
 
-def bubbles(seconds, rate, f_lo, f_hi, decay=(0.004, 0.02), rise=(0.5, 3.0), amp_spread=1.0):
-    """Minnaert bubbles: decaying sines whose pitch rises as they collapse.
-    Hundreds of them per second sound uncannily like running water."""
+def rms_normalize(x, rms=0.1, peak=0.85):
+    """Set the loudness by RMS (what the ear hears), with a peak ceiling."""
+    x = x / max(np.sqrt(np.mean(x ** 2)), 1e-9) * rms
+    m = np.max(np.abs(x))
+    return x if m <= peak else x / m * peak
+
+
+def soft_drops(seconds, rate, f_lo, f_hi, gen):
+    """A few round, low drops: long gentle decays, no bright plinks."""
     n = int(seconds * SR)
     out = np.zeros(n)
-    count = int(seconds * rate)
-    for _ in range(count):
-        start = rng.integers(0, n)
-        f0 = np.exp(rng.uniform(np.log(f_lo), np.log(f_hi)))
-        dec = rng.uniform(*decay)
+    for _ in range(int(seconds * rate)):
+        start = gen.integers(0, n)
+        f0 = np.exp(gen.uniform(np.log(f_lo), np.log(f_hi)))
+        dec = gen.uniform(0.02, 0.06)
         length = min(int(dec * 6 * SR), n - start)
         if length < 8:
             continue
         tt = np.arange(length) / SR
-        sigma = rng.uniform(*rise)
-        freq = f0 * (1 + sigma * tt / dec * 0.1)
-        phase = 2 * np.pi * np.cumsum(freq) / SR
-        a = rng.uniform(0.2, 1.0) ** amp_spread / np.sqrt(f0 / 500)
-        out[start:start + length] += a * np.sin(phase) * np.exp(-tt / dec)
+        freq = f0 * (1 + 0.6 * tt / (dec * 6))
+        att = np.minimum(tt / 0.004, 1.0)
+        out[start:start + length] += gen.uniform(0.2, 1.0) ** 2 * np.sin(2 * np.pi * np.cumsum(freq) / SR) * np.exp(-tt / dec) * att
     return out
 
 
+# The water loops are long (30 s) and soft: shaped noise does the work, with
+# only a few low, rounded drops on top. The first versions leaned on hundreds
+# of bright synthetic bubbles per second, which read as tinny and nagging.
+
 def brook():
-    secs = 14
-    b = bubbles(secs + 1, 260, 350, 2600)
-    bed = bandpass(pink(len(b)), 200, 5000) * 0.25
-    gurgle = lowpass(rng.standard_normal(len(b)), 400) * smooth_random(len(b), 1.5, 0.3, 1.0) * 0.8
-    x = b + bed + gurgle
-    x = reverb(x, 0.6, 0.12)
-    return normalize(loopify(x, 1.0), 0.8)
+    gen = np.random.default_rng(101)
+    secs = 30
+    n = int((secs + 2) * SR)
+    body = bandpass(pink(n), 180, 2400, 2) * smooth_random(n, 0.25, 0.75, 1.0)
+    burble = lowpass(gen.standard_normal(n), 520, 2) * smooth_random(n, 2.2, 0.15, 1.0) * 1.6
+    trickle = bandpass(gen.standard_normal(n), 900, 2600, 2) * smooth_random(n, 5.0, 0.0, 1.0) ** 3 * 0.25
+    drops = soft_drops(secs + 2, 7, 260, 820, gen) * 0.5
+    x = lowpass(body + burble + trickle + drops, 3200, 2)
+    x = reverb(x, 0.7, 0.15, 2200)
+    return rms_normalize(loopify(x, 2.0), 0.11)
 
 
 def waterfall():
-    secs = 10
-    n = int((secs + 1) * SR)
-    roar = lowpass(pink(n), 2500, 3) * 1.2
-    hiss = bandpass(rng.standard_normal(n), 2500, 9000) * 0.12
-    b = bubbles(secs + 1, 1400, 250, 3000, decay=(0.003, 0.012)) * 0.6
-    rumble = lowpass(rng.standard_normal(n), 120, 4) * 3.0
-    surge = smooth_random(n, 0.8, 0.8, 1.0)
-    x = (roar + hiss + b + rumble) * surge
-    return normalize(loopify(reverb(x, 0.8, 0.2), 1.0), 0.85)
+    gen = np.random.default_rng(202)
+    secs = 30
+    n = int((secs + 2) * SR)
+    roar = bandpass(pink(n), 160, 2000, 2)
+    rumble = lowpass(gen.standard_normal(n), 140, 3) * 0.5
+    air = bandpass(gen.standard_normal(n), 1800, 4200, 2) * 0.05
+    splash = bandpass(gen.standard_normal(n), 400, 1600, 2) * smooth_random(n, 3.0, 0.0, 1.0) ** 2 * 0.5
+    x = (roar + rumble + air + splash) * smooth_random(n, 0.35, 0.82, 1.0)
+    x = lowpass(reverb(x, 0.9, 0.22, 1800), 3600, 2)
+    return rms_normalize(loopify(x, 2.0), 0.12)
 
 
 def pond():
-    secs = 16
-    n = int((secs + 1) * SR)
+    gen = np.random.default_rng(303)
+    secs = 30
+    n = int((secs + 2) * SR)
     lap = np.zeros(n)
-    # Soft laps against the bank: filtered noise swells.
-    for _ in range(int(secs * 0.9)):
-        s = rng.integers(0, n - SR)
-        ln = int(rng.uniform(0.35, 0.8) * SR)
-        e = np.sin(np.linspace(0, np.pi, ln)) ** 2
-        lap[s:s + ln] += bandpass(rng.standard_normal(ln), 150, 1400) * e * rng.uniform(0.3, 1.0)
-    drops = bubbles(secs + 1, 6, 600, 1800, decay=(0.01, 0.03), amp_spread=2.0) * 0.6
-    x = lap + drops + bandpass(pink(n), 100, 800) * 0.05
-    return normalize(loopify(reverb(x, 1.0, 0.25), 1.0), 0.7)
+    # Slow, soft laps against the bank: low filtered swells, unevenly spaced.
+    for _ in range(int(secs * 0.7)):
+        s = gen.integers(0, n - 2 * SR)
+        ln = int(gen.uniform(0.6, 1.4) * SR)
+        e = np.sin(np.linspace(0, np.pi, ln)) ** 3
+        lap[s:s + ln] += bandpass(gen.standard_normal(ln), 90, 650, 2) * e * gen.uniform(0.3, 1.0)
+    drops = soft_drops(secs + 2, 0.25, 380, 700, gen) * 0.35
+    x = lap + drops + lowpass(pink(n), 500, 2) * 0.06
+    x = lowpass(reverb(x, 1.0, 0.22, 1600), 2400, 2)
+    return rms_normalize(loopify(x, 2.0), 0.07)
 
 
 # ----------------------------------------------------------------------------
@@ -407,6 +421,12 @@ def finish_call(x, gain=0.85, room=0.25):
 # ----------------------------------------------------------------------------
 
 def main():
+    import sys
+    if "--water" in sys.argv:
+        save("brook", brook())
+        save("waterfall", waterfall())
+        save("pond", pond())
+        return
     save("wind_leaves", wind_leaves(), 3)
     save("brook", brook())
     save("waterfall", waterfall())
