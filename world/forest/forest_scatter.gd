@@ -19,8 +19,12 @@ const IMPOSTOR_GROUPS := ["tree", "far"]
 ## Draw distance (0: always). Plants also stop where their shader has
 ## shrunk them to nothing.
 const VIS_END := {"tree": 0.0, "far": 0.0, "rock": 0.0, "bush": 70.0, "plant": 48.0, "grass": 38.0, "small": 34.0, "litter": 28.0, "roots": 46.0}
-const SHADOWS := {"tree": ForestLod.Shadow.PROXY, "far": ForestLod.Shadow.NONE, "rock": ForestLod.Shadow.SAME, "bush": ForestLod.Shadow.PROXY,
+const SHADOWS := {"tree": ForestLod.Shadow.PROXY, "far": ForestLod.Shadow.NONE, "rock": ForestLod.Shadow.PROXY, "bush": ForestLod.Shadow.PROXY,
 		"plant": ForestLod.Shadow.NONE, "grass": ForestLod.Shadow.NONE, "small": ForestLod.Shadow.NONE, "litter": ForestLod.Shadow.NONE, "roots": ForestLod.Shadow.NONE}
+## Where a group's own shadows stop (default ForestLod.SHADOW_CUT). A rock's
+## or stump's shadow is a few blurred texels past this, yet each patch of
+## them cost a draw in the far shadow split all the way out to 75 m.
+const SHADOW_TO := {"rock": 35.0}
 
 var layout: ForestLayout
 var terrain: ForestTerrain
@@ -105,7 +109,8 @@ func build(parent: Node3D) -> void:
 			type = imp.type_for(b.mesh)
 			if type >= 0:
 				imp_meshes[type] = b.mesh
-		lod.add_batch(key, b.mesh, data, _cut(group, b.mesh), SUB[group], SHADOWS[group], PX_SCALE.get(group, 1.0), type)
+		lod.add_batch(key, b.mesh, data, _cut(group, b.mesh), SUB[group], SHADOWS[group], PX_SCALE.get(group, 1.0), type,
+				SHADOW_TO.get(group, ForestLod.SHADOW_CUT))
 	if imp:
 		imp.finish(imp_meshes)
 	lod.build()

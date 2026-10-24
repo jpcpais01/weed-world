@@ -21,6 +21,18 @@ static func add(system: StringName, usec: int) -> void:
 	_frame[system] = _frame.get(system, 0) + usec
 
 
+## The system with the most time so far in this process frame (physics
+## steps included), as [name, ms].
+static func busiest() -> Array:
+	var top := ["", 0.0]
+	if _frame_id != Engine.get_process_frames():
+		return top
+	for k in _frame:
+		if _frame[k] / 1000.0 > top[1] and not String(k).ends_with("(background)"):
+			top = [String(k), _frame[k] / 1000.0]
+	return top
+
+
 ## Everything added since the last call, in microseconds, and starts afresh:
 ## {"total": {system: usec}, "peak": {system: usec in its slowest frame}}.
 static func take() -> Dictionary:

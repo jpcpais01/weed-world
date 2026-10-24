@@ -23,6 +23,7 @@ var _falls: Array[AudioStreamPlayer3D] = []
 var _pond: AudioStreamPlayer3D
 var _bees: AudioStreamPlayer3D
 var _calls: Array[AudioStreamPlayer3D] = []
+var _clips := {}   # one-shot clips, loaded once instead of on every call
 var _water_pts := PackedVector3Array()
 var _next_call := 2.0
 var _next_frog := 6.0
@@ -203,10 +204,12 @@ func _one_shot(clip: String, pos: Vector3, db: float, pitch: float) -> void:
 	for p in _calls:
 		if p.playing:
 			continue
-		var s: AudioStream = load(DIR % clip)
-		if s is AudioStreamOggVorbis:
-			(s as AudioStreamOggVorbis).loop = false
-		p.stream = s
+		if not _clips.has(clip):
+			var s: AudioStream = load(DIR % clip)
+			if s is AudioStreamOggVorbis:
+				(s as AudioStreamOggVorbis).loop = false
+			_clips[clip] = s
+		p.stream = _clips[clip]
 		p.global_position = pos
 		p.volume_db = db
 		p.pitch_scale = pitch

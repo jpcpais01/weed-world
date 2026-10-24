@@ -2,8 +2,8 @@ class_name PerfReadout
 extends Label
 ## Where the frame time goes, shown under the FPS counter: frame and GPU
 ## milliseconds, whether the GPU, the CPU or vsync sets the pace, the CPU's
-## draw submission and scene prep, the worst script and physics frames, and
-## script time per game system (see PerfMeter).
+## draw submission, scene prep, scripts and physics, script time per game
+## system (see PerfMeter), and what the slowest recent frame spent its time on.
 ##
 ## The GPU can't time its passes in a release build, so "measure parts"
 ## (press 9, or tap the readout) finds each part's cost by switching it off
@@ -26,12 +26,25 @@ var _frames := 0
 var _gpu := 0.0
 var _render := 0.0
 var _setup := 0.0
-var _scripts := 0.0           # peaks over the last second (Godot's monitors)
-var _physics := 0.0
+var _proc := 0.0              # all _process scripts, summed over the window (ms)
+var _phys := 0.0              # all _physics_process scripts
 var _avg := {}               # last window's averages, in ms
 var _systems := {}           # last window's script time per system, ms per frame
 var _adapter := ""
 var _worst := ["", 0.0, -INF]  # slowest single frame of any system lately: [system, ms, when]
+
+# Frame anatomy. Two marker nodes run first and last in every process and
+# physics pass, so each frame splits into process scripts, physics scripts
+# (and how many physics steps ran) and the rest: drawing, the physics engine
+# and waiting on the GPU or the screen.
+var _f0 := 0                 # when this frame's process pass began (usec)
+var _proc_us := 0
+var _phys_us := 0
+var _phys_t := 0
+var _phys_n := 0
+var _top := ["", 0.0]        # busiest system of the last process pass
+## Slowest frame lately: {ms, proc, phys, steps, draw, rest, top, top_ms, when}
+var _slowest := {"ms": 0.0, "when": -INF}
 
 # "Measure parts"
 var _steps: Array = []
@@ -49,6 +62,52 @@ func _ready() -> void:
 	_vp = get_viewport().get_viewport_rid()
 	RenderingServer.viewport_set_measure_render_time(_vp, true)
 	_adapter = adapter_text()
+	var first := _Mark.new()
+	first.process_priority = -1000000
+	first.process_physics_priority = -1000000
+	first.on_process = _frame_start
+	first.on_physics = func(): _phys_t = Time.get_ticks_usec()
+	var last := _Mark.new()
+	last.process_priority = 1000000
+	last.process_physics_priority = 1000000
+	last.on_process = func():
+		_proc_us = Time.get_ticks_usec() - _f0
+		_top = PerfMeter.busiest()
+	last.on_physics = func():
+		_phys_us += Time.get_ticks_usec() - _phys_t
+		_phys_n += 1
+	add_child(first)
+	add_child(last)
+
+
+class _Mark extends Node:
+	var on_process: Callable
+	var on_physics: Callable
+
+	func _process(_delta: float) -> void:
+		on_process.call()
+
+	func _physics_process(_delta: float) -> void:
+		on_physics.call()
+
+
+## The span since the last frame began: the last process pass, its drawing
+## and any wait, then this frame's physics steps.
+func _frame_start() -> void:
+	var now := Time.get_ticks_usec()
+	if _f0 > 0:
+		var ms := (now - _f0) / 1000.0
+		_proc += _proc_us / 1000.0
+		_phys += _phys_us / 1000.0
+		var t := now / 1000000.0
+		if ms > _slowest.ms or t - _slowest.when > 5.0:
+			var top := _top
+			var draw := RenderingServer.viewport_get_measured_render_time_cpu(_vp) + RenderingServer.get_frame_setup_time_cpu()
+			_slowest = {"ms": ms, "proc": _proc_us / 1000.0, "phys": _phys_us / 1000.0, "steps": _phys_n, "draw": draw,
+					"rest": ms - (_proc_us + _phys_us) / 1000.0, "top": top[0], "top_ms": top[1], "when": t}
+	_f0 = now
+	_phys_us = 0
+	_phys_n = 0
 
 
 ## The graphics card the game draws with, its kind and driver API, and the
@@ -72,9 +131,6 @@ func _process(delta: float) -> void:
 	_gpu += gpu
 	_render += render
 	_setup += RenderingServer.get_frame_setup_time_cpu()
-	# Godot reports the slowest script and physics frame of the last second.
-	_scripts = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
-	_physics = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
 	_frames += 1
 	_t += delta
 	if _step >= 0:
@@ -100,7 +156,7 @@ func _summarise() -> void:
 	var n := float(maxi(_frames, 1))
 	var fps := _frames / _t
 	_avg = {"fps": fps, "frame": 1000.0 / maxf(fps, 0.001), "gpu": _gpu / n, "render": _render / n,
-			"setup": _setup / n, "scripts": _scripts, "physics": _physics}
+			"setup": _setup / n, "proc": _proc / n, "phys": _phys / n}
 	_systems = {}
 	var taken := PerfMeter.take()
 	for k in taken.total:
@@ -121,6 +177,8 @@ func _summarise() -> void:
 	_gpu = 0.0
 	_render = 0.0
 	_setup = 0.0
+	_proc = 0.0
+	_phys = 0.0
 	var draws := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)
 	summary = "%.1f ms a frame · GPU %.1f ms  ·  %s draws" % [_avg.frame, _avg.gpu, _thousands(draws)]
 	if visible:
@@ -131,12 +189,23 @@ func _panel() -> String:
 	var lines: Array[String] = []
 	var hz := DisplayServer.screen_get_refresh_rate()
 	var vsync := DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED
-	if vsync and hz > 0.0 and absf(_avg.fps - hz) < 3.0:
-		lines.append("Capped by vsync at %d Hz: the GPU is busy %.1f of each %.1f ms" % [roundi(hz), _avg.gpu, _avg.frame])
+	# The main thread's measured work each frame (the physics engine's own
+	# step aside): what it can't overlap with the GPU.
+	var cpu: float = _avg.render + _avg.setup + _avg.proc + _avg.phys
+	# A few frames that miss a vblank pull the average a little under the
+	# refresh rate, so "near it" still counts as capped.
+	if vsync and hz > 0.0 and _avg.frame < 1150.0 / hz:
+		lines.append("Capped by vsync at %d Hz: GPU %.1f ms and CPU about %.1f ms of each %.1f ms, so lower settings can't raise the frame rate%s" % [
+				roundi(hz), _avg.gpu, cpu, 1000.0 / hz, "" if OS.has_feature("mobile") else " (8 turns vsync off to see how fast it could go)"])
 	elif _avg.gpu >= _avg.frame * 0.85:
 		lines.append("GPU-bound: the graphics card is busy %.1f of each %.1f ms" % [_avg.gpu, _avg.frame])
+	elif cpu >= _avg.frame * 0.75:
+		lines.append("CPU-bound: the processor is busy about %.1f of each %.1f ms (the graphics card %.1f)" % [cpu, _avg.frame, _avg.gpu])
 	else:
-		lines.append("CPU-bound: the graphics card is busy only %.1f of each %.1f ms; the rest waits on the processor" % [_avg.gpu, _avg.frame])
+		# Neither is full: the time goes on uneven frames (stalls, catch-up
+		# physics steps, waiting on the driver or screen).
+		lines.append("Uneven frames: the GPU needs %.1f and the CPU about %.1f of each %.1f ms; the rest is lost to slow frames (see below)" % [
+				_avg.gpu, cpu, _avg.frame])
 	lines.append(_adapter)
 	var sync := "vsync %s" % ("on" if vsync else "off")
 	if hz > 0.0:
@@ -144,8 +213,8 @@ func _panel() -> String:
 	if not OS.has_feature("mobile"):
 		sync += "  (8 toggles vsync)"
 	lines.append(sync)
-	lines.append("CPU: draw submit %.1f · scene prep %.1f ms · slowest second: scripts %.1f, physics %.1f ms" % [
-			_avg.render, _avg.setup, _avg.scripts, _avg.physics])
+	lines.append("CPU per frame: draw submit %.1f · scene prep %.1f · scripts %.1f · physics scripts %.1f ms" % [
+			_avg.render, _avg.setup, _avg.proc, _avg.phys])
 	var names := _systems.keys()
 	names.sort_custom(func(a, b): return _systems[a] > _systems[b])
 	var parts: Array[String] = []
@@ -154,8 +223,15 @@ func _panel() -> String:
 			parts.append("%s %.2f" % [k, _systems[k]])
 	if not parts.is_empty():
 		lines.append("  scripts per frame (ms): " + " · ".join(parts.slice(0, 7)))
+	if hz > 0.0 and _slowest.ms > 1500.0 / hz:
+		var w := _slowest
+		var line := "slowest frame lately %.1f ms: scripts %.1f · physics scripts %.1f (%d step%s) · drawing, physics engine and waiting %.1f (draw submit %.1f)" % [
+				w.ms, w.proc, w.phys, w.steps, "" if w.steps == 1 else "s", w.rest, w.draw]
+		if w.top != "":
+			line += " · busiest system %s %.1f" % [w.top, w.top_ms]
+		lines.append(line)
 	if _worst[1] >= 4.0:
-		lines.append("  slowest frame lately: %s %.1f ms" % [_worst[0], _worst[1]])
+		lines.append("  slowest system frame lately: %s %.1f ms" % [_worst[0], _worst[1]])
 	if _step >= 0:
 		lines.append("GPU by part: measuring %s... (%d of %d)" % [_steps[_step].name if _step < _steps.size() else "baseline",
 				mini(_step + 1, _steps.size()), _steps.size()])
