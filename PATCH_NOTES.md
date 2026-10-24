@@ -1,6 +1,8 @@
 # Patch notes
 
 ## 24 Oct 2026 · 12:00 UTC
+- **Weed World updates itself.** A few seconds into play, the game checks for a newer version. If there is one, a little sprouting badge slides down with the news, and tapping it shows everything new since your version. Tap Update now and a vine grows across the card as it downloads, with the size, speed and time left. Tap Keep playing and it carries on in the background while a small chip at the top tracks it.
+- **Safe and simple on every device.** Each download is checked against the release's fingerprint before anything installs. On Android, the system installer opens next and your progress stays put. The very first time, the card shows you the one switch Android asks for, then picks up by itself when you come back. On Windows, the game swaps in the new version and reopens on its own. After updating you're welcomed to the new version, and "Check for updates" sits at the bottom of the What's new scroll.
 - **Solid tree stumps.** The old cut stumps were missing their tops, so you could see straight through them. Now they're solid, with a sawn top showing warm growth rings, a dark heart, cracks and a mossy rim.
 
 ## 24 Oct 2026 · 03:00 UTC
