@@ -155,12 +155,13 @@ func _spring(i: int, root: String, end: String, tip: float, stiffness: float, dr
 func _physics_process(delta: float) -> void:
 	_read_input()
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
-	if Input.is_action_just_pressed("jump"):
-		_jump_buffer = jump_buffer_time
-	_jump_held = Input.is_action_pressed("jump")
-	_check_emote_input()
-	if Input.is_action_just_pressed("grab"):
-		try_grab()
+	if not GameInput.ui_locked:
+		if Input.is_action_just_pressed("jump"):
+			_jump_buffer = jump_buffer_time
+		_check_emote_input()
+		if Input.is_action_just_pressed("grab"):
+			try_grab()
+	_jump_held = Input.is_action_pressed("jump") and not GameInput.ui_locked
 
 	var on_floor := is_on_floor()
 	_coyote = coyote_time if on_floor else maxf(_coyote - delta, 0.0)

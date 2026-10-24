@@ -32,7 +32,29 @@ var _press_flash := {}
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_font = ThemeDB.fallback_font
+	_font = HudTheme.title_font(600)
+
+
+func _notification(what: int) -> void:
+	# Hidden mid-gesture (the map opened): let go of everything held.
+	if what == NOTIFICATION_VISIBILITY_CHANGED and not is_visible_in_tree():
+		_joy_finger = -1
+		_joy_vec = Vector2.ZERO
+		_push_sprint = false
+		_apply_move()
+		for f in _button_fingers.keys():
+			_release_button(f)
+		_look_fingers.clear()
+		_emote_open = false
+
+
+## HUD widgets (minimap, buttons, panels) own the touches that land on them.
+func _blocked(p: Vector2) -> bool:
+	for n in get_tree().get_nodes_in_group("touch_blockers"):
+		var c := n as Control
+		if c and c.is_visible_in_tree() and c.get_global_rect().has_point(p):
+			return true
+	return false
 
 
 func _buttons() -> Dictionary:
@@ -69,8 +91,8 @@ func _input(event: InputEvent) -> void:
 		return
 	if event is InputEventScreenTouch:
 		var idx: int = event.index
-		if event.pressed and event.position.y < 70.0:
-			return  # leave the top strip to the HUD buttons
+		if event.pressed and (event.position.y < 70.0 or _blocked(event.position)):
+			return  # leave the top strip and the HUD widgets alone
 		if event.pressed:
 			var hit := _hit_button(event.position)
 			if hit != "":
@@ -225,15 +247,15 @@ func _draw() -> void:
 		var pressed: bool = _button_fingers.values().has(id)
 		var active: bool = (id == "sprint" and (GameInput.sprint_toggled or _push_sprint)) or (id == "emote" and _emote_open)
 		var flash: float = _press_flash.get(id, 0.0)
-		var fill := Color(0.05, 0.1, 0.05, 0.3)
+		var fill := Color(HudTheme.GLASS, 0.34)
 		if active:
-			fill = Color(0.45, 0.75, 0.3, 0.55)
+			fill = Color(HudTheme.MOSS.lightened(0.15), 0.62)
 		if pressed:
 			fill = fill.lightened(0.25)
 		var rr := r * (1.0 - 0.06 * flash)
 		draw_circle(c + Vector2(0, 4), rr, Color(0, 0, 0, 0.15))
 		draw_circle(c, rr, fill)
-		draw_arc(c, rr, 0, TAU, 64, Color(1, 1, 1, 0.5 + 0.4 * flash), 3.0, true)
+		draw_arc(c, rr, 0, TAU, 64, Color(HudTheme.CREAM, 0.5 + 0.4 * flash), 3.0, true)
 		_draw_icon(id, c, rr, white)
 
 

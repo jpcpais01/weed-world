@@ -20,6 +20,9 @@ var sprint_toggled := false
 var walk_toggled := false
 ## Set while the touch joystick is pushed past its ring.
 var push_sprint := false
+## Set while a full-screen UI (the world map) owns the controls: the Keling
+## stands still and ignores jump, grab and emotes.
+var ui_locked := false
 
 
 func _enter_tree() -> void:
@@ -42,6 +45,8 @@ func _enter_tree() -> void:
 	_add("emote_nod", [KEY_4], [JOY_BUTTON_DPAD_LEFT], [])
 	_add("zoom_in", [], [JOY_BUTTON_RIGHT_SHOULDER], [])
 	_add("zoom_out", [], [JOY_BUTTON_LEFT_SHOULDER], [])
+	_add("map", [KEY_M, KEY_TAB], [JOY_BUTTON_BACK], [])
+	_add("controls_help", [KEY_H, KEY_F1], [], [])
 	_add("toggle_debug", [KEY_F3], [], [])
 	_add("toggle_mouse", [KEY_ESCAPE], [JOY_BUTTON_START], [])
 	_add("fullscreen", [KEY_F11], [], [])
@@ -84,8 +89,12 @@ func _input(event: InputEvent) -> void:
 
 ## Camera-independent move input, 0..1 length (analog aware).
 func get_move_vector() -> Vector2:
+	if ui_locked:
+		return Vector2.ZERO
 	return Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 
 
 func is_sprinting() -> bool:
+	if ui_locked:
+		return false
 	return Input.is_action_pressed("sprint") or sprint_toggled or push_sprint
