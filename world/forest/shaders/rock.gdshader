@@ -28,9 +28,11 @@ void vertex() {
 }
 
 void fragment() {
-	// The kit's stone atlas is very dark; lift it towards a warm grey so
-	// boulders read as stone in the meadow rather than holes in it.
-	vec3 alb = (texture(albedo_tex, UV).rgb * 1.3 + vec3(0.03, 0.028, 0.022)) * tint * (0.85 + 0.3 * v_custom.g);
+	// The kit's stone atlas is very dark (some stones nearly black); lift it
+	// towards a warm grey so stones read as stone rather than holes.
+	vec3 alb = texture(albedo_tex, UV).rgb;
+	alb = alb * 1.25 + vec3(0.06, 0.055, 0.045) * (1.0 - smoothstep(0.0, 0.25, dot(alb, vec3(0.333))));
+	alb *= tint * (0.85 + 0.3 * v_custom.g);
 	float n = texture(noise_tex, v_wp.xz * 0.4 + v_wp.y * 0.2).g;
 	float moss = smoothstep(0.35, 0.85, v_wn.y + (n - 0.5) * 0.8) * moss_amount * (0.5 + v_custom.r);
 	alb = mix(alb, moss_color * (0.7 + 0.5 * n), clamp(moss, 0.0, 1.0));
