@@ -236,6 +236,8 @@ func _begin_warm() -> void:
 	# Dragon Breath only appears when someone breathes it: show one of
 	# everything it draws (the dragon, mist, drops, rings, rainbow, puddle).
 	_warm_extras.append(DragonBreath.warm_up(_warm_cam))
+	# ...and so do the smoke gifts.
+	_warm_extras.append(SmokeGifts.warm_up(_warm_cam))
 	_warm_frame = 0
 	_warm_quiet = 0
 	_warm_last = -1

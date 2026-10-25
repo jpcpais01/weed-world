@@ -536,7 +536,8 @@ func _physics_process_timed(delta: float) -> void:
 		_bind_local()
 		if _local == null:
 			return
-	_send_acc += delta
+	# Real time: Slow Time stretches the game clock, not the send rate.
+	_send_acc += delta / maxf(Engine.time_scale, 0.01)
 	if _send_acc >= 1.0 / SEND_RATE:
 		_send_acc = fmod(_send_acc, 1.0 / SEND_RATE)
 		_state.rpc(KelingSync.pack(_local))

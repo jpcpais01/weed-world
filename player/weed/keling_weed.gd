@@ -65,6 +65,7 @@ const NOSTRIL_X := 0.017
 var keling: KelingController
 var hands: KelingHands
 var high: WeedHigh
+var gifts: KelingGifts
 var hud: Node
 var pouch := {}                       # strain -> count
 var selected: StringName = &""
@@ -150,6 +151,10 @@ func setup(p_keling: KelingController, skeleton: Skeleton3D) -> void:
 	high.name = "High"
 	keling.add_child.call_deferred(high)
 	high.setup(keling, self)
+	# Every strain carries a smoke gift; each puff charges it.
+	gifts = KelingGifts.new()
+	gifts.setup(keling, self)
+	keling.add_child.call_deferred(gifts)
 	keling.grabbed.connect(_on_grabbed)
 	_build_props()
 	_load()
@@ -504,6 +509,7 @@ func _physics_process(delta: float) -> void:
 func _physics_process_timed(delta: float) -> void:
 	if keling == null:
 		return
+	delta *= keling.time_dilation
 	if act != Act.NONE:
 		act_t += delta
 		if local and not keling.weed_act_allowed():
@@ -1309,6 +1315,12 @@ func _exhale_stream(rig: Transform3D, dt: float, rate: float, speed: float, size
 	var o := rig * (mx.origin + mx.basis.z * 0.012)
 	var d := rig.basis * (mx.basis.z + Vector3(0.0, 0.5, 0.0))
 	_smoke.stream(&"exhale", o, d, rate, speed, 0.03, size, life, alpha, 0.14, dt, drag)
+
+
+## The mouth in world space, looking out of it (for gifts breathed out).
+func mouth_world() -> Transform3D:
+	var xf := _rig.global_transform * _mouth_xf()
+	return Transform3D(xf.basis.orthonormalized(), xf.origin)
 
 
 func _mouth_xf() -> Transform3D:

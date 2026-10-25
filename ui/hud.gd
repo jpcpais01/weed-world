@@ -590,7 +590,7 @@ func _refresh() -> void:
 			rows = [
 				[[["L"], "move"], [["R"], "camera"], [["LB", "RB"], "zoom"]],
 				[[["A"], "jump"], [["X"], "grab"], [["B"], "sprint"], [["Y"], "map"], [["RT"], "roll · smoke"]],
-				[[["D-pad"], "dance · cheer · sit · nod"], [["hold RT"], "dragon breath"], [["View"], "debug"], [["Start"], "menu"]],
+				[[["D-pad"], "dance · cheer · sit · nod"], [["hold RT"], "dragon breath"], [["RB"], "smoke gift"], [["Start"], "menu"]],
 			]
 		_:
 			var k := func(a: String) -> String: return _settings.key_label(a) if _settings else a
@@ -599,7 +599,7 @@ func _refresh() -> void:
 					[[k.call("sprint")], "sprint"], [[k.call("walk_toggle")], "walk"], [[k.call("weed")], "roll · smoke"]],
 				[[[k.call("jump")], "jump"], [[k.call("grab")], "grab"], [[k.call("map")], "map"], [["Esc"], "menu"]],
 				[[[k.call("emote_dance"), k.call("emote_cheer"), k.call("emote_sit"), k.call("emote_nod")], "dance · cheer · sit · nod"],
-					[[k.call("toggle_debug")], "debug"], [["F11"], "fullscreen"]],
+					[[k.call("gift")], "smoke gift"], [[k.call("toggle_debug")], "debug"]],
 				# Kept short so the panel stays clear of the centred action prompt.
 				[[[k.call("coop")], "play together"], [[k.call("character")], "change keling"], [[k.call("dragon")], "dragon breath"]],
 			]
