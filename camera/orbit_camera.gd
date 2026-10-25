@@ -28,6 +28,12 @@ var invert_x := false
 var auto_follow := true   ## drift back behind a moving character
 ## Slow Time: the world crawls but the Keling doesn't, so neither may we.
 var time_dilation := 1.0
+## Riding a mount (Owl Flight): pulled back for the view and swung round
+## behind it, 0 .. 1.
+var ride_blend := 0.0
+var _ride_on := false
+var _ride_zoom := 10.0
+var _ride_saved_zoom := 0.0
 
 @onready var arm: SpringArm3D = $SpringArm3D
 @onready var camera: Camera3D = $SpringArm3D/Camera3D
@@ -111,6 +117,18 @@ func add_look_input(delta_radians: Vector2) -> void:
 ## Touch drag in pixels (from the touch controls).
 func add_touch_look(drag: Vector2) -> void:
 	add_look_input(drag * touch_sensitivity)
+
+
+## A mount takes the Keling up: pull back to `zoom` metres and follow it.
+func begin_ride(zoom: float) -> void:
+	if not _ride_on:
+		_ride_saved_zoom = _zoom
+	_ride_on = true
+	_ride_zoom = zoom
+
+
+func end_ride() -> void:
+	_ride_on = false
 
 
 func zoom_by(factor: float) -> void:
@@ -223,6 +241,15 @@ func _process_timed(delta: float) -> void:
 		var t := clampf(flat_speed / 3.0, 0.0, 1.0) * 1.1 * delta * smoothstep(deg_to_rad(115.0), deg_to_rad(60.0), off)
 		yaw = lerp_angle(yaw, behind, t)
 		pitch = lerpf(pitch, deg_to_rad(-20.0), t * 0.5)
+
+	# Riding: stay behind the mount, a little above, and further back.
+	ride_blend = move_toward(ride_blend, 1.0 if _ride_on else 0.0, delta * 0.7)
+	if ride_blend > 0.0:
+		var rb := smoothstep(0.0, 1.0, ride_blend)
+		if _ride_on and _since_manual > 0.9 and facing != null:
+			yaw = lerp_angle(yaw, facing + PI, (1.0 - exp(-2.2 * delta)) * rb)
+			pitch = lerpf(pitch, deg_to_rad(-16.0), (1.0 - exp(-1.4 * delta)) * rb)
+		_zoom = lerpf(_zoom, _ride_zoom if _ride_on else _ride_saved_zoom, 1.0 - exp(-1.3 * delta))
 
 	if _close_active:
 		if _since_manual < 0.1:

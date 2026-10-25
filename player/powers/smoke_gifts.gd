@@ -17,6 +17,9 @@ extends RefCounted
 ##                               (but not you): leaves hang in the air
 ##   moonjump  · Moon Jump       a pale moon rises; gravity lets go, every
 ##                               landing bounces and scatters stardust
+##   owl       · Owl Flight      your smoke gathers into a giant ghostly
+##                               spirit owl that scoops you onto its back
+##                               and soars off over the forest
 ##
 ## Smoked at a bench whose view matches the gift's element, it comes out
 ## stronger and lasts longer.
@@ -47,8 +50,15 @@ const GIFTS := {
 		"text": "A pale moon rises and gravity lets go",
 		"color": Color(0.8, 0.84, 1.0), "time": 36.0,
 	},
+	&"owl": {
+		"name": "Owl Flight", "icon": "owl", "element": &"spirit",
+		"text": "A spirit owl gathers out of your smoke and carries you over the forest",
+		"color": Color(0.62, 0.86, 1.0), "time": 34.0,
+	},
 }
 
+# Owl Flight is only ever a strain's own gift (the rare Moonfeather), never a
+# fallback pick, so it stays out of ORDER.
 const ORDER: Array[StringName] = [&"fireflies", &"cloud", &"bloom", &"slowtime", &"moonjump"]
 ## How much more a matching bench view gives (time and strength).
 const BOOST := 1.5
@@ -98,6 +108,8 @@ static func script_for(id: StringName) -> Script:
 			return load("res://player/powers/gift_slow_time.gd")
 		&"moonjump":
 			return load("res://player/powers/gift_moon_jump.gd")
+		&"owl":
+			return load("res://player/powers/gift_owl.gd")
 	return null
 
 
@@ -173,4 +185,6 @@ static func warm_up(cam: Node3D) -> Node3D:
 		mi.position = Vector3(x, 0.9, 0)
 		mi.set_instance_shader_parameter(s[2], 0.05)
 		x += 1.0
+	# The spirit owl (its ghost, smoke, feathers and trails).
+	GiftOwl.warm_up(holder)
 	return holder

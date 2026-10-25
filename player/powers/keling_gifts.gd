@@ -168,8 +168,8 @@ func _begin(gift: StringName, data: Dictionary) -> SmokeGift:
 		old.refresh(boost)
 		return null
 	# Riding and moon-jumping both own the body's motion: one at a time.
-	for other in [&"cloud", &"moonjump"]:
-		if gift != other and gift in [&"cloud", &"moonjump"] and is_active(other):
+	for other in [&"cloud", &"moonjump", &"owl"]:
+		if gift != other and gift in [&"cloud", &"moonjump", &"owl"] and is_active(other):
 			(active[other] as SmokeGift).end()
 	var script := SmokeGifts.script_for(gift)
 	if script == null:
