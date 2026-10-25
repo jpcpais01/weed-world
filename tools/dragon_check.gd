@@ -144,9 +144,13 @@ func _physics_process(delta: float) -> bool:
 			_forest.add_child(a)
 			_forest.add_child(b)
 			var o: Vector3 = _k.global_position + Vector3.UP * 0.8
+			# One screen drew the breath in for longer than the other.
+			a.charge(Transform3D(Basis(), o), 1.0)
+			for i in 12:
+				a._update_charge(0.1)
 			a.release(Transform3D(Basis(), o), 0.7)
 			b.release(Transform3D(Basis(), o), 0.7)
-			_check(a.impact_point.is_equal_approx(b.impact_point) and a._len == b._len, "the same seed flies the same path")
+			_check(a.impact_point.is_equal_approx(b.impact_point) and a._len == b._len, "the same seed flies the same path (however long each drew it in)")
 			a.queue_free()
 			b.queue_free()
 			# A puppet replays the activity and breathes its own dragon.

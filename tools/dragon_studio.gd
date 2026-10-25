@@ -7,11 +7,11 @@ extends SceneTree
 ##   xvfb-run godot --path . --rendering-method mobile --fixed-fps 30 \
 ##       -s res://tools/dragon_studio.gd -- <out_dir> [yaw_offset_deg] [first_shot]
 
-# [name, seconds after the press, camera]
+# [name, seconds after the press (negative: seconds after the splash), camera]
 const SHOTS := [
-	["1_draw", 1.9, "face"], ["2_blast", 2.95, "side"], ["3_emerge", 3.35, "behind"],
+	["1_draw", 1.9, "face"], ["1b_hold", 2.6, "face"], ["2_blast", 2.95, "side"], ["3_emerge", 3.35, "behind"],
 	["4_swim", 4.1, "chase"], ["5_swim_side", 4.7, "flank"], ["6_swim_far", 5.3, "behind_high"],
-	["7_dive", 6.4, "flank"], ["8_splash", 7.0, "impact"], ["9_rainbow", 9.0, "rainbow"],
+	["7_dive", -0.02, "flank"], ["8_splash", -0.3, "impact"], ["8b_crown", -0.6, "impact"], ["9_rainbow", -2.5, "rainbow"],
 ]
 
 var _out := "user://"
@@ -79,8 +79,13 @@ func _process(delta: float) -> bool:
 		quit(0)
 		return true
 	var s: Array = SHOTS[_shot]
-	if not _armed and _t < float(s[1]):
-		return false
+	var at := float(s[1])
+	if not _armed:
+		if at < 0.0:
+			if not is_instance_valid(_breath) or not _breath._impacted or _breath._impact_t < -at:
+				return false
+		elif _t < at:
+			return false
 	if not _armed:
 		_aim(s[2])
 		_armed = true
