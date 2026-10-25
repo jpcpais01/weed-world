@@ -590,7 +590,7 @@ func _refresh() -> void:
 			rows = [
 				[[["L"], "move"], [["R"], "camera"], [["LB", "RB"], "zoom"]],
 				[[["A"], "jump"], [["X"], "grab"], [["B"], "sprint"], [["Y"], "map"], [["RT"], "roll · smoke"]],
-				[[["D-pad"], "dance · cheer · sit · nod"], [["View"], "debug"], [["Start"], "menu"]],
+				[[["D-pad"], "dance · cheer · sit · nod"], [["hold RT"], "dragon breath"], [["View"], "debug"], [["Start"], "menu"]],
 			]
 		_:
 			var k := func(a: String) -> String: return _settings.key_label(a) if _settings else a
@@ -601,7 +601,7 @@ func _refresh() -> void:
 				[[[k.call("emote_dance"), k.call("emote_cheer"), k.call("emote_sit"), k.call("emote_nod")], "dance · cheer · sit · nod"],
 					[[k.call("toggle_debug")], "debug"], [["F11"], "fullscreen"]],
 				# Kept short so the panel stays clear of the centred action prompt.
-				[[[k.call("coop")], "play together"], [[k.call("character")], "change keling"]],
+				[[[k.call("coop")], "play together"], [[k.call("character")], "change keling"], [[k.call("dragon")], "dragon breath"]],
 			]
 	for r in rows:
 		_hints_box.add_child(_hint_row(r, pad))

@@ -4,9 +4,12 @@ extends CanvasLayer
 ## which strain to roll), a prompt for the weed action with a progress bar
 ## while rolling, a round leaf button for touch, toasts for picked buds and
 ## new strains, a big title when a bench power kicks in with a timer pill
-## while it lasts, and the dreamy glow at the edges of the screen.
+## while it lasts, and the dreamy glow at the edges of the screen. Holding
+## the puff charges Dragon Breath: the bar (or the leaf button's ring) fills
+## blue until it catches.
 
 const BTN_RADIUS := 46.0
+const DRAGON_BLUE := Color(0.45, 0.88, 1.0)
 
 var weed: KelingWeed
 var _root: Control
@@ -23,6 +26,7 @@ var _joint_pop := 0.0
 var _btn_press := 0.0
 var _title_font: Font
 var _body_font: Font
+var _dragon_told := false
 
 
 func setup(p_weed: KelingWeed) -> void:
@@ -34,6 +38,7 @@ func setup(p_weed: KelingWeed) -> void:
 	weed.note.connect(func(text: String): _toast(text, HudTheme.CREAM))
 	weed.high.started.connect(_on_power)
 	weed.high.ended.connect(func(): _toast("The high drifts away", Color(HudTheme.CREAM, 0.85)))
+	weed.dragon_breathed.connect(_on_dragon)
 
 
 func _ready() -> void:
@@ -67,7 +72,9 @@ func _ready() -> void:
 	_touch_btn.button_down.connect(func():
 		_btn_press = 1.0
 		if weed:
+			weed.dragon_held = true
 			weed.use())
+	_touch_btn.button_up.connect(func(): if weed: weed.dragon_held = false)
 	_root.add_child(_touch_btn)
 
 
@@ -99,6 +106,14 @@ func _on_power(element: StringName) -> void:
 	var p := WeedStrains.power(element)
 	var where := "" if element == &"none" else "  ·  %s" % _bench_view_name()
 	_banner = {"title": p.name, "text": p.text + where, "color": p.color, "t": 0.0, "life": 4.0}
+
+
+func _on_dragon() -> void:
+	if _dragon_told:
+		_toast("Dragon Breath!", DRAGON_BLUE.lerp(Color.WHITE, 0.3))
+		return
+	_dragon_told = true
+	_banner = {"title": "Dragon Breath", "text": "A water dragon swims out of your breath and rains on all it passes", "color": DRAGON_BLUE, "t": 0.0, "life": 4.2}
 
 
 func _bench_view_name() -> String:
@@ -272,6 +287,8 @@ func _draw_prompt() -> void:
 		var b := weed.keling.current_bench()
 		var power := WeedStrains.power(StringName(b.site.element) if b else &"none")
 		label = ("Light up" if not weed.lit else "Take a puff") + "   ·   " + power.name
+		if weed.lit:
+			label = "Take a puff   ·   hold for Dragon Breath" + ("" if b == null else "   ·   " + power.name)
 	var w := _body_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x + 74.0
 	var rect := Rect2(centre - Vector2(w * 0.5, 22.0), Vector2(w, 44.0))
 	_draw.draw_style_box(HudTheme.pill(Color(HudTheme.GLASS, 0.6)), rect)
@@ -293,6 +310,10 @@ func _draw_progress_caption(centre: Vector2) -> void:
 			label = "Lighting up"
 		KelingWeed.Act.HIT:
 			label = "Puff %d of %d" % [KelingWeed.HITS - weed.joint_puffs + (0 if weed.act_t > 2.4 else 1), KelingWeed.HITS]
+			if weed.dragon_charge() > 0.0:
+				label = "Hold it in for Dragon Breath..."
+		KelingWeed.Act.DRAGON:
+			label = "Dragon Breath!" if weed.act_t > KelingWeed.DRAGON_RELEASE else "Drawing in the dragon..."
 	var w := 300.0
 	var rect := Rect2(centre - Vector2(w * 0.5, 26.0), Vector2(w, 52.0))
 	_draw.draw_style_box(HudTheme.pill(Color(HudTheme.GLASS, 0.6)), rect)
@@ -304,10 +325,15 @@ func _draw_progress_caption(centre: Vector2) -> void:
 	sb.set_corner_radius_all(4)
 	_draw.draw_style_box(sb, bar)
 	var p := clampf(weed.progress(), 0.0, 1.0)
+	var charging := weed.dragon_charge()
+	if charging > 0.0 and weed.act == KelingWeed.Act.HIT:
+		p = charging
 	if p > 0.01:
 		var fill := sb.duplicate() as StyleBoxFlat
 		var strain := weed._roll_strain if weed.act == KelingWeed.Act.ROLL else weed.joint_strain
 		fill.bg_color = WeedStrains.info(strain).glow.lerp(HudTheme.LEAF, 0.3)
+		if charging > 0.0:
+			fill.bg_color = DRAGON_BLUE.lerp(Color.WHITE, 0.25 * (0.5 + 0.5 * sin(_t * 12.0)))
 		_draw.draw_style_box(fill, Rect2(bar.position, Vector2(bar.size.x * p, bar.size.y)))
 		if weed.act == KelingWeed.Act.ROLL:
 			var secs := ceili(KelingWeed.ROLL_TIME - weed.act_t)
@@ -330,11 +356,17 @@ func _draw_touch_button() -> void:
 	if busy:
 		var p := clampf(weed.progress(), 0.0, 1.0)
 		_draw.draw_arc(c, r + 5.0, -PI * 0.5, -PI * 0.5 + TAU * p, 64, glow.lerp(Color.WHITE, 0.2), 5.0, true)
+		var charging := weed.dragon_charge()
+		if charging > 0.0:
+			# Holding: a blue ring winds round until Dragon Breath catches.
+			_draw.draw_arc(c, r + 12.0, -PI * 0.5, -PI * 0.5 + TAU * charging, 64, Color(DRAGON_BLUE, 0.9), 4.0, true)
 	if action == &"smoke" or (busy and weed.act != KelingWeed.Act.ROLL):
 		_joint_icon(c, r * 1.05, glow, weed.lit)
 	else:
 		_bud_icon(c, r * 0.42, WeedStrains.info(strain).bud_tint, glow)
 	var label := "Roll" if action == &"roll" else ("Smoke" if action == &"smoke" else "")
+	if action == &"smoke" and weed.lit:
+		label = "Smoke · hold: dragon"
 	if busy:
 		label = "%ds" % ceili(KelingWeed.ROLL_TIME - weed.act_t) if weed.act == KelingWeed.Act.ROLL else ""
 	if label != "":

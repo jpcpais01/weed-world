@@ -233,6 +233,9 @@ func _begin_warm() -> void:
 		copy.position = Vector3(0, -0.4, -2.5)
 		copy.emitting = true
 		_warm_extras.append(copy)
+	# Dragon Breath only appears when someone breathes it: show one of
+	# everything it draws (the dragon, mist, drops, rings, rainbow, puddle).
+	_warm_extras.append(DragonBreath.warm_up(_warm_cam))
 	_warm_frame = 0
 	_warm_quiet = 0
 	_warm_last = -1
