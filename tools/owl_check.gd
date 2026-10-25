@@ -64,7 +64,9 @@ func _physics_process(delta: float) -> bool:
 			_k.global_position = stand
 			_k.velocity = Vector3.ZERO
 			_k.facing = PI
-			_check(SmokeGifts.valid(&"owl") and SmokeGifts.script_for(&"owl") != null, "Owl Flight is a registered gift")
+			# Loaded, not named: -s scripts compile before the autoloads exist.
+			var gifts = load("res://player/powers/smoke_gifts.gd")
+			_check(gifts.valid(&"owl") and gifts.script_for(&"owl") != null, "Owl Flight is a registered gift")
 			_next()
 		1:
 			if _step_t < 1.0:

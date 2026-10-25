@@ -298,7 +298,9 @@ func drive(k: KelingController, delta: float) -> void:
 	if phase != Phase.RIDE:
 		k.velocity = Vector3.ZERO
 		return
-	if not GameInput.ui_locked and Input.is_action_just_pressed("grab") and not ending:
+	# (GameInput by path: this script compiles before the autoloads exist.)
+	var gi := k.get_node_or_null("/root/GameInput")
+	if not (gi and gi.ui_locked) and Input.is_action_just_pressed("grab") and not ending:
 		end()
 	var seat := k.global_position + Vector3.UP * SEAT_DROP
 	var ground := floor_at(seat.x, seat.z)
