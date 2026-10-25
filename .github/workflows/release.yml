@@ -127,6 +127,12 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/dragon.log"; then exit 1; fi
           grep -q "dragon_check: PASS" "$RUNNER_TEMP/dragon.log"
 
+      - name: Owl Flight check
+        run: |
+          timeout 300 ~/godot/godot --headless --path . -s res://tools/owl_check.gd 2>&1 | tee "$RUNNER_TEMP/owl.log"
+          if grep -E "SCRIPT ERROR|Parse Error" "$RUNNER_TEMP/owl.log"; then exit 1; fi
+          grep -q "owl_check: PASS" "$RUNNER_TEMP/owl.log"
+
       - name: Settings and pause menu check
         run: |
           timeout 300 ~/godot/godot --headless --path . -s res://tools/settings_check.gd 2>&1 | tee "$RUNNER_TEMP/settings.log"

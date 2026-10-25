@@ -1,5 +1,11 @@
 # Patch notes
 
+## 25 Oct 2026 · 02:55 UTC
+- **Owl Flight!** A new smoke gift, carried by the rare Moonfeather strain. Breathe it out and a long plume of smoke spirals up from your Keling's lips, and out of it a giant spirit owl burns into being, from its chest out to the tips of its 10-metre wings, hovering in front of you with its eyes glowing. It hoots, swoops down low over the meadow and scoops your Keling onto its back as it hops up, then soars off over the treetops.
+- **A real ghost.** The owl is made of smoke and moonlight: you can see the forest through its body, a pale glow runs round its edges, smoke drifts through it from beak to tail, and its feathers and long tail plumes fray into wisps that stream away behind it. Ribbons of light trail from its wingtips and plumes, and it sheds smoke, sparkles and the odd glowing feather that flutters down to the forest below. It even lights up the trees it passes over.
+- **Fly it yourself.** Steer with the stick and it banks into the turn. Hold jump and it beats its great wings to climb, sprint and it folds them back and dives. It glides between strong wingbeats, keeps clear of the treetops, rises over the Elder tree and turns back at the edge of the valley. Your Keling rides astride its neck, holding on to its feathers, and throws its arms up in a dive. The camera pulls back so you can see the whole valley.
+- **A soft landing.** When the gift runs out (or you press grab) the owl glides down and lets your Keling hop off, then climbs away and melts back into smoke and drifting feathers with a last hoot. Your friends in co-op see your owl, and you riding it, on their screens too, with its own sounds: the gathering breath, its hoot, every wingbeat and the wind.
+
 ## 25 Oct 2026 · 02:39 UTC
 - **The frame rate cap really holds its number now.** Godot's own cap asked Windows to sleep until the next frame, and Windows wakes up a millisecond or two late almost every time, so a cap of 120 actually ran at 90 to 100. The game now times its own cap: it sleeps to just before the deadline and waits out the last moment exactly, so 120 means 120.
 - **The cap steps aside under vsync.** With vsync on and a cap at or above your screen's refresh rate, vsync alone paces the frames instead of the two fighting each other.

@@ -20,6 +20,13 @@ var legs := 0.0
 ## Leg length against the original Keling's: long legs rest further out
 ## over the edge so their feet clear the ground.
 var leg_reach := 1.0
+## Riding astride something broad (Owl Flight): knees wide round its back,
+## shins hanging down its flanks, no kicking.
+var straddle := 0.0
+## While astride: hands forward in the mount's neck feathers ...
+var reins := 0.0
+## ... or flung up in the air for joy.
+var cheer := 0.0
 
 var _bones := {}
 var _t := 0.0
@@ -61,7 +68,7 @@ func _process_modification_with_delta_timed(delta: float) -> void:
 	if _kick_timer <= 0.0:
 		_kick_timer = randf_range(2.5, 6.5)
 		_kick_target = 0.0 if _kick_target > 0.3 or randf() < 0.35 else randf_range(0.55, 1.0)
-	_kick = lerpf(_kick, _kick_target * legs, 1.0 - exp(-1.8 * delta))
+	_kick = lerpf(_kick, _kick_target * legs * (1.0 - straddle), 1.0 - exp(-1.8 * delta))
 
 	var hips: int = _bones["Hips"]
 	# Hips onto the seat (position in the parent's space), pelvis rolled back.
@@ -84,8 +91,8 @@ func _process_modification_with_delta_timed(delta: float) -> void:
 		# Alternating kicks: one shin swings forward as the other tucks back.
 		var phase := _t * 6.2 + (0.0 if side > 0.0 else PI)
 		var swing := 0.32 + 0.5 * clampf(leg_reach - 1.0, 0.0, 1.0) + sin(phase) * 0.42 * _kick + sin(_t * 0.9 + side) * 0.05
-		var thigh := Vector3(side * 0.2, -0.06 + 0.06 * _kick * sin(phase), 1.0).normalized()
-		var shin := Vector3(side * 0.05, -cos(swing), sin(swing)).normalized()
+		var thigh := Vector3(side * lerpf(0.2, 0.9, straddle), -0.06 + 0.06 * _kick * sin(phase) - 0.3 * straddle, 1.0).normalized()
+		var shin := Vector3(side * 0.05, -cos(swing), sin(swing)).normalized().lerp(Vector3(side * 0.3, -1.0, 0.2).normalized(), straddle).normalized()
 		var foot := Vector3(0.0, -cos(swing + 1.25), sin(swing + 1.25)).normalized()
 		_aim(skel, _bones[leg[0]], _bones[leg[1]], thigh, legs)
 		_aim(skel, _bones[leg[1]], _bones[leg[2]], shin, legs)
@@ -95,7 +102,11 @@ func _process_modification_with_delta_timed(delta: float) -> void:
 	for arm in ARMS:
 		var side: float = arm[2]
 		var dir := Vector3(side * 0.28, -1.0, 0.12 + 0.05 * sin(_t * 1.3 + side)).normalized()
-		_aim(skel, _bones[arm[0]], _bones[arm[1]], dir, amount * 0.75)
+		if straddle > 0.0:
+			var hold := Vector3(side * 0.35, -0.45, 1.0).normalized()
+			var joy := Vector3(side * 0.55, 1.0, 0.2 + 0.1 * sin(_t * 5.0 + side)).normalized()
+			dir = dir.lerp(hold * reins + joy * cheer, straddle).normalized()
+		_aim(skel, _bones[arm[0]], _bones[arm[1]], dir, amount * lerpf(0.75, 0.95, straddle))
 
 
 ## Turns `bone` so the direction to `child` points along `dir` (model space),
