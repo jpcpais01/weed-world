@@ -1,5 +1,10 @@
 # Patch notes
 
+## 25 Oct 2026 · 02:39 UTC
+- **The frame rate cap really holds its number now.** Godot's own cap asked Windows to sleep until the next frame, and Windows wakes up a millisecond or two late almost every time, so a cap of 120 actually ran at 90 to 100. The game now times its own cap: it sleeps to just before the deadline and waits out the last moment exactly, so 120 means 120.
+- **The cap steps aside under vsync.** With vsync on and a cap at or above your screen's refresh rate, vsync alone paces the frames instead of the two fighting each other.
+- **Clearer frame readout.** It now says plainly when the Settings cap is what holds the frame rate, and long pauses (loading, a minimised window) no longer show up as the "slowest frame".
+
 ## 25 Oct 2026 · 02:40 UTC
 - **Ten new strains to find!** The glade grows far more than Ember, Starlit and Verdant now, and every new strain has its own shape, not just its own colour: **Corkscrew Kush** spirals skywards like a spring, **Mossy Mound** is a low cosy dome of leaves, **Starfish Sprawl** lies flat on the ground and curls its arms up, **Sky Spire Haze** towers twice your height, **Bubblegum Pop** grows into a topiary lollipop, **Moonfeather** weeps silver curtains like a willow, **Lantern Light** is a candelabra holding up glowing lanterns, **Cloud Bonsai** is an ancient little tree pruned into pink clouds, **Sunset Braid** twists an Ember and a Starlit stem into one, and **Moonlit Lotus** is a silver lotus rosette crowned with a royal cola.
 - **Buds with personality.** Each strain's buds have their own form too: soft-serve swirls, popcorn clusters, little stars, long foxtail spears, perfect gumballs, dangling feather plumes, ribbed paper lanterns, cloud puffs, braided twins and a flower-like crown. You see the real shape on the plant, in your fist when you pick it and in your hands while you roll it.

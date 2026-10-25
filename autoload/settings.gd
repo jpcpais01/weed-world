@@ -113,6 +113,18 @@ var _muffle_target := 0.0
 var _lowpass: AudioEffectLowPassFilter
 var _save_timer: SceneTreeTimer
 
+## Desktop frame-rate cap, timed here instead of by Engine.max_fps. Godot's cap
+## sleeps the whole gap on the OS timer, and on Windows every sleep wakes a
+## millisecond or two late, so a 120 cap ran at about 95. This one sleeps to
+## just short of the deadline and spins the rest, right after the frame is
+## drawn (where Godot's own cap waits).
+const CAP_SPIN_US := 2000
+var _cap_us := 0             # frame period in usec, 0 = uncapped
+var _cap_due := 0            # when the next frame may start
+## How long the cap held the last frame, and which frame (for PerfReadout).
+var cap_held_us := 0
+var cap_frame := -1
+
 
 func _enter_tree() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -305,13 +317,39 @@ func apply_graphics() -> void:
 	vp.screen_space_aa = {AA.FXAA: Viewport.SCREEN_SPACE_AA_FXAA, AA.SMAA: Viewport.SCREEN_SPACE_AA_SMAA}.get(aa, Viewport.SCREEN_SPACE_AA_DISABLED)
 	if not is_mobile():
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if values.vsync else DisplayServer.VSYNC_DISABLED)
-	Engine.max_fps = int(values.fps_cap)
+	# Phones keep Godot's cap: it saves battery and a late wake costs nothing.
+	var cap := int(values.fps_cap)
+	Engine.max_fps = cap if is_mobile() else 0
+	_cap_us = 0
+	if not is_mobile() and cap > 0:
+		# Vsync already holds frames to the screen; a cap at or over its rate
+		# would only fight it.
+		var hz := DisplayServer.screen_get_refresh_rate()
+		if not (values.vsync and hz > 0.0 and cap >= hz - 1.0):
+			_cap_us = 1000000 / cap
+			if not RenderingServer.frame_post_draw.is_connected(_hold_frame):
+				RenderingServer.frame_post_draw.connect(_hold_frame)
 	var sh := shadow_level()
 	if sh[0] > 0:
 		RenderingServer.directional_shadow_atlas_set_size(sh[0], true)
 		RenderingServer.directional_soft_shadow_filter_set_quality(sh[2])
 	_apply_forest()
 	_apply_forest_lod()
+
+
+func _hold_frame() -> void:
+	if _cap_us <= 0:
+		return
+	var now := Time.get_ticks_usec()
+	_cap_due += _cap_us
+	if _cap_due < now - _cap_us:
+		_cap_due = now  # well behind after a slow frame: start over, no sprint
+	if _cap_due - now > CAP_SPIN_US:
+		OS.delay_usec(_cap_due - now - CAP_SPIN_US)
+	while Time.get_ticks_usec() < _cap_due:
+		pass
+	cap_held_us = Time.get_ticks_usec() - now
+	cap_frame = Engine.get_process_frames()
 
 
 func _apply_forest_lod() -> void:
