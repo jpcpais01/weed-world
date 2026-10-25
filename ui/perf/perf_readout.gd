@@ -28,6 +28,7 @@ var _gpu := 0.0
 var _render := 0.0
 var _setup := 0.0
 var _proc := 0.0              # all _process scripts, summed over the window (ms)
+var _draw := 0.0              # RenderingServer.draw wall time, waits included
 var _phys := 0.0              # all _physics_process scripts
 var _avg := {}               # last window's averages, in ms
 var _systems := {}           # last window's script time per system, ms per frame
@@ -44,6 +45,8 @@ var _phys_us := 0
 var _phys_t := 0
 var _phys_n := 0
 var _top := ["", 0.0]        # busiest system of the last process pass
+var _pre_us := 0             # RenderingServer.draw began (usec)
+var _draw_us := 0            # how long the last draw took, waits included
 ## Slowest frame lately: {ms, proc, phys, steps, draw, rest, top, top_ms, when}
 var _slowest := {"ms": 0.0, "when": -INF}
 
@@ -79,6 +82,12 @@ func _ready() -> void:
 		_phys_n += 1
 	add_child(first)
 	add_child(last)
+	# The whole draw, wall clock: submit and prep plus whatever it blocks on
+	# (a free swapchain image, the GPU finishing an older frame, present).
+	RenderingServer.frame_pre_draw.connect(func(): _pre_us = Time.get_ticks_usec())
+	RenderingServer.frame_post_draw.connect(func():
+		if _pre_us > 0:
+			_draw_us = Time.get_ticks_usec() - _pre_us)
 
 
 class _Mark extends Node:
@@ -100,12 +109,15 @@ func _frame_start() -> void:
 		var ms := (now - _f0) / 1000.0
 		_proc += _proc_us / 1000.0
 		_phys += _phys_us / 1000.0
+		_draw += _draw_us / 1000.0
 		var t := now / 1000000.0
 		if ms > _slowest.ms or t - _slowest.when > 5.0:
 			var top := _top
 			var draw := RenderingServer.viewport_get_measured_render_time_cpu(_vp) + RenderingServer.get_frame_setup_time_cpu()
+			var whole := _draw_us / 1000.0
 			_slowest = {"ms": ms, "proc": _proc_us / 1000.0, "phys": _phys_us / 1000.0, "steps": _phys_n, "draw": draw,
-					"rest": ms - (_proc_us + _phys_us) / 1000.0, "top": top[0], "top_ms": top[1], "when": t}
+					"wait": maxf(whole - draw, 0.0), "rest": maxf(ms - (_proc_us + _phys_us + _draw_us) / 1000.0, 0.0),
+					"top": top[0], "top_ms": top[1], "when": t}
 	_f0 = now
 	_phys_us = 0
 	_phys_n = 0
@@ -157,7 +169,12 @@ func _summarise() -> void:
 	var n := float(maxi(_frames, 1))
 	var fps := _frames / _t
 	_avg = {"fps": fps, "frame": 1000.0 / maxf(fps, 0.001), "gpu": _gpu / n, "render": _render / n,
-			"setup": _setup / n, "proc": _proc / n, "phys": _phys / n}
+			"setup": _setup / n, "proc": _proc / n, "phys": _phys / n, "draw": _draw / n}
+	# Inside draw but not drawing: blocked on the driver, the GPU or the screen.
+	_avg.wait = maxf(_avg.draw - _avg.render - _avg.setup, 0.0)
+	# Outside scripts and draw: the physics engine's step, input and window
+	# events, and the frame-rate cap's sleep.
+	_avg.other = maxf(_avg.frame - _avg.proc - _avg.phys - _avg.draw, 0.0)
 	_systems = {}
 	var taken := PerfMeter.take()
 	for k in taken.total:
@@ -180,6 +197,7 @@ func _summarise() -> void:
 	_setup = 0.0
 	_proc = 0.0
 	_phys = 0.0
+	_draw = 0.0
 	var draws := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)
 	summary = "%.1f ms a frame · GPU %.1f ms  ·  %s draws" % [_avg.frame, _avg.gpu, _thousands(draws)]
 	if visible:
@@ -198,6 +216,12 @@ func _panel() -> String:
 	if vsync and hz > 0.0 and _avg.frame < 1150.0 / hz:
 		lines.append("Capped by vsync at %d Hz: GPU %.1f ms and CPU about %.1f ms of each %.1f ms, so lower settings can't raise the frame rate%s" % [
 				roundi(hz), _avg.gpu, cpu, 1000.0 / hz, "" if OS.has_feature("mobile") else " (8 turns vsync off to see how fast it could go)"])
+	elif _avg.wait >= _avg.frame * 0.3 and _avg.gpu < _avg.frame * 0.6:
+		# The GPU has room and the CPU is done, yet draw sits blocked: the
+		# frame waits its turn on the screen (compositor, a cross-card copy on
+		# laptops, or a present that stayed synced to the refresh rate).
+		lines.append("Waiting on the screen: %.1f of each %.1f ms is spent blocked handing frames to the display (GPU %.1f, CPU about %.1f)%s" % [
+				_avg.wait, _avg.frame, _avg.gpu, cpu, "" if OS.has_feature("mobile") else "; F11 fullscreen skips the desktop's copy"])
 	elif _avg.gpu >= _avg.frame * 0.8:
 		lines.append("GPU-bound: the graphics card is busy %.1f of each %.1f ms" % [_avg.gpu, _avg.frame])
 	elif cpu >= _avg.frame * 0.75:
@@ -211,11 +235,19 @@ func _panel() -> String:
 	var sync := "vsync %s" % ("on" if vsync else "off")
 	if hz > 0.0:
 		sync += " · %d Hz screen" % roundi(hz)
+	if Engine.max_fps > 0:
+		sync += " · frame rate capped at %d in Settings" % Engine.max_fps
+	if not OS.has_feature("mobile"):
+		var mode := DisplayServer.window_get_mode()
+		sync += " · %s" % ("fullscreen" if mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+				else "borderless fullscreen" if mode == DisplayServer.WINDOW_MODE_FULLSCREEN else "windowed")
 	if not OS.has_feature("mobile"):
 		sync += "  (8 toggles vsync)"
 	lines.append(sync)
 	lines.append("CPU per frame: draw submit %.1f · scene prep %.1f · scripts %.1f · physics scripts %.1f ms" % [
 			_avg.render, _avg.setup, _avg.proc, _avg.phys])
+	lines.append("  where each frame goes (ms): scripts %.1f · drawing %.1f · blocked on GPU or screen %.1f · physics engine, input and cap %.1f" % [
+			_avg.proc + _avg.phys, _avg.render + _avg.setup, _avg.wait, _avg.other])
 	var names := _systems.keys()
 	names.sort_custom(func(a, b): return _systems[a] > _systems[b])
 	var parts: Array[String] = []
@@ -226,8 +258,8 @@ func _panel() -> String:
 		lines.append("  scripts per frame (ms): " + " · ".join(parts.slice(0, 7)))
 	if hz > 0.0 and _slowest.ms > 1500.0 / hz:
 		var w := _slowest
-		var line := "slowest frame lately %.1f ms: scripts %.1f · physics scripts %.1f (%d step%s) · drawing, physics engine and waiting %.1f (draw submit %.1f)" % [
-				w.ms, w.proc, w.phys, w.steps, "" if w.steps == 1 else "s", w.rest, w.draw]
+		var line := "slowest frame lately %.1f ms: scripts %.1f · physics scripts %.1f (%d step%s) · drawing %.1f · blocked on GPU or screen %.1f · physics engine, input and cap %.1f" % [
+				w.ms, w.proc, w.phys, w.steps, "" if w.steps == 1 else "s", w.draw, w.wait, w.rest]
 		if w.top != "":
 			line += " · busiest system %s %.1f" % [w.top, w.top_ms]
 		lines.append(line)

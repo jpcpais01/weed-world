@@ -1,11 +1,16 @@
 # Patch notes
 
-## 25 Oct 2026 · 01:52 UTC
+## 25 Oct 2026 · 02:00 UTC
 - **A livelier water dragon.** The whole body now swims: waves roll from its head down to a flicking tail, it surges forward with every stroke, and spray streams off its mane while beads of water fly from its head. Right before the dive it rears up, calls out and blows a plume of spray into the sky.
 - **Deeper, glassier water.** The dragon is a rich deep blue where its body is thick and crystal clear at the fins, with a soft light glowing inside it, foam along its back and glints that run down its body. For its first few metres out of your breath it is still forming: thin, misty and full of holes, then it fills out into water.
 - **A bigger breath.** While you hold the breath in, little blue wisps curl out of the corners of your Keling's mouth. When it blasts out, a ring of mist bursts round the lips and two bright strands twist round the jet as the dragon winds itself out of it.
 - **A real splash.** When the dragon dives into the ground it throws up a crown of glassy water with a torn, foamy rim and shoots a column of spray straight up. Mist rolls out low across the ground, a shockwave races out, and a blue flash lights up the trees. The rainbow afterwards is a little brighter, too.
 - **Fixed: friends saw a different dragon.** In co-op your friends' screens could fly your dragon on a different path from yours. Now everyone sees the same one.
+
+## 25 Oct 2026 · 01:48 UTC
+- **Much higher frame rates on Windows.** The game now draws with Direct3D 12 instead of Vulkan. On gaming laptops the screen is wired to the processor's built-in graphics, and Vulkan frames had to queue behind an extra copy across cards, so even with the GPU nearly idle the frame rate stalled around 90 to 100. Direct3D 12 hands frames to Windows the fast way. If it ever fails to start, the game falls back to Vulkan by itself.
+- **F11 is real fullscreen.** It now takes the screen for itself instead of being a screen-sized window, so Windows stops copying and pacing every frame through the desktop.
+- **The frame readout shows where the time really goes:** a new line splits each frame into scripts, drawing, time blocked waiting on the GPU or the screen, and the physics engine. It also says when a frame-rate cap from Settings is on and whether you are windowed or fullscreen.
 
 ## 25 Oct 2026 · 01:27 UTC
 - **Joints look like joints.** Rolling papers are now unbleached hemp, a warm natural tan with fibres and streaks, thin enough that the green bud inside shows through in soft patches, with the glued seam down one side. The orange cigarette-style filter is gone: the mouth end is now a rolled card tip under the paper, with the little card spiral showing at the end.
