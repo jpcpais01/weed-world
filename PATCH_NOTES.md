@@ -1,5 +1,12 @@
 # Patch notes
 
+## 25 Oct 2026 · 02:07 UTC
+- **Every strain has a gift.** Each puff of a joint now charges its strain's smoke gift (up to three charges, kept for as long as the high lasts). Press the new Gift button (V, RB, or the glowing button above the leaf on a phone) to breathe one out. Smoke at a bench whose view matches the gift and it comes out bigger and lasts half as long again. Ember carries the fireflies, Starlit the moon and Verdant the bloom.
+- **Moon Jump and Slow Time.** A huge pale moon rises over the forest and gravity lets go: you float, leap four times higher, steer in the air and every landing bounces you back up in a burst of stardust. Or the whole world slows to a dream around you while you keep moving at full speed: falling leaves hang in the air and drift aside as you pass, sounds stretch low and a blue shimmer settles over everything.
+- **Cloud Ride.** Your smoke gathers into a fluffy little cloud under your feet. Hop on, sit down and fly it across the valley, climbing with jump and sinking with crouch, banking as you turn. Press grab to hop off and float gently down.
+- **Firefly Swarm and Bloom Burst.** Twilight falls and a swarm of fireflies wakes around you, then streams off through the trees to lead you to the rarest ripe plant nearby (one you haven't found yet, if there is one). Or blow a glowing smoke ring that slams into the ground and rolls outward, and gigantic flora erupt behind it: titan mushrooms you can bounce on, step by step, up to the top of the tallest one, glowing starlilies, lantern bellvines, unfurling ferns, giant puffballs and lotus pads on the water, all in a carpet of flowers. Weed plants in the wave ripen too.
+- **Gifts in co-op.** Your friends see every gift you breathe out (your moon, your cloud, your fireflies and your giant flowers) and can bounce on your mushrooms too. Each gift has its own new sounds.
+
 ## 25 Oct 2026 · 02:00 UTC
 - **A livelier water dragon.** The whole body now swims: waves roll from its head down to a flicking tail, it surges forward with every stroke, and spray streams off its mane while beads of water fly from its head. Right before the dive it rears up, calls out and blows a plume of spray into the sky.
 - **Deeper, glassier water.** The dragon is a rich deep blue where its body is thick and crystal clear at the fins, with a soft light glowing inside it, foam along its back and glints that run down its body. For its first few metres out of your breath it is still forming: thin, misty and full of holes, then it fills out into water.

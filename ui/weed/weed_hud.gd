@@ -578,6 +578,17 @@ func _gift_icon(c: Vector2, r: float, id: StringName, col: Color) -> void:
 			_draw.draw_circle(c, r * 0.8, light)
 			_draw.draw_circle(c + Vector2(r * 0.38, -r * 0.18), r * 0.68, Color(HudTheme.GLASS, 0.95))
 			_star(c + Vector2(r * 0.75, r * 0.55), r * 0.25, light)
+		&"owl":
+			# Spread wings, a round head with two big eyes.
+			var flap := sin(_t * 3.0) * 0.12
+			for sgn: float in [-1.0, 1.0]:
+				var wing := PackedVector2Array([c + Vector2(sgn * r * 0.2, -r * 0.05), c + Vector2(sgn * r * 1.0, -r * (0.45 + flap)),
+						c + Vector2(sgn * r * 0.85, r * 0.05), c + Vector2(sgn * r * 0.25, r * 0.35)])
+				_draw.draw_colored_polygon(wing, Color(light, 0.75))
+			_draw.draw_circle(c + Vector2(0, r * 0.1), r * 0.36, light)
+			_draw.draw_circle(c + Vector2(0, -r * 0.32), r * 0.3, light)
+			for sgn: float in [-1.0, 1.0]:
+				_draw.draw_circle(c + Vector2(sgn * r * 0.13, -r * 0.34), r * 0.11, Color(HudTheme.GLASS, 0.95))
 		_:
 			_draw.draw_circle(c, r * 0.6, light)
 
