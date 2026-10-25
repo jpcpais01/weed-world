@@ -70,6 +70,23 @@ func _physics_process(delta: float) -> bool:
 				if absf(h) > 0.1:
 					_check(false, "plant floats %.2f m off the ground" % h)
 					break
+			# Every strain grows somewhere, and every bud is within a Keling's reach.
+			var grown := {}
+			var reach_ok := true
+			for n in w.nodes:
+				grown[n.strain] = true
+				for b in n.buds:
+					var up: float = b.global_position.y - n.global_position.y
+					if up < 0.22 or up > 1.18:
+						reach_ok = false
+						_check(false, "a %s bud grows out of reach (%.2f m up)" % [n.strain, up])
+						break
+			for s in WeedStrains.ORDER:
+				if not grown.has(s):
+					_check(false, "strain %s grows nowhere" % s)
+				_check(WeedKit.bud_mesh(s) != null, "strain %s has a bud model" % s)
+			_check(grown.size() == WeedStrains.ORDER.size(), "all %d strains grow in the glade" % grown.size())
+			_check(reach_ok, "every bud is within reach")
 			# Stand in front of a plant and face its lowest bud.
 			var plant: WeedPlant = w.nodes[0]
 			_bud = plant.buds[plant.buds.size() - 1]

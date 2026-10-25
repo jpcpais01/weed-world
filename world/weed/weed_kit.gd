@@ -45,8 +45,13 @@ static func plant_mesh(strain: StringName) -> Mesh:
 	return _load_mesh(WeedStrains.info(strain).mesh).mesh
 
 
-static func bud_mesh() -> Mesh:
-	return _load_mesh(WeedStrains.BUD_MESH).mesh
+## The strain's bud model (forged strains each have their own shape).
+static func bud_mesh(strain: StringName = &"ember") -> Mesh:
+	return _load_mesh(_bud_path(strain)).mesh
+
+
+static func _bud_path(strain: StringName) -> String:
+	return WeedStrains.info(strain).get("bud_mesh", WeedStrains.BUD_MESH)
 
 
 ## Native height of a strain's plant model (it stands on its root at 0).
@@ -67,6 +72,7 @@ static func plant_material(strain: StringName, kit: NatureKit = null) -> ShaderM
 	mat.set_shader_parameter("albedo_tex", _load_mesh(info.mesh).albedo)
 	mat.set_shader_parameter("height", info.height)
 	mat.set_shader_parameter("glow_color", info.glow)
+	mat.set_shader_parameter("aura", info.get("aura", 0.0))
 	if kit:
 		kit.wind_materials.append(mat)
 		kit.interactive_materials.append(mat)
@@ -83,14 +89,17 @@ static func bud_material(strain: StringName) -> ShaderMaterial:
 	if mat:
 		return mat
 	var info := WeedStrains.info(strain)
-	var src := _load_mesh(WeedStrains.BUD_MESH)
+	var src := _load_mesh(_bud_path(strain))
 	mat = ShaderMaterial.new()
 	mat.shader = SH_BUD
 	mat.set_shader_parameter("albedo_tex", src.albedo)
 	if src.normal:
 		mat.set_shader_parameter("normal_tex", src.normal)
 	mat.set_shader_parameter("tint", info.bud_tint)
+	# Forged buds have their palette baked in: only a hint of extra tint.
+	mat.set_shader_parameter("tint_mix", 0.12 if info.has("bud_mesh") else 0.35)
 	mat.set_shader_parameter("glow_color", info.glow)
+	mat.set_shader_parameter("rim_strength", info.get("bud_rim", 0.9))
 	_mutex.lock()
 	_bud_mats[strain] = mat
 	_mutex.unlock()
@@ -100,7 +109,7 @@ static func bud_material(strain: StringName) -> ShaderMaterial:
 ## A ready-to-use bud mesh instance (centred on the bud's middle).
 static func make_bud(strain: StringName, size := 1.0) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	mi.mesh = bud_mesh()
+	mi.mesh = bud_mesh(strain)
 	mi.material_override = bud_material(strain)
 	mi.scale = Vector3.ONE * BUD_SCALE * size
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -109,9 +118,15 @@ static func make_bud(strain: StringName, size := 1.0) -> MeshInstance3D:
 
 
 ## Where buds sit on a plant model (model units, before scaling): the crown
-## cola and two side colas, found on the stem by averaging the vertices in a
+## cola and two side colas. Forged strains bake theirs (StrainShapes); for the
+## wild Meshy plants they are found on the stem by averaging the vertices in a
 ## thin band at each height.
 static func bud_anchors(strain: StringName) -> PackedVector3Array:
+	if StrainShapes.SHAPES.has(strain):
+		var baked := PackedVector3Array()
+		for b: Array in StrainShapes.SHAPES[strain].buds:
+			baked.append(b[0])
+		return baked
 	_mutex.lock()
 	if _anchors.has(strain):
 		var cached: PackedVector3Array = _anchors[strain]
@@ -140,3 +155,24 @@ static func bud_anchors(strain: StringName) -> PackedVector3Array:
 	_anchors[strain] = out
 	_mutex.unlock()
 	return out
+
+
+## Which way each bud points (model space; up for the wild plants, hanging
+## or leaning out for some forged ones).
+static func bud_directions(strain: StringName) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if StrainShapes.SHAPES.has(strain):
+		for b: Array in StrainShapes.SHAPES[strain].buds:
+			out.append(b[1])
+	else:
+		for a in bud_anchors(strain):
+			out.append(Vector3.UP)
+	return out
+
+
+## How far the plant reaches out from its root (metres at model scale), so
+## patches space wide plants further apart.
+static func plant_spread(strain: StringName) -> float:
+	if StrainShapes.SHAPES.has(strain):
+		return StrainShapes.SHAPES[strain].spread
+	return 0.3
