@@ -47,7 +47,7 @@ func _on_puffed(element: StringName, _left: int) -> void:
 	var gift := SmokeGifts.of_strain(weed.joint_strain)
 	if gift == &"":
 		return
-	var match_view := element != &"none" and element == SmokeGifts.info(gift).element
+	var match_view: bool = element != &"none" and element == StringName(SmokeGifts.info(gift).element)
 	if gift != ready_gift:
 		charges = 0
 		boosted = false
@@ -125,6 +125,18 @@ func end_remote(gift: StringName) -> void:
 	var g: SmokeGift = active.get(gift)
 	if g and is_instance_valid(g):
 		g.end()
+
+
+## The caster's gift changed course (a new target...): tell the others.
+func send_update(gift: StringName, data: Dictionary) -> void:
+	if local:
+		keling.net_event.emit(&"gift_update", [gift, data])
+
+
+func update_remote(gift: StringName, data: Dictionary) -> void:
+	var g: SmokeGift = active.get(gift)
+	if g and is_instance_valid(g):
+		g.remote_update(data)
 
 
 ## Ends a running gift early (the local one tells the others).

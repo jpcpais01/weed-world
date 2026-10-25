@@ -99,3 +99,78 @@ static func script_for(id: StringName) -> Script:
 		&"moonjump":
 			return load("res://player/powers/gift_moon_jump.gd")
 	return null
+
+
+## The gifts only appear when someone breathes one: the loading screen shows
+## one of everything they draw (every giant flower, the cloud, fireflies,
+## leaves, the moon...) so their shaders compile behind the curtain instead of
+## hitching the first cast. Returns the holder; the caller frees it.
+static func warm_up(cam: Node3D) -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "GiftsWarmUp"
+	cam.add_child(holder)
+	holder.position = Vector3(0, -0.3, -4.0)
+	var noise := preload("res://assets/fx/smoke_noise.png")
+	var mat := func(path: String) -> ShaderMaterial:
+		var m := ShaderMaterial.new()
+		m.shader = load(path)
+		m.set_shader_parameter("noise", noise)
+		return m
+	var x := -2.0
+	for kind in GiantFlora.KINDS:
+		var f := GiantFlora.get_flora(kind, 0)
+		var mi := MeshInstance3D.new()
+		mi.mesh = f.mesh
+		mi.material_override = GiantFlora.material()
+		holder.add_child(mi)
+		mi.position = Vector3(x, -0.5, 0)
+		mi.scale = Vector3.ONE * 0.2
+		mi.set_instance_shader_parameter("grow", 1.0)
+		mi.set_instance_shader_parameter("open", 1.0)
+		x += 0.6
+	var q := QuadMesh.new()
+	q.size = Vector2.ONE * 0.4
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.2
+	sphere.height = 0.4
+	var swarms := [
+		[q, "res://player/powers/soft_puff.gdshader", true],
+		[q, "res://player/powers/firefly.gdshader", true],
+		[q, "res://player/powers/frozen_leaf.gdshader", true],
+		[sphere, "res://player/powers/cloud.gdshader", true],
+		[WeedHigh._flower_mesh(), "res://player/powers/bloom_carpet.gdshader", false],
+	]
+	x = -1.5
+	for s in swarms:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = s[2]
+		mm.use_custom_data = true
+		mm.mesh = s[0]
+		mm.instance_count = 1
+		mm.set_instance_transform(0, Transform3D(Basis(), Vector3(x, 0.4, 0)))
+		if s[2]:
+			mm.set_instance_color(0, Color.WHITE)
+		mm.set_instance_custom_data(0, Color(0.5, 0.5, 0.5, 0.5))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = mat.call(s[1])
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		holder.add_child(mmi)
+		x += 0.75
+	var singles := [
+		[q, "res://player/powers/moon.gdshader", "alpha"],
+		[PlaneMesh.new(), "res://player/powers/dust_ring.gdshader", "strength"],
+		[sphere, "res://player/powers/time_bubble.gdshader", "strength"],
+	]
+	x = -1.0
+	for s in singles:
+		var mi := MeshInstance3D.new()
+		mi.mesh = s[0]
+		mi.material_override = mat.call(s[1])
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		holder.add_child(mi)
+		mi.position = Vector3(x, 0.9, 0)
+		mi.set_instance_shader_parameter(s[2], 0.05)
+		x += 1.0
+	return holder

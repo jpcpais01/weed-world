@@ -137,6 +137,11 @@ func _refreshed() -> void:
 	pass
 
 
+## Co-op: the caster sent a change of plan (KelingGifts.send_update).
+func remote_update(_data: Dictionary) -> void:
+	pass
+
+
 func _on_end() -> void:
 	pass
 
@@ -171,8 +176,10 @@ func mouth() -> Transform3D:
 	return Transform3D(Basis(Vector3.UP, caster.facing), p)
 
 
+## Where the caster stands, as drawn this frame (physics-interpolated), so
+## effects that follow it don't jitter.
 func feet() -> Vector3:
-	return caster.global_position
+	return caster.get_global_transform_interpolated().origin
 
 
 func forward() -> Vector3:

@@ -428,7 +428,10 @@ func _physics_process_timed(delta: float) -> void:
 			_jump_buffer = jump_buffer_time
 		_check_emote_input()
 		if Input.is_action_just_pressed("grab"):
-			try_grab()
+			if gift_ride != null and gift_ride.has_method("hop_off"):
+				gift_ride.hop_off()
+			else:
+				try_grab()
 		if Input.is_action_just_pressed("weed"):
 			weed.use()
 		if Input.is_action_just_pressed("weed_cycle"):
@@ -1485,6 +1488,9 @@ func apply_net_event(kind: StringName, args: Array) -> void:
 		&"gift_end":
 			if args.size() > 0 and weed and weed.gifts:
 				weed.gifts.end_remote(StringName(args[0]))
+		&"gift_update":
+			if args.size() > 1 and args[1] is Dictionary and weed and weed.gifts:
+				weed.gifts.update_remote(StringName(args[0]), args[1])
 
 
 ## Becomes another character with no effect (a friend who changed before we
