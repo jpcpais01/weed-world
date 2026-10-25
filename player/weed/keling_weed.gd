@@ -756,7 +756,7 @@ func _clear_joint() -> void:
 
 func _paint_joint(strain: StringName) -> void:
 	var info := WeedStrains.info(strain)
-	(_joint.body_mat as StandardMaterial3D).backlight = info.glow * 0.4
+	(_joint.body_mat as ShaderMaterial).set_shader_parameter("fill_color", Color(0.36, 0.5, 0.2).lerp(info.bud_tint, 0.25))
 	_smoke.set_style(info.get("smoke", &"normal"))
 
 

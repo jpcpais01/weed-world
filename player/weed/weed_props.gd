@@ -165,17 +165,11 @@ static func joint(tint: Color) -> Dictionary:
 	body.height = JOINT_L
 	body.radial_segments = 10
 	body.rings = 1
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.97, 0.94, 0.86)
-	mat.roughness = 0.8
-	mat.backlight_enabled = true
-	mat.backlight = tint * 0.5
-	# A touch of glow and rim so the paper reads white, not grey, in shade.
-	mat.emission_enabled = true
-	mat.emission = Color(0.97, 0.94, 0.86) * 0.16
-	mat.rim_enabled = true
-	mat.rim = 0.35
-	mat.rim_tint = 0.6
+	# Unbleached hemp paper with the bud showing through.
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://player/weed/joint_paper.gdshader")
+	mat.set_shader_parameter("noise", preload("res://assets/fx/smoke_noise.png"))
+	mat.set_shader_parameter("fill_color", tint)
 	body.material = mat
 	var mi := MeshInstance3D.new()
 	mi.mesh = body
@@ -191,7 +185,9 @@ static func joint(tint: Color) -> Dictionary:
 	twist.height = 0.02
 	twist.radial_segments = 8
 	twist.rings = 1
-	twist.material = mat
+	var twmat: ShaderMaterial = mat.duplicate()
+	twmat.set_shader_parameter("fill", 0.0)
+	twist.material = twmat
 	var tw := MeshInstance3D.new()
 	tw.mesh = twist
 	tw.name = "Twist"
@@ -199,7 +195,8 @@ static func joint(tint: Color) -> Dictionary:
 	tw.position.x = JOINT_L + 0.01
 	tw.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(tw)
-	# The filter: a cardboard tip over the mouth end, a fifth of the joint long.
+	# The crutch: a roll of card inside the mouth end, a fifth of the joint
+	# long. The paper wraps over it, so it shows as paler, bud-free paper.
 	var filter_r := lerpf(JOINT_R_MOUTH, JOINT_R_TIP, FILTER_L / JOINT_L) + 0.0006
 	var crutch := CylinderMesh.new()
 	crutch.top_radius = filter_r
@@ -207,14 +204,9 @@ static func joint(tint: Color) -> Dictionary:
 	crutch.height = FILTER_L
 	crutch.radial_segments = 10
 	crutch.rings = 1
-	var cmat := StandardMaterial3D.new()
-	cmat.albedo_color = Color(0.86, 0.66, 0.4)
-	cmat.roughness = 0.85
-	cmat.emission_enabled = true
-	cmat.emission = Color(0.86, 0.66, 0.4) * 0.12
-	cmat.rim_enabled = true
-	cmat.rim = 0.3
-	cmat.rim_tint = 0.6
+	var cmat: ShaderMaterial = mat.duplicate()
+	cmat.set_shader_parameter("fill", 0.0)
+	cmat.set_shader_parameter("paper_color", Color(0.82, 0.7, 0.5))
 	crutch.material = cmat
 	var cr := MeshInstance3D.new()
 	cr.mesh = crutch
@@ -223,16 +215,16 @@ static func joint(tint: Color) -> Dictionary:
 	cr.position.x = FILTER_L * 0.5
 	cr.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(cr)
-	# Its open end, a shade darker, where the card is rolled up.
+	# Its open end: the card rolled into a spiral round a W fold.
 	var cap := CylinderMesh.new()
-	cap.top_radius = filter_r * 0.82
-	cap.bottom_radius = filter_r * 0.82
-	cap.height = 0.001
-	cap.radial_segments = 10
+	cap.top_radius = filter_r * 1.01
+	cap.bottom_radius = filter_r * 1.01
+	cap.height = 0.0008
+	cap.radial_segments = 14
 	cap.rings = 1
-	var capmat := StandardMaterial3D.new()
-	capmat.albedo_color = Color(0.62, 0.45, 0.26)
-	capmat.roughness = 0.95
+	var capmat := ShaderMaterial.new()
+	capmat.shader = preload("res://player/weed/crutch_end.gdshader")
+	capmat.set_shader_parameter("radius", filter_r * 1.01)
 	cap.material = capmat
 	var cp := MeshInstance3D.new()
 	cp.mesh = cap
