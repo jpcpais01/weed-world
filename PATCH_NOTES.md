@@ -1,5 +1,11 @@
 # Patch notes
 
+## 25 Oct 2026 · 05:13 UTC
+- **No more hitch when a big banner pops up.** The banners for a new strain, a smoke power, a gift or Dragon Breath grew their title by changing its font size every frame, so the game had to draw every letter and its glow from scratch, frame after frame. That froze the game for tens of milliseconds each time. The title now keeps one size and simply scales up as it pops, so it looks the same and costs almost nothing.
+- **Rarity stars without the stall.** The ★ stars on a new-strain banner weren't in the game's fonts, so the system went searching for a font that had them. They're now drawn shapes.
+- **Letters ready from the start.** The HUD's letters are prepared once when you arrive in the forest instead of mid-game.
+- **A sharper frame readout.** Time outside scripts and drawing is now split into physics engine, input & window events, deferred calls & UI layout, timers & cleanup, and the frame cap, so any hitch shows exactly where it comes from.
+
 ## 25 Oct 2026 · 02:55 UTC
 - **Owl Flight!** A new smoke gift, carried by the rare Moonfeather strain. Breathe it out and a long plume of smoke spirals up from your Keling's lips, and out of it a giant spirit owl burns into being, from its chest out to the tips of its 10-metre wings, hovering in front of you with its eyes glowing. It hoots, swoops down low over the meadow and scoops your Keling onto its back as it hops up, then soars off over the treetops.
 - **A real ghost.** The owl is made of smoke and moonlight: you can see the forest through its body, a pale glow runs round its edges, smoke drifts through it from beak to tail, and its feathers and long tail plumes fray into wisps that stream away behind it. Ribbons of light trail from its wingtips and plumes, and it sheds smoke, sparkles and the odd glowing feather that flutters down to the forest below. It even lights up the trees it passes over.

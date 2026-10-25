@@ -13,6 +13,7 @@ extends CanvasLayer
 const BTN_RADIUS := 46.0
 const DRAGON_BLUE := Color(0.45, 0.88, 1.0)
 const GIFT_RADIUS := 40.0
+const BANNER_SIZE := 46
 
 var weed: KelingWeed
 var _root: Control
@@ -29,6 +30,7 @@ var _joint_pop := 0.0
 var _btn_press := 0.0
 var _title_font: Font
 var _body_font: Font
+var _warm := false           # glyphs pre-rendered (see _warm_glyphs)
 var _dragon_told := false
 var _gift_btn: Button
 var _gift_pop := 0.0
@@ -106,10 +108,12 @@ func _on_bud(strain: StringName, first: bool) -> void:
 	if first:
 		var r := WeedStrains.rarity(strain)
 		var found: int = weed.discovered.size() if weed else 1
-		var kicker: String = "%s  %s strain  ·  %d of %d found" % ["★".repeat(r.stars), r.name, found, WeedStrains.ORDER.size()]
+		# The rarity stars are drawn, not typed: neither HUD font has a star,
+		# and asking the system for one stalls a frame.
+		var kicker: String = "%s strain  ·  %d of %d found" % [r.name, found, WeedStrains.ORDER.size()]
 		var life: float = 4.2 + 0.6 * (r.stars - 1)
 		_banner = {"title": "New strain: %s" % info.name, "text": info.blurb, "color": info.glow, "t": 0.0, "life": life,
-			"kicker": kicker, "kicker_color": r.color}
+			"kicker": kicker, "kicker_color": r.color, "stars": int(r.stars)}
 	_toast("+1 %s bud" % info.name, info.glow.lerp(Color.WHITE, 0.35))
 
 
@@ -287,6 +291,9 @@ func _layout_buttons(locked: bool) -> void:
 func _on_draw() -> void:
 	if weed == null:
 		return
+	if not _warm:
+		_warm = true
+		_warm_glyphs()
 	if _show_pouch():
 		_draw_pouch()
 	if _show_touch_button():
@@ -620,21 +627,33 @@ func _draw_banner() -> void:
 	var a := clampf(t / 0.35, 0.0, 1.0) * clampf((_banner.life - t) / 0.8, 0.0, 1.0)
 	var scale := 1.0 + 0.25 * pow(1.0 - clampf(t / 0.45, 0.0, 1.0), 3.0)
 	var title: String = _banner.title
-	var size := int(46.0 * scale)
+	# The pop scales the drawing, never the font size: every new size makes
+	# the font render each glyph and its glow outlines afresh, tens of
+	# milliseconds a frame for the whole pop.
+	var size := BANNER_SIZE
 	var tw := _title_font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var y := s.y * 0.3
 	var col: Color = _banner.color
+	var pivot := Vector2(s.x * 0.5, y)
+	_draw.draw_set_transform(pivot * (1.0 - scale), 0.0, Vector2.ONE * scale)
 	# Soft glow behind the title.
 	for k in 3:
 		_draw.draw_string(_title_font, Vector2(s.x * 0.5 - tw * 0.5, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(col, 0.18 * a), 0)
 		_draw.draw_string_outline(_title_font, Vector2(s.x * 0.5 - tw * 0.5, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 10 + k * 8, Color(col, 0.08 * a))
 	_draw.draw_string_outline(_title_font, Vector2(s.x * 0.5 - tw * 0.5, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 8, Color(HudTheme.INK, 0.55 * a))
 	_draw.draw_string(_title_font, Vector2(s.x * 0.5 - tw * 0.5, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(col.lerp(Color.WHITE, 0.55), a))
+	_draw.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if _banner.has("kicker"):
 		var kick: String = _banner.kicker
 		var kc: Color = _banner.kicker_color
+		var stars: int = _banner.get("stars", 0)
+		var star_w := 15.0 * stars + (8.0 if stars > 0 else 0.0)
 		var kw := _body_font.get_string_size(kick, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-		var kp := Vector2(s.x * 0.5 - kw * 0.5, y - size * 0.95)
+		var kp := Vector2(s.x * 0.5 - (kw + star_w) * 0.5 + star_w, y - size * scale * 0.95)
+		for i in stars:
+			var sc := Vector2(kp.x - star_w + 7.5 + 15.0 * i, kp.y - 6.0)
+			_star5(sc, 8.0, Color(HudTheme.INK, 0.55 * a))
+			_star5(sc, 6.2, Color(kc.lerp(Color.WHITE, 0.25), a))
 		_draw.draw_string_outline(_body_font, kp, kick, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, 6, Color(HudTheme.INK, 0.55 * a))
 		_draw.draw_string(_body_font, kp, kick, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(kc.lerp(Color.WHITE, 0.25), a))
 	var sub: String = _banner.text
@@ -647,6 +666,35 @@ func _draw_banner() -> void:
 		var p := Vector2(s.x * 0.5 + cos(ang) * (tw * 0.55 + 20.0), y - 14.0 + sin(ang * 1.7) * 30.0)
 		var tw2 := 0.5 + 0.5 * sin(t * 6.0 + i * 1.3)
 		_star(p, 3.0 + 4.0 * tw2, Color(col.lerp(Color.WHITE, 0.4), a * tw2))
+
+
+## A five-pointed star.
+func _star5(c: Vector2, r: float, col: Color) -> void:
+	var pts := PackedVector2Array()
+	for i in 10:
+		var ang := -PI * 0.5 + PI * i / 5.0
+		pts.append(c + Vector2(cos(ang), sin(ang)) * (r if i % 2 == 0 else r * 0.45))
+	_draw.draw_colored_polygon(pts, col)
+
+
+## Draws every letter once, invisibly, in each font, size and outline this HUD
+## uses, so the font renders them now instead of mid-game: a glyph's first
+## draw at a new size or outline is slow, the banner's wide glow outlines most.
+func _warm_glyphs() -> void:
+	var chars := ""
+	for c in range(32, 127):
+		chars += char(c)
+	chars += "·×—…"
+	var at := Vector2(-4000.0, -4000.0)
+	var clear := Color(1, 1, 1, 0.004)
+	_draw.draw_string(_title_font, at, chars, HORIZONTAL_ALIGNMENT_LEFT, -1, BANNER_SIZE, clear)
+	for o in [8, 10, 18, 26]:
+		_draw.draw_string_outline(_title_font, at, chars, HORIZONTAL_ALIGNMENT_LEFT, -1, BANNER_SIZE, o, clear)
+	for fs in [[_title_font, [15, 17, 18, 22]], [_body_font, [12, 13, 14, 16, 17, 18]]]:
+		for size: int in fs[1]:
+			_draw.draw_string(fs[0], at, chars, HORIZONTAL_ALIGNMENT_LEFT, -1, size, clear)
+			for o in [5, 6]:
+				_draw.draw_string_outline(fs[0], at, chars, HORIZONTAL_ALIGNMENT_LEFT, -1, size, o, clear)
 
 
 func _text(pos: Vector2, text: String, size: int, col: Color, font: Font) -> void:
