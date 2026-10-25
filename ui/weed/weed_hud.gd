@@ -6,10 +6,13 @@ extends CanvasLayer
 ## new strains, a big title when a bench power kicks in with a timer pill
 ## while it lasts, and the dreamy glow at the edges of the screen. Holding
 ## the puff charges Dragon Breath: the bar (or the leaf button's ring) fills
-## blue until it catches.
+## blue until it catches. Each puff charges the strain's smoke gift: a gift
+## chip (or a round touch button over the leaf) shows it with its charges,
+## and the time left once it's breathed out.
 
 const BTN_RADIUS := 46.0
 const DRAGON_BLUE := Color(0.45, 0.88, 1.0)
+const GIFT_RADIUS := 40.0
 
 var weed: KelingWeed
 var _root: Control
@@ -27,6 +30,9 @@ var _btn_press := 0.0
 var _title_font: Font
 var _body_font: Font
 var _dragon_told := false
+var _gift_btn: Button
+var _gift_pop := 0.0
+var _gift_told := {}
 
 
 func setup(p_weed: KelingWeed) -> void:
@@ -39,6 +45,9 @@ func setup(p_weed: KelingWeed) -> void:
 	weed.high.started.connect(_on_power)
 	weed.high.ended.connect(func(): _toast("The high drifts away", Color(HudTheme.CREAM, 0.85)))
 	weed.dragon_breathed.connect(_on_dragon)
+	if weed.gifts:
+		weed.gifts.charged.connect(_on_gift_charged)
+		weed.gifts.cast_gift.connect(_on_gift_cast)
 
 
 func _ready() -> void:
@@ -76,6 +85,9 @@ func _ready() -> void:
 			weed.use())
 	_touch_btn.button_up.connect(func(): if weed: weed.dragon_held = false)
 	_root.add_child(_touch_btn)
+	_gift_btn = _invisible_button()
+	_gift_btn.pressed.connect(func(): if weed and weed.gifts: weed.gifts.cast())
+	_root.add_child(_gift_btn)
 
 
 func _invisible_button() -> Button:
@@ -121,6 +133,40 @@ func _on_dragon() -> void:
 	_banner = {"title": "Dragon Breath", "text": "A water dragon swims out of your breath and rains on all it passes", "color": DRAGON_BLUE, "t": 0.0, "life": 4.2}
 
 
+func _on_gift_charged(gift: StringName, charges: int) -> void:
+	if charges <= 0:
+		return
+	_gift_pop = 1.0
+	var g := SmokeGifts.info(gift)
+	var key := _gift_key()
+	if not _gift_told.has(gift):
+		_gift_told[gift] = true
+		_banner = {"title": "Smoke gift: %s" % g.name, "text": "%s to breathe it out  ·  %s" % [key, g.text], "color": g.color, "t": 0.0, "life": 4.6}
+	else:
+		_toast("%s ×%d  ·  %s" % [g.name, charges, key], (g.color as Color).lerp(Color.WHITE, 0.3))
+
+
+func _on_gift_cast(gift: StringName, boosted: bool) -> void:
+	_gift_pop = 1.0
+	var g := SmokeGifts.info(gift)
+	var sub: String = g.text
+	if boosted:
+		sub = "The view makes it stronger!  ·  " + sub
+	_banner = {"title": g.name, "text": sub, "color": g.color, "t": 0.0, "life": 3.6}
+
+
+func _gift_key() -> String:
+	match Bench.input_method():
+		1:
+			return "RB"
+		2:
+			return "Tap the gift"
+	var settings := get_node_or_null("/root/Settings")
+	if settings and settings.has_method("key_label"):
+		return "Press " + String(settings.key_label("gift"))
+	return "Press V"
+
+
 func _bench_view_name() -> String:
 	var b := weed.keling.current_bench()
 	return b.view_name() if b else ""
@@ -149,7 +195,9 @@ func _process(delta: float) -> void:
 func _process_timed(delta: float) -> void:
 	if weed == null:
 		return
+	delta = SmokeGifts.real(delta)
 	_t += delta
+	_gift_pop = move_toward(_gift_pop, 0.0, delta * 3.0)
 	_pouch_pop = move_toward(_pouch_pop, 0.0, delta * 3.0)
 	_joint_pop = move_toward(_joint_pop, 0.0, delta * 3.0)
 	_btn_press = move_toward(_btn_press, 0.0, delta * 5.0)
@@ -227,6 +275,10 @@ func _layout_buttons(locked: bool) -> void:
 	_touch_btn.position = c - Vector2.ONE * BTN_RADIUS * 1.15
 	_touch_btn.size = Vector2.ONE * BTN_RADIUS * 2.3
 	_touch_btn.visible = not locked and _show_touch_button()
+	var gc := _gift_center()
+	_gift_btn.position = gc - Vector2.ONE * GIFT_RADIUS * 1.2
+	_gift_btn.size = Vector2.ONE * GIFT_RADIUS * 2.4
+	_gift_btn.visible = not locked and _touch() and _show_gift()
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +296,11 @@ func _on_draw() -> void:
 	elif weed.busy():
 		_draw_progress_caption(Vector2(_root.size.x * 0.5, _root.size.y - 150.0))
 	_draw_power_pill()
+	if _show_gift():
+		if _touch():
+			_draw_gift_button()
+		else:
+			_draw_gift_chip()
 	_draw_toasts()
 	_draw_banner()
 
@@ -396,6 +453,149 @@ func _draw_power_pill() -> void:
 	_draw.draw_arc(c, 12.0, -PI * 0.5, -PI * 0.5 + TAU * high.remaining_fraction(), 32, Color(col, a), 4.0, true)
 	_draw.draw_circle(c, 4.0 + 1.5 * sin(_t * 3.0), Color(col, a))
 	_text(Vector2(c.x + 22.0, rect.position.y + 27.0), label, 18, Color(HudTheme.CREAM, a), _title_font)
+
+
+# ---------------------------------------------------------------------------
+# Smoke gifts
+
+func _show_gift() -> bool:
+	var g := weed.gifts
+	return g != null and (g.charges > 0 or g.current() != null)
+
+
+func _gift_center() -> Vector2:
+	return _button_center() + Vector2(0.0, -128.0)
+
+
+## The gift shown: the one charged, else the one running.
+func _gift_shown() -> StringName:
+	var g := weed.gifts
+	if g.charges > 0:
+		return g.ready_gift
+	var cur := g.current()
+	return cur.gift if cur else &""
+
+
+func _draw_gift_button() -> void:
+	var g := weed.gifts
+	var id := _gift_shown()
+	if id == &"":
+		return
+	var info := SmokeGifts.info(id)
+	var col: Color = info.color
+	var c := _gift_center()
+	var ready := g.charges > 0
+	var r := GIFT_RADIUS * (1.0 + 0.12 * _gift_pop)
+	_draw.draw_circle(c + Vector2(0, 3), r, Color(0, 0, 0, 0.25))
+	_draw.draw_circle(c, r, Color(HudTheme.GLASS, 0.66))
+	var pulse := 0.5 + 0.5 * sin(_t * 3.4)
+	if ready:
+		_draw.draw_circle(c, r * (1.15 + 0.08 * pulse), Color(col, 0.12 + 0.1 * pulse))
+		_draw.draw_arc(c, r - 1.0, 0.0, TAU, 48, Color(col, 0.55 + 0.35 * pulse), 3.0, true)
+	var cur := g.current()
+	if cur:
+		_draw.draw_arc(c, r + 6.0, -PI * 0.5, -PI * 0.5 + TAU * cur.remaining_fraction(), 64, Color(col, 0.9), 4.0, true)
+	_gift_icon(c, r * 0.55, id, col if ready or cur else Color(col, 0.5))
+	_charge_dots(c + Vector2(0, r * 0.62), g.charges, col)
+	var label: String = info.name
+	var tw := _body_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	_text(c + Vector2(-tw * 0.5, r + 20.0), label, 13, HudTheme.CREAM, _body_font)
+
+
+func _draw_gift_chip() -> void:
+	var g := weed.gifts
+	var id := _gift_shown()
+	if id == &"":
+		return
+	var info := SmokeGifts.info(id)
+	var col: Color = info.color
+	var s := _root.size
+	var ready := g.charges > 0
+	var cur := g.current()
+	var key := "RB" if Bench.input_method() == 1 else _key_name()
+	var label: String = info.name
+	var w := _title_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x + (110.0 if ready else 70.0)
+	var y := 64.0 + _inset().y
+	var high := weed.high
+	if high == null or not high.active() or high.shown < 0.03:
+		y = 16.0 + _inset().y
+	var rect := Rect2(Vector2(s.x * 0.5 - w * 0.5, y), Vector2(w, 38.0)).grow(_gift_pop * 3.0)
+	_draw.draw_style_box(HudTheme.pill(Color(HudTheme.GLASS, 0.58)), rect)
+	var c := rect.position + Vector2(22.0, rect.size.y * 0.5)
+	if cur:
+		_draw.draw_arc(c, 14.0, -PI * 0.5, -PI * 0.5 + TAU * cur.remaining_fraction(), 32, Color(col, 0.9), 3.0, true)
+	elif ready:
+		_draw.draw_circle(c, 15.0 + 1.5 * sin(_t * 3.4), Color(col, 0.18))
+	_gift_icon(c, 10.0, id, col)
+	_text(Vector2(c.x + 22.0, rect.position.y + 26.0), label, 17, HudTheme.CREAM, _title_font)
+	if ready:
+		_charge_dots(Vector2(rect.end.x - 62.0, rect.position.y + rect.size.y * 0.5), g.charges, col)
+		var cap := Rect2(Vector2(rect.end.x - 38.0, rect.position.y + 6.0), Vector2(maxf(26.0, key.length() * 12.0 + 10.0), 26.0))
+		cap.position.x = rect.end.x - cap.size.x - 8.0
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = HudTheme.CREAM
+		sb.set_corner_radius_all(7)
+		_draw.draw_style_box(sb, cap)
+		_text(cap.position + Vector2(cap.size.x * 0.5 - key.length() * 5.2, 19.0), key, 15, HudTheme.INK, _title_font)
+
+
+func _key_name() -> String:
+	var settings := get_node_or_null("/root/Settings")
+	if settings and settings.has_method("key_label"):
+		return String(settings.key_label("gift"))
+	return "V"
+
+
+func _charge_dots(c: Vector2, n: int, col: Color) -> void:
+	var total := SmokeGifts.MAX_CHARGES
+	for i in total:
+		var p := c + Vector2((i - (total - 1) * 0.5) * 9.0, 0.0)
+		_draw.draw_circle(p, 3.0, col.lerp(Color.WHITE, 0.3) if i < n else Color(HudTheme.CREAM, 0.22))
+
+
+## Little drawn icons for the gifts.
+func _gift_icon(c: Vector2, r: float, id: StringName, col: Color) -> void:
+	var light := col.lerp(Color.WHITE, 0.45)
+	match id:
+		&"fireflies":
+			for i in 3:
+				var a := _t * 1.4 + i * 2.1
+				var p := c + Vector2(cos(a), sin(a * 1.3)) * r * 0.55
+				var glow := 0.5 + 0.5 * sin(_t * 4.0 + i * 1.7)
+				_draw.draw_circle(p, r * 0.42, Color(col, 0.18 * glow))
+				_draw.draw_circle(p, r * 0.16, Color(light, 0.6 + 0.4 * glow))
+		&"cloud":
+			for b in [[Vector2(-0.45, 0.15), 0.42], [Vector2(0.05, -0.12), 0.55], [Vector2(0.5, 0.18), 0.38], [Vector2(0.0, 0.28), 0.4]]:
+				_draw.draw_circle(c + (b[0] as Vector2) * r, float(b[1]) * r, light)
+		&"bloom":
+			for i in 6:
+				var a := TAU * i / 6.0 + _t * 0.4
+				_draw.draw_circle(c + Vector2(cos(a), sin(a)) * r * 0.5, r * 0.36, Color(col, 0.9))
+			_draw.draw_circle(c, r * 0.3, Color(1.0, 0.9, 0.5))
+		&"slowtime":
+			var top := PackedVector2Array([c + Vector2(-r * 0.6, -r * 0.85), c + Vector2(r * 0.6, -r * 0.85), c, ])
+			var bot := PackedVector2Array([c, c + Vector2(r * 0.6, r * 0.85), c + Vector2(-r * 0.6, r * 0.85)])
+			_draw.draw_colored_polygon(top, Color(light, 0.9))
+			_draw.draw_colored_polygon(bot, Color(light, 0.45))
+			_draw.draw_line(c + Vector2(-r * 0.7, -r * 0.88), c + Vector2(r * 0.7, -r * 0.88), light, 2.0, true)
+			_draw.draw_line(c + Vector2(-r * 0.7, r * 0.88), c + Vector2(r * 0.7, r * 0.88), light, 2.0, true)
+		&"moonjump":
+			_draw.draw_circle(c, r * 0.8, light)
+			_draw.draw_circle(c + Vector2(r * 0.38, -r * 0.18), r * 0.68, Color(HudTheme.GLASS, 0.95))
+			_star(c + Vector2(r * 0.75, r * 0.55), r * 0.25, light)
+		&"owl":
+			# Spread wings, a round head with two big eyes.
+			var flap := sin(_t * 3.0) * 0.12
+			for sgn: float in [-1.0, 1.0]:
+				var wing := PackedVector2Array([c + Vector2(sgn * r * 0.2, -r * 0.05), c + Vector2(sgn * r * 1.0, -r * (0.45 + flap)),
+						c + Vector2(sgn * r * 0.85, r * 0.05), c + Vector2(sgn * r * 0.25, r * 0.35)])
+				_draw.draw_colored_polygon(wing, Color(light, 0.75))
+			_draw.draw_circle(c + Vector2(0, r * 0.1), r * 0.36, light)
+			_draw.draw_circle(c + Vector2(0, -r * 0.32), r * 0.3, light)
+			for sgn: float in [-1.0, 1.0]:
+				_draw.draw_circle(c + Vector2(sgn * r * 0.13, -r * 0.34), r * 0.11, Color(HudTheme.GLASS, 0.95))
+		_:
+			_draw.draw_circle(c, r * 0.6, light)
 
 
 func _draw_toasts() -> void:

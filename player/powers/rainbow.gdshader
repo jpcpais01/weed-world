@@ -19,5 +19,5 @@ void fragment() {
 	float feet = smoothstep(0.0, 0.3, UV.x) * smoothstep(1.0, 0.7, UV.x);
 	float crown = 0.7 + 0.3 * sin(UV.x * 3.14159);
 	ALBEDO = spectrum(across) * 1.1;
-	ALPHA = bands * feet * crown * strength * 0.42;
+	ALPHA = bands * feet * crown * strength * 0.5;
 }

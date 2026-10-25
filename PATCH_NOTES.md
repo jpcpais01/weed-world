@@ -1,5 +1,27 @@
 # Patch notes
 
+## 25 Oct 2026 · 02:07 UTC
+- **Every strain has a gift.** Each puff of a joint now charges its strain's smoke gift (up to three charges, kept for as long as the high lasts). Press the new Gift button (V, RB, or the glowing button above the leaf on a phone) to breathe one out. Smoke at a bench whose view matches the gift and it comes out bigger and lasts half as long again. Ember carries the fireflies, Starlit the moon and Verdant the bloom.
+- **Moon Jump and Slow Time.** A huge pale moon rises over the forest and gravity lets go: you float, leap four times higher, steer in the air and every landing bounces you back up in a burst of stardust. Or the whole world slows to a dream around you while you keep moving at full speed: falling leaves hang in the air and drift aside as you pass, sounds stretch low and a blue shimmer settles over everything.
+- **Cloud Ride.** Your smoke gathers into a fluffy little cloud under your feet. Hop on, sit down and fly it across the valley, climbing with jump and sinking with crouch, banking as you turn. Press grab to hop off and float gently down.
+- **Firefly Swarm and Bloom Burst.** Twilight falls and a swarm of fireflies wakes around you, then streams off through the trees to lead you to the rarest ripe plant nearby (one you haven't found yet, if there is one). Or blow a glowing smoke ring that slams into the ground and rolls outward, and gigantic flora erupt behind it: titan mushrooms you can bounce on, step by step, up to the top of the tallest one, glowing starlilies, lantern bellvines, unfurling ferns, giant puffballs and lotus pads on the water, all in a carpet of flowers. Weed plants in the wave ripen too.
+- **Gifts in co-op.** Your friends see every gift you breathe out (your moon, your cloud, your fireflies and your giant flowers) and can bounce on your mushrooms too. Each gift has its own new sounds.
+
+## 25 Oct 2026 · 02:00 UTC
+- **A livelier water dragon.** The whole body now swims: waves roll from its head down to a flicking tail, it surges forward with every stroke, and spray streams off its mane while beads of water fly from its head. Right before the dive it rears up, calls out and blows a plume of spray into the sky.
+- **Deeper, glassier water.** The dragon is a rich deep blue where its body is thick and crystal clear at the fins, with a soft light glowing inside it, foam along its back and glints that run down its body. For its first few metres out of your breath it is still forming: thin, misty and full of holes, then it fills out into water.
+- **A bigger breath.** While you hold the breath in, little blue wisps curl out of the corners of your Keling's mouth. When it blasts out, a ring of mist bursts round the lips and two bright strands twist round the jet as the dragon winds itself out of it.
+- **A real splash.** When the dragon dives into the ground it throws up a crown of glassy water with a torn, foamy rim and shoots a column of spray straight up. Mist rolls out low across the ground, a shockwave races out, and a blue flash lights up the trees. The rainbow afterwards is a little brighter, too.
+- **Fixed: friends saw a different dragon.** In co-op your friends' screens could fly your dragon on a different path from yours. Now everyone sees the same one.
+
+## 25 Oct 2026 · 01:48 UTC
+- **Much higher frame rates on Windows.** The game now draws with Direct3D 12 instead of Vulkan. On gaming laptops the screen is wired to the processor's built-in graphics, and Vulkan frames had to queue behind an extra copy across cards, so even with the GPU nearly idle the frame rate stalled around 90 to 100. Direct3D 12 hands frames to Windows the fast way. If it ever fails to start, the game falls back to Vulkan by itself.
+- **F11 is real fullscreen.** It now takes the screen for itself instead of being a screen-sized window, so Windows stops copying and pacing every frame through the desktop.
+- **The frame readout shows where the time really goes:** a new line splits each frame into scripts, drawing, time blocked waiting on the GPU or the screen, and the physics engine. It also says when a frame-rate cap from Settings is on and whether you are windowed or fullscreen.
+
+## 25 Oct 2026 · 01:27 UTC
+- **Joints look like joints.** Rolling papers are now unbleached hemp, a warm natural tan with fibres and streaks, thin enough that the green bud inside shows through in soft patches, with the glued seam down one side. The orange cigarette-style filter is gone: the mouth end is now a rolled card tip under the paper, with the little card spiral showing at the end.
+
 ## 25 Oct 2026 · 00:40 UTC
 - **Dragon Breath!** Hold the puff on a lit joint (hold R or RT, hold the leaf button on a phone, or just press G) and your Keling takes a long, deep draw: the ember blazes, its chest swells, blue light gathers at its lips and wisps of mist spiral in. Then it rears back and blasts it all out in a roaring jet of glowing blue mist, and out of that mist a water dragon swims free, head first, its whole long body pouring out after it.
 - **A dragon made of water.** It swims off wherever your camera is looking, weaving through the air in great S-curves and skimming over the meadows and paths, glassy and clear with the forest bending through its body, currents and sparkling threads streaming down it, glowing eyes, its mane and fins rippling and its little legs paddling. It lights up the forest around it as it goes.

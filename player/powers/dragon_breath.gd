@@ -40,13 +40,15 @@ const BANK := 0.35
 const LAUNCH_SPEED := 15.0
 const SWIM_SPEED := 8.5
 const DIVE_SPEED := 12.0
-const DRIP_RATE := 70.0
+const DRIP_RATE := 85.0
 const RAIN_TIME := 1.8
 const RAINBOW_TIME := 7.5
 const PUDDLE_TIME := 26.0
-const MAX_MIST := 128
-const MAX_DROPS := 240
-const MAX_RINGS := 28
+const MAX_MIST := 160
+const MAX_DROPS := 300
+const MAX_RINGS := 32
+const STROKE := 4.2               # swim strokes (rad/s): body wave and surges
+const CROWN_TIME := 1.1
 const WATER_TINT := Color(0.36, 0.7, 1.0)
 const GLOW_TINT := Color(0.45, 0.9, 1.0)
 
@@ -58,6 +60,8 @@ static var _drop_mat: ShaderMaterial
 static var _ring_mat: ShaderMaterial
 static var _rainbow_mesh: ArrayMesh
 static var _rainbow_shader: Shader = preload("res://player/powers/rainbow.gdshader")
+static var _crown_mesh: CylinderMesh
+static var _crown_mat: ShaderMaterial
 static var _puddle_tex: Array[Texture2D] = []
 static var _orb_mat: StandardMaterial3D
 static var _noise: Texture2D = preload("res://assets/fx/smoke_noise.png")
@@ -144,6 +148,8 @@ var _ring_mm: MultiMesh
 var _ring_mmi: MultiMeshInstance3D
 var _ring_buf := PackedFloat32Array()
 
+var _crown: MeshInstance3D
+var _crown_yaw := 0.0
 var _rainbow: MeshInstance3D
 var _rainbow_mat: ShaderMaterial
 var _puddle: Decal
@@ -154,6 +160,8 @@ var _soak_tick := 0.0
 var _voice_mouth: AudioStreamPlayer3D
 var _voice_head: AudioStreamPlayer3D
 var _voice_splash: AudioStreamPlayer3D
+var _voice_call: AudioStreamPlayer3D
+var _roared := false
 var _ripple_budget := 0.0
 
 
@@ -272,6 +280,18 @@ func _update_charge(delta: float) -> void:
 		var tangent := dir.cross(Vector3.UP).normalized() * 0.5
 		_mist_puff(from, (m - from) * 2.1 + tangent, 0.07, 0.015, 0.5, 0.55 * k, 0.0, GLOW_TINT)
 	_m_acc[&"charge"] = acc
+	# Nearly full: it can barely hold it in, and blue wisps curl out of the
+	# corners of the mouth.
+	var full := smoothstep(0.8, 1.0, k)
+	if full > 0.0:
+		var out := _mouth.basis.z
+		var side := out.cross(Vector3.UP).normalized()
+		var leak: float = _m_acc.get(&"leak", 0.0) + 7.0 * full * delta
+		while leak >= 1.0:
+			leak -= 1.0
+			var corner := side * (0.025 if _rng.randf() < 0.5 else -0.025)
+			_mist_puff(m + corner + out * 0.01, out * 0.12 + corner * 3.0 + Vector3.UP * _rng.randf_range(0.15, 0.3), 0.015, 0.09, 1.3, 0.5, 1.2, GLOW_TINT)
+		_m_acc[&"leak"] = leak
 
 
 func _update_glow(delta: float) -> void:
@@ -284,10 +304,17 @@ func _update_glow(delta: float) -> void:
 		at = _pos_at(_head - _seg * 3.0)
 		want = clampf(_fly_t * 3.0, 0.0, 1.0) * (1.0 - clampf((_head - _len) / 3.0, 0.0, 1.0))
 		range_m = 5.5
+	if _impacted and _impact_t < 0.9:
+		# The splash flashes blue-white over the ground round it.
+		var flash := 1.6 * (1.0 - _impact_t / 0.9) * (1.0 - _impact_t / 0.9)
+		if flash > want:
+			want = flash
+			at = impact_point + Vector3.UP * 1.2
+			range_m = 8.0
 	_light.visible = want > 0.01
 	if _light.visible:
 		_light.global_position = at
-		_light.light_energy = lerpf(_light.light_energy, want * (1.6 if phase == Phase.CHARGE else 2.4), 1.0 - exp(-delta * 10.0))
+		_light.light_energy = lerpf(_light.light_energy, want * (1.6 if phase == Phase.CHARGE else 2.4), 1.0 - exp(-delta * 18.0))
 		_light.omni_range = range_m
 	var orb := _charge if phase == Phase.CHARGE else maxf(0.0, 1.0 - _jet_t * 4.0) if _jet_t >= 0.0 else 0.0
 	_orb.visible = orb > 0.01
@@ -305,13 +332,17 @@ func _update_glow(delta: float) -> void:
 ## hugging, then the rear-up and the dive. It stops early where it would hit
 ## something solid: that is where the water lands.
 func _plan(origin: Vector3) -> void:
+	# Its own generator: the mist and drops drawn before the release use
+	# _rng a different number of times on every screen.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
 	var fwd := Vector3(sin(yaw), 0.0, cos(yaw))
 	var side := Vector3(cos(yaw), 0.0, -sin(yaw))
 	var start := origin + fwd * 0.55 + Vector3.UP * 0.15
-	var amp := _rng.randf_range(1.1, 1.7) * (1.0 if _rng.randf() < 0.5 else -1.0)
-	var wave := _rng.randf_range(9.0, 12.0)
-	var bob := _rng.randf_range(6.0, 8.5)
-	var bob_phase := _rng.randf() * TAU
+	var amp := rng.randf_range(1.1, 1.7) * (1.0 if rng.randf() < 0.5 else -1.0)
+	var wave := rng.randf_range(9.0, 12.0)
+	var bob := rng.randf_range(6.0, 8.5)
+	var bob_phase := rng.randf() * TAU
 	var step := 0.5
 	var n := int(FLIGHT / step) + 1
 	var xz: Array[Vector3] = []
@@ -432,16 +463,31 @@ func _update_flight(delta: float) -> void:
 		var target := lerpf(LAUNCH_SPEED, SWIM_SPEED, smoothstep(0.12, 0.9, _fly_t))
 		if _head > _len - FINALE * 0.5:
 			target = lerpf(target, DIVE_SPEED, smoothstep(_len - FINALE * 0.5, _len - 1.0, _head))
-		_speed = target
+		# It surges with each stroke of the body, like something swimming.
+		_speed = target * (1.0 + 0.14 * sin(_t * STROKE + 0.8))
 	_head += _speed * delta
 	var tail_u := _head - _body_len * BODY_SCALE
-	# Lay the body down the trail behind the head.
+	# Lay the body down the trail behind the head, and send a swimming wave
+	# down it: small at the head (it keeps its eyes on where it's going),
+	# growing to the tail, which flicks. The wave dies out where the body
+	# leaves the mist and where it goes into the ground, so neither end moves.
 	var lo := Vector3(INF, INF, INF)
 	var hi := -lo
+	var n := float(SPINE - 1)
 	for k in SPINE:
 		var u := _head - k * _seg
 		var p := _pos_at(u)
 		var up := _up_at(u)
+		var along := k / n
+		var env := smoothstep(0.0, 3.0, u) * (1.0 - smoothstep(_len - 3.5, _len - 0.4, u))
+		if env > 0.0:
+			var tng := _pos_at(u + 0.2) - _pos_at(u - 0.2)
+			var left := up.cross(tng).normalized()
+			var ph := _t * STROKE - k * 0.3
+			var flick := 1.0 + 1.4 * smoothstep(0.78, 1.0, along)
+			var lift := sin(ph) * 0.3 * (0.2 + 0.8 * along) * flick
+			var sway := sin(ph * 0.7 + 1.3) * 0.2 * (0.25 + 0.75 * along) * flick
+			p += (up * lift + left * sway) * env
 		var swell := 1.0 + 0.07 * sin(_t * 5.0 - k * 0.45)
 		_spine[k] = Vector4(p.x, p.y, p.z, swell)
 		_spine_up[k] = Vector4(up.x, up.y, up.z, 0.0)
@@ -460,8 +506,12 @@ func _update_flight(delta: float) -> void:
 		_mist_stream(&"emerge", _pts[0], dir, 46.0, 3.0, 0.3, 1.0, 0.9, 0.55, 0.35, delta)
 	elif _head < _len:
 		# A trail of mist off the tail tip.
-		var tip := _pos_at(tail_u)
+		var tip := Vector3(_spine[SPINE - 1].x, _spine[SPINE - 1].y, _spine[SPINE - 1].z)
 		_mist_stream(&"trail", tip, _dir0 * -0.2 + Vector3.UP * 0.1, 16.0, 0.6, 0.25, 0.8, 1.3, 0.32, 0.8, delta)
+	if _head > 0.8 and _head < _len - 0.5:
+		_head_spray(delta)
+	if not _roared and _head > _len - FINALE * 0.55:
+		_rear_roar()
 	_drip(delta)
 	if _head >= _len and not _impacted:
 		_impact()
@@ -485,6 +535,48 @@ func _update_flight(delta: float) -> void:
 		phase = Phase.AFTER
 
 
+## Spray streams off the head as it swims: mist off its mane and whiskers,
+## and beads of water flung off with every stroke.
+func _head_spray(delta: float) -> void:
+	var h := Vector3(_spine[2].x, _spine[2].y, _spine[2].z)
+	var back := Vector3(_spine[6].x, _spine[6].y, _spine[6].z)
+	var fwd := (h - back).normalized()
+	var up := Vector3(_spine_up[2].x, _spine_up[2].y, _spine_up[2].z)
+	var left := up.cross(fwd).normalized()
+	var acc: float = _m_acc.get(&"wake", 0.0) + 20.0 * delta
+	while acc >= 1.0:
+		acc -= 1.0
+		var at := back + up * 0.3 + left * _rng.randf_range(-0.3, 0.3)
+		_mist_puff(at, -fwd * _rng.randf_range(0.3, 0.9) + up * 0.25, 0.08, 0.45, 0.9, 0.32, 1.8, WATER_TINT.lightened(0.45))
+	_m_acc[&"wake"] = acc
+	var stroke := maxf(0.0, sin(_t * STROKE + 0.8))
+	var beads: float = _m_acc.get(&"beads", 0.0) + 26.0 * stroke * delta
+	while beads >= 1.0:
+		beads -= 1.0
+		var side := 1.0 if _rng.randf() < 0.5 else -1.0
+		var at := h - fwd * _rng.randf_range(0.1, 0.6) + left * side * 0.2
+		var vel := fwd * _speed * 0.55 + left * side * _rng.randf_range(1.0, 2.4) + up * _rng.randf_range(0.8, 2.0)
+		_drop(at, vel, _rng.randf_range(0.02, 0.034), 2.5, 1)
+	_m_acc[&"beads"] = beads
+
+
+## At the top of the rear-up, before the dive, it calls out and blows a
+## plume of spray up into the air.
+func _rear_roar() -> void:
+	_roared = true
+	var h := Vector3(_spine[0].x, _spine[0].y, _spine[0].z)
+	var neck := Vector3(_spine[5].x, _spine[5].y, _spine[5].z)
+	var fwd := (h - neck).normalized()
+	_voice_call.global_position = h
+	_play(_voice_call, "roar", 1.18, -3.0)
+	for i in 16:
+		var d := (fwd + Vector3.UP * 0.6 + _jitter(0.35)).normalized()
+		_mist_puff(h + fwd * 0.2, d * _rng.randf_range(3.0, 5.5), 0.1, 0.8, 1.2, 0.55, 2.2, GLOW_TINT.lightened(0.2))
+	for i in 18:
+		var d := (fwd + Vector3.UP * 0.9 + _jitter(0.5)).normalized()
+		_drop(h + fwd * 0.15, d * _rng.randf_range(3.0, 6.0), _rng.randf_range(0.022, 0.036), 3.0, 1)
+
+
 ## Drops fall from the belly of every part of the body that's out in the air.
 func _drip(delta: float) -> void:
 	_drip_acc += DRIP_RATE * delta
@@ -494,9 +586,9 @@ func _drip(delta: float) -> void:
 		var u := _head - k * _seg
 		if u < 0.3 or u > _len - 0.3:
 			continue
-		var p := _pos_at(u)
+		var p := Vector3(_spine[k].x, _spine[k].y, _spine[k].z)
 		var up := _up_at(u)
-		var t := (_pos_at(u + 0.2) - p).normalized()
+		var t := (Vector3(_spine[k - 1].x, _spine[k - 1].y, _spine[k - 1].z) - p).normalized()
 		var left := up.cross(t).normalized()
 		var r := _girth[k] * BODY_SCALE
 		var a := _rng.randf_range(-1.2, 1.2)
@@ -513,13 +605,25 @@ func _impact() -> void:
 	impact_point.y = maxf(impact_point.y, floor_y)
 	var p := impact_point
 	var below := Vector3(p.x, floor_y, p.z)
-	for i in 70:
+	for i in 90:
 		_fountain_drop(1.0)
+	# A shockwave racing out over the ground, then the slower rings.
+	_ring(below, 4.8, 0.6, 1.0)
 	for i in 3:
 		_ring(below, 1.6 + i * 1.3, 1.1 + i * 0.35, 1.0 - i * 0.2)
-	for i in 20:
+	for i in 16:
 		var dir := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.3, 1.2), _rng.randf_range(-1, 1)).normalized()
 		_mist_puff(p + dir * 0.3, dir * _rng.randf_range(1.5, 3.8), 0.4, 1.7, 1.6, 0.5, 1.6, WATER_TINT.lightened(0.3))
+	# A column of spray shooting straight up out of the splash...
+	for i in 12:
+		var d := (Vector3.UP + _jitter(0.18)).normalized()
+		_mist_puff(p + _jitter(0.25), d * _rng.randf_range(4.0, 9.0), 0.25, 1.3, 1.5, 0.55, 1.5, WATER_TINT.lightened(0.45))
+	# ...and mist rolling out low along the ground.
+	for i in 16:
+		var a := TAU * (i + _rng.randf()) / 16.0
+		var out := Vector3(cos(a), 0.0, sin(a))
+		_mist_puff(below + out * 0.5 + Vector3.UP * 0.25, out * _rng.randf_range(4.0, 6.5) + Vector3.UP * 0.2, 0.35, 1.6, 2.2, 0.42, 1.9, WATER_TINT.lightened(0.35))
+	_place_crown(below)
 	if WaterLevel.surface_at(p.x, p.z) > WaterLevel.ground_at(p.x, p.z) + 0.05:
 		WaterFX.ripple(p, 1.5, 3.2)
 		WaterFX.ripple(p + Vector3(0.6, 0, 0.3), 1.0, 2.6)
@@ -653,6 +757,7 @@ func _soak_kelings(tail_u: float) -> void:
 # The jet of breath
 
 func _update_jet(delta: float) -> void:
+	var first := _jet_t == 0.0
 	_jet_t += delta
 	if _jet_t > 0.6:
 		return
@@ -660,7 +765,27 @@ func _update_jet(delta: float) -> void:
 	var dir := Vector3(sin(yaw), 0.0, cos(yaw))
 	dir = (dir + Vector3.UP * 0.06).normalized()
 	var o := _mouth.origin + _mouth.basis.z * 0.02
-	_mist_stream(&"jet", o, dir, 120.0 * (1.0 - k * 0.6), lerpf(15.0, 9.0, k), 0.07, 1.15, 1.25, lerpf(0.85, 0.5, k), 0.12, delta, 2.3)
+	var a1 := dir.cross(Vector3.UP).normalized()
+	var a2 := a1.cross(dir)
+	if first:
+		# The blast throws a ring of mist out round the lips, like a smoke
+		# ring blown hard.
+		for i in 22:
+			var a := TAU * i / 22.0
+			var radial := a1 * cos(a) + a2 * sin(a)
+			_mist_puff(o + radial * 0.06 + dir * 0.1, radial * _rng.randf_range(2.6, 3.4) + dir * 3.2, 0.06, 0.42, 0.9, 0.7, 3.4, GLOW_TINT)
+	_mist_stream(&"jet", o, dir, 110.0 * (1.0 - k * 0.6), lerpf(15.0, 9.0, k), 0.07, 1.15, 1.25, lerpf(0.85, 0.5, k), 0.12, delta, 2.3)
+	# Two bright strands twist round the jet: the dragon winding itself up
+	# out of the breath.
+	var acc: float = _m_acc.get(&"spiral", 0.0) + 70.0 * (1.0 - k * 0.5) * delta
+	while acc >= 1.0:
+		acc -= 1.0
+		var strand := 0.0 if _rng.randf() < 0.5 else PI
+		var a := _jet_t * 26.0 + strand + _rng.randf_range(-0.2, 0.2)
+		var radial := a1 * cos(a) + a2 * sin(a)
+		var tangent := a1 * -sin(a) + a2 * cos(a)
+		_mist_puff(o + radial * 0.07, dir * lerpf(13.0, 8.0, k) + radial * 1.4 + tangent * 2.2, 0.04, 0.3, 0.75, 0.85, 2.1, GLOW_TINT.lightened(0.25))
+	_m_acc[&"spiral"] = acc
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +795,12 @@ func _update_after(delta: float) -> void:
 	if not _impacted:
 		return
 	_impact_t += delta
+	if _crown:
+		_update_crown()
+	if _impact_t < 2.2:
+		# Mist hangs over the splash and drifts off.
+		var hang := 1.0 - _impact_t / 2.2
+		_mist_stream(&"linger", impact_point + Vector3.UP * 0.4, Vector3.UP, 9.0 * hang, 0.6, 0.6, 1.8, 2.4, 0.3 * hang, 1.0, delta, 1.2)
 	if _impact_t < RAIN_TIME:
 		# A short shower over the splash.
 		var fade := 1.0 - _impact_t / RAIN_TIME
@@ -688,6 +819,50 @@ func _update_after(delta: float) -> void:
 		var f := 1.0 - smoothstep(PUDDLE_TIME * 0.5, PUDDLE_TIME, _impact_t)
 		_puddle.modulate = Color(1, 1, 1, f * smoothstep(0.0, 0.4, _impact_t))
 		_puddle.visible = f > 0.001
+
+
+## The crown of the splash: a wall of water thrown up round where it went
+## in, flaring out and falling back, its torn rim breaking into beads.
+func _place_crown(p: Vector3) -> void:
+	if _crown_mesh == null:
+		_crown_mesh = CylinderMesh.new()
+		_crown_mesh.top_radius = 1.0
+		_crown_mesh.bottom_radius = 0.6
+		_crown_mesh.height = 1.0
+		_crown_mesh.radial_segments = 28
+		_crown_mesh.rings = 3
+		_crown_mesh.cap_top = false
+		_crown_mesh.cap_bottom = false
+		_crown_mat = ShaderMaterial.new()
+		_crown_mat.shader = preload("res://player/powers/water_crown.gdshader")
+		_crown_mat.set_shader_parameter("noise", _noise)
+		_crown_mat.render_priority = 1
+	_crown = MeshInstance3D.new()
+	_crown.name = "SplashCrown"
+	_crown.mesh = _crown_mesh
+	_crown.material_override = _crown_mat
+	_crown.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_crown.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	add_child(_crown)
+	_crown_yaw = _rng.randf() * TAU
+	_crown.set_instance_shader_parameter(&"age", 0.0)
+	_crown.set_instance_shader_parameter(&"seed", _rng.randf())
+	_update_crown()
+
+
+func _update_crown() -> void:
+	var k := clampf(_impact_t / CROWN_TIME, 0.0, 1.0)
+	if k >= 1.0:
+		_crown.queue_free()
+		_crown = null
+		return
+	# Thrown up fast, hanging, then slumping back as it spreads.
+	var rise := sin(minf(k * 1.25, 1.0) * PI * 0.5)
+	var height := 1.9 * rise * (1.0 - smoothstep(0.55, 1.0, k) * 0.75)
+	var radius := lerpf(0.45, 2.1, 1.0 - pow(1.0 - k, 2.0))
+	var b := Basis(Vector3.UP, _crown_yaw).scaled(Vector3(radius, maxf(height, 0.01), radius))
+	_crown.global_transform = Transform3D(b, Vector3(impact_point.x, _floor_at(impact_point.x, impact_point.z) + height * 0.5 - 0.05, impact_point.z))
+	_crown.set_instance_shader_parameter(&"age", k)
 
 
 func _rainbow_done() -> bool:
@@ -1164,6 +1339,7 @@ func _build_voices() -> void:
 	_voice_mouth = _voice(18.0, 1.6)
 	_voice_head = _voice(30.0, 2.4)
 	_voice_splash = _voice(45.0, 3.0)
+	_voice_call = _voice(40.0, 3.0)
 
 
 func _voice(max_d: float, unit: float) -> AudioStreamPlayer3D:
@@ -1237,6 +1413,9 @@ func _warm_pose(cam: Node3D) -> void:
 		_ring(at + _jitter(0.5), 0.5, 30.0, 0.5)
 	_place_rainbow(at)
 	_rainbow.visible = true
+	impact_point = at
+	_impact_t = 0.4
+	_place_crown(at)
 	_rainbow_mat.set_shader_parameter("strength", 0.05)
 	_orb.visible = true
 	_orb.global_position = at

@@ -160,6 +160,16 @@ var _flower_mats: Array[ShaderMaterial] = []
 var _leaf_colors: Gradient
 var _warmup: Node3D
 var _tag: Label3D
+## Smoke gifts (player/powers) bend the body's physics through these:
+## gravity and jump multipliers (Moon Jump, the drift down off a cloud), a
+## ride that drives the body instead of the modes (Cloud Ride), and time
+## dilation (Slow Time slows the world; this keeps the Keling at full speed).
+var gravity_mod := 1.0
+var jump_mod := 1.0
+var air_control_mod := 1.0
+var time_dilation := 1.0
+var gift_ride: Object = null
+var gift_armed := false  ## a gift charge is ready (the camera leaves RB to it)
 
 
 func _ready() -> void:
@@ -409,6 +419,8 @@ func _physics_process_timed(delta: float) -> void:
 	if not is_local:
 		_puppet_physics(delta)
 		return
+	# Outside time: everything below runs on real seconds.
+	delta *= time_dilation
 	_read_input()
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
 	if not GameInput.ui_locked:
@@ -416,18 +428,29 @@ func _physics_process_timed(delta: float) -> void:
 			_jump_buffer = jump_buffer_time
 		_check_emote_input()
 		if Input.is_action_just_pressed("grab"):
-			try_grab()
+			if gift_ride != null and gift_ride.has_method("hop_off"):
+				gift_ride.hop_off()
+			else:
+				try_grab()
 		if Input.is_action_just_pressed("weed"):
 			weed.use()
 		if Input.is_action_just_pressed("weed_cycle"):
 			weed.cycle_strain()
 		if Input.is_action_just_pressed("dragon"):
 			weed.use_dragon()
+		if Input.is_action_just_pressed("gift") and weed.gifts:
+			weed.gifts.cast()
 	_jump_held = Input.is_action_pressed("jump") and not GameInput.ui_locked
 
 	var on_floor := is_on_floor()
 	_coyote = coyote_time if on_floor else maxf(_coyote - delta, 0.0)
 	water.sense()
+	if gift_ride != null:
+		gift_ride.drive(self, delta)
+		_slide()
+		_update_visuals(delta)
+		_advance_animation(delta)
+		return
 	_check_water()
 
 	match mode:
@@ -458,19 +481,43 @@ func _physics_process_timed(delta: float) -> void:
 	if mode == Mode.SIT and _sit_phase >= SitPhase.DOWN:
 		velocity = Vector3.ZERO
 		_update_visuals(delta)
+		_advance_animation(delta)
 		return
 
 	if mode != Mode.AIR and mode != Mode.SWIM:
-		velocity.y = -1.0 if on_floor else velocity.y - gravity * delta
+		velocity.y = -1.0 if on_floor else velocity.y - gravity * gravity_mod * delta
 		if not on_floor and mode != Mode.TURN and _coyote <= 0.0:
 			_enter_air(false)
 
 	var fall_speed := -velocity.y
-	move_and_slide()
+	_slide()
 	if mode == Mode.AIR and is_on_floor() and _air_time > 0.04:
 		_on_landed(maxf(fall_speed, _peak_fall_speed))
 
 	_update_visuals(delta)
+	_advance_animation(delta)
+
+
+## move_and_slide on real-time velocity: the physics step is game time, so
+## under Slow Time the velocity is stretched for the slide and put back.
+func _slide() -> void:
+	if time_dilation == 1.0:
+		move_and_slide()
+		return
+	velocity *= time_dilation
+	move_and_slide()
+	velocity /= time_dilation
+
+
+## Under Slow Time the animation tree is stepped by hand on real time, so
+## the Keling's own moves keep their pace while the world crawls.
+func _advance_animation(delta: float) -> void:
+	if time_dilation != 1.0:
+		if animator.callback_mode_process != AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL:
+			animator.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+		animator.advance(delta)
+	elif animator.callback_mode_process == AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL:
+		animator.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_PHYSICS
 
 
 # --- input -----------------------------------------------------------------
@@ -566,12 +613,12 @@ func _ground(delta: float) -> void:
 
 func _air(delta: float) -> void:
 	_air_time += delta
-	var g := gravity
+	var g := gravity * gravity_mod
 	if velocity.y < 0.0:
 		g *= fall_gravity_scale
 	elif not _jump_held:
 		g *= jump_cut_gravity_scale
-	velocity.y = maxf(velocity.y - g * delta, -max_fall_speed)
+	velocity.y = maxf(velocity.y - g * delta, -max_fall_speed * minf(1.0, gravity_mod * 1.6))
 	_peak_fall_speed = maxf(_peak_fall_speed, -velocity.y)
 	# Late jump press inside the coyote window.
 	if _coyote > 0.0 and _jump_buffer > 0.0 and velocity.y <= 0.0:
@@ -582,7 +629,7 @@ func _air(delta: float) -> void:
 		var desired_yaw := atan2(_input_dir.x, _input_dir.z)
 		_turn_towards(desired_yaw, _flat_velocity().length() * 1.6, delta)
 		var target := _input_dir * maxf(target_speed, _flat_velocity().length())
-		_approach_velocity(target, acceleration * air_control, delta)
+		_approach_velocity(target, acceleration * air_control * air_control_mod, delta)
 	if animator.current_state() == &"JumpStart" and velocity.y < -1.5 and animator.state_progress() > 0.45:
 		animator.travel(&"Fall")
 
@@ -733,6 +780,8 @@ func current_bench() -> Bench:
 ## Stops to roll or smoke: standing still on the ground, or seated on a bench.
 ## Returns false when the Keling is busy (mid-air, grabbing, hopping up...).
 func begin_weed_act() -> bool:
+	if gift_ride != null:
+		return true  # smoking on a cloud
 	if mode == Mode.SIT:
 		return _sit_phase == SitPhase.SEATED
 	if mode not in [Mode.GROUND, Mode.EMOTE, Mode.CRAFT] or not is_on_floor():
@@ -745,7 +794,7 @@ func begin_weed_act() -> bool:
 
 
 func weed_act_allowed() -> bool:
-	return mode == Mode.CRAFT or (mode == Mode.SIT and _sit_phase == SitPhase.SEATED)
+	return gift_ride != null or mode == Mode.CRAFT or (mode == Mode.SIT and _sit_phase == SitPhase.SEATED)
 
 
 ## The bench power in play: the view tag of the bench we sit on, or none.
@@ -1046,13 +1095,43 @@ func _try_jump() -> bool:
 func _do_jump() -> void:
 	_jump_buffer = 0.0
 	_coyote = 0.0
-	velocity.y = sqrt(2.0 * gravity * jump_height)
+	velocity.y = sqrt(2.0 * gravity * gravity_mod * jump_height * jump_mod)
 	# Keep running momentum, but give a little hop forward from a standstill.
 	if _flat_velocity().length() < 0.3 and _input_dir != Vector3.ZERO:
 		velocity += _input_dir * 0.6
 	_enter_air(true)
 	_kick_squash(0.09)
 	jumped.emit()
+
+
+## Throws the Keling up into the air (a bouncy mushroom, a moon bounce, a
+## hop off a cloud). Counts as a jump for the animation and for friends.
+func launch(up_speed: float, push := Vector3.ZERO) -> void:
+	if mode in [Mode.SIT, Mode.MORPH, Mode.SWIM]:
+		return
+	if mode == Mode.CRAFT and weed:
+		weed.interrupt()
+	_jump_buffer = 0.0
+	_coyote = 0.0
+	velocity.y = up_speed
+	velocity += push
+	_enter_air(true)
+	_kick_squash(0.12)
+	jumped.emit()
+
+
+## Camera-relative move input (length 0..1) and whether jump is held, for
+## things that steer the body themselves (Cloud Ride).
+func move_input() -> Vector3:
+	return _input_dir * _input_strength
+
+
+func jump_held() -> bool:
+	return _jump_held
+
+
+func sprinting() -> bool:
+	return GameInput.is_sprinting() and _input_strength > 0.45
 
 
 func _enter_air(from_jump: bool) -> void:
@@ -1403,6 +1482,15 @@ func apply_net_event(kind: StringName, args: Array) -> void:
 		&"character":
 			if args.size() > 0:
 				_switch_quietly(String(args[0]))
+		&"gift":
+			if args.size() > 0 and args[0] is Dictionary and weed and weed.gifts:
+				weed.gifts.play_remote(args[0])
+		&"gift_end":
+			if args.size() > 0 and weed and weed.gifts:
+				weed.gifts.end_remote(StringName(args[0]))
+		&"gift_update":
+			if args.size() > 1 and args[1] is Dictionary and weed and weed.gifts:
+				weed.gifts.update_remote(StringName(args[0]), args[1])
 
 
 ## Becomes another character with no effect (a friend who changed before we

@@ -26,6 +26,8 @@ extends Node3D
 var invert_y := false
 var invert_x := false
 var auto_follow := true   ## drift back behind a moving character
+## Slow Time: the world crawls but the Keling doesn't, so neither may we.
+var time_dilation := 1.0
 
 @onready var arm: SpringArm3D = $SpringArm3D
 @onready var camera: Camera3D = $SpringArm3D/Camera3D
@@ -193,13 +195,14 @@ func _process(delta: float) -> void:
 func _process_timed(delta: float) -> void:
 	if _target == null:
 		return
-	delta = minf(delta, 0.1)
+	delta = minf(delta * time_dilation, 0.1)
 	_since_manual += delta
 
 	var pad := Input.get_vector("look_left", "look_right", "look_up", "look_down")
 	if pad != Vector2.ZERO:
 		add_look_input(pad * gamepad_speed * delta)
-	if Input.is_action_pressed("zoom_in"):
+	# RB breathes out a smoke gift when one is charged.
+	if Input.is_action_pressed("zoom_in") and _target.get("gift_armed") != true:
 		zoom_by(1.0 - delta)
 	if Input.is_action_pressed("zoom_out"):
 		zoom_by(1.0 + delta)
