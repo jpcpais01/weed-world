@@ -6,10 +6,12 @@
 // serpent. The node stays at the world origin: positions are world space.
 //
 // The look is water: the forest refracted through a glassy body, deep blue
-// inside and bright at the rim, currents and caustic threads streaming from
-// head to tail, a few bubbles, glowing eyes. Where the body is still coming
-// out of the mist (or has already plunged into the ground) it frays away
-// along a bright frothy edge.
+// where it is thick and clear at the edges, a light glowing deep inside,
+// currents and caustic threads streaming from head to tail, a foam crest
+// along the back, glints and bubbles, glowing eyes. For the first couple of
+// metres out of the breath it is still condensing: thin, misty and full of
+// holes. Where it is still coming out of the mist (or has already plunged
+// into the ground) it frays away along a bright frothy edge.
 shader_type spatial;
 render_mode blend_mix, depth_draw_always, cull_back, specular_schlick_ggx, shadows_disabled;
 
@@ -82,7 +84,9 @@ void vertex() {
 	// The legs paddle: whatever hangs below the belly swings fore and aft.
 	float leg = smoothstep(0.16, 0.3, -off.y) * ahead;
 	float paddle = sin(swim_phase * 1.7 - s * 1.3 + sign(off.x) * 1.6) * 0.09 * leg;
-	off *= swell;
+	// Thin and wispy as it condenses out of the breath.
+	float cond = smoothstep(0.0, 2.4, head_dist - s * body_scale);
+	off *= swell * mix(0.55, 1.0, cond);
 	vec3 pos = c + (left * (off.x + wave + flutter * 0.4) + up * (off.y + flutter) + fwd * paddle) * body_scale;
 	VERTEX = pos;
 	NORMAL = normalize(left * NORMAL.x + up * NORMAL.y + fwd * NORMAL.z);
@@ -105,6 +109,12 @@ void fragment() {
 		discard;
 	}
 	float froth = 1.0 - smoothstep(0.0, 0.55, cut);
+	// Still condensing out of the breath: misty and full of holes.
+	float mist = 1.0 - smoothstep(0.2, 2.6, v_u);
+	float holes = texture(noise, vec2(v_ang * 2.6, v_s * 1.1 - TIME * 0.9)).g;
+	if (holes < mist * 0.55) {
+		discard;
+	}
 
 	vec3 tex = texture(albedo_tex, UV).rgb;
 	float lum = dot(tex, vec3(0.3, 0.59, 0.11));
@@ -129,7 +139,16 @@ void fragment() {
 	// The forest seen through the water, bent by its surface.
 	vec2 ruv = SCREEN_UV + n.xy * (0.045 + 0.03 * v_rim) * (1.0 - fres * 0.6);
 	vec3 behind = textureLod(screen_tex, ruv, 1.0).rgb;
-	vec3 through = behind * mix(shallow_color * 1.25, vec3(1.0), 0.25 + 0.25 * v_rim);
+	// Thick water (looking straight into the trunk) soaks up the reds and
+	// greens; the thin fins and the edges stay clear.
+	float thick = pow(facing, 0.8) * (1.0 - 0.7 * v_rim);
+	vec3 tint = mix(vec3(0.82, 0.97, 1.0), deep_color * 2.6 + vec3(0.04, 0.1, 0.16), thick);
+	vec3 through = behind * tint * 1.15;
+	// A light deep inside, swimming along with the currents.
+	float core = pow(facing, 3.0) * (1.0 - v_rim) * (0.55 + 0.45 * n2);
+	// Foam on the crest of the back and the mane, torn by the currents.
+	float crest = smoothstep(0.12, 0.0, abs(v_ang - 0.25)) * smoothstep(0.55, 0.75, n1 + 0.2 * v_rim);
+	float glint = smoothstep(0.94, 0.98, texture(noise, vec2(v_ang * 9.0, v_s * 3.0 - TIME * 1.3)).r) * (0.4 + fres);
 
 	// Glowing eyes (the darkest bits of the head).
 	float eye = (1.0 - smoothstep(0.09, 0.2, lum)) * (1.0 - smoothstep(0.75, 0.95, v_s)) * (1.0 - horn);
@@ -139,9 +158,9 @@ void fragment() {
 	METALLIC = 0.0;
 	SPECULAR = 0.75;
 	EMISSION = through * (1.0 - fres) * 0.9
-		+ body * 0.18
-		+ glow_color * (caustic * 0.75 + fres * 0.9 + bubbles * 0.8 + v_rim * 0.12)
-		+ foam_color * froth * 1.6
+		+ body * 0.16
+		+ glow_color * (caustic * 0.75 + fres * 1.05 + bubbles * 0.8 + v_rim * 0.12 + core * 0.3)
+		+ foam_color * (froth * 1.6 + crest * 0.5 + mist * 0.45 + glint * 1.8)
 		+ vec3(0.7, 1.0, 1.0) * eye * 2.5;
-	ALPHA = clamp(mix(0.86, 1.0, fres) * fade * (1.0 - froth * 0.35), 0.0, 1.0);
+	ALPHA = clamp(mix(0.86, 1.0, fres) * fade * (1.0 - froth * 0.35) * (1.0 - mist * 0.4), 0.0, 1.0);
 }
