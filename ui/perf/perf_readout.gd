@@ -47,6 +47,20 @@ var _phys_n := 0
 var _top := ["", 0.0]        # busiest system of the last process pass
 var _pre_us := 0             # RenderingServer.draw began (usec)
 var _draw_us := 0            # how long the last draw took, waits included
+# The engine's own work between those marks, by stretch (usec this frame):
+# ENGINE from the last physics script to the next pass (the physics step,
+# collision signals), EVENTS from the end of drawing to the next pass (input,
+# window messages), DEFERRED from the last process script through the calls
+# deferred until then (UI redraws and layout, skeleton poses, call_deferred),
+# TAIL from there to drawing (timers, tweens, freeing nodes, moved nodes'
+# transforms), CAP the frame cap.
+enum { ENGINE, EVENTS, DEFERRED, TAIL, CAP }
+const SEG_NAMES := ["physics engine", "input & window events", "deferred calls & UI layout",
+		"timers, tweens & cleanup", "frame cap"]
+var _seg := -1               # which stretch is open
+var _seg_t := 0
+var _fseg := PackedInt64Array([0, 0, 0, 0, 0])
+var _segs := PackedFloat64Array([0, 0, 0, 0, 0])  # summed over the window (ms)
 ## Slowest frame lately: {ms, proc, phys, steps, draw, rest, top, top_ms, when}
 var _slowest := {"ms": 0.0, "when": -INF}
 
@@ -70,26 +84,56 @@ func _ready() -> void:
 	first.process_priority = -1000000
 	first.process_physics_priority = -1000000
 	first.on_process = _frame_start
-	first.on_physics = func(): _phys_t = Time.get_ticks_usec()
+	first.on_physics = func():
+		_phys_t = Time.get_ticks_usec()
+		_close_seg(_phys_t)
 	var last := _Mark.new()
 	last.process_priority = 1000000
 	last.process_physics_priority = 1000000
 	last.on_process = func():
 		_proc_us = Time.get_ticks_usec() - _f0
 		_top = PerfMeter.busiest()
+		_open_seg(DEFERRED, Time.get_ticks_usec())
+		# Runs behind everything deferred during the process pass.
+		_after_deferred.call_deferred()
 	last.on_physics = func():
-		_phys_us += Time.get_ticks_usec() - _phys_t
+		var now := Time.get_ticks_usec()
+		_phys_us += now - _phys_t
 		_phys_n += 1
+		_open_seg(ENGINE, now)
 	add_child(first)
 	add_child(last)
 	# The whole draw, wall clock: submit and prep plus whatever it blocks on
 	# (a free swapchain image, the GPU finishing an older frame, present).
-	RenderingServer.frame_pre_draw.connect(func(): _pre_us = Time.get_ticks_usec())
+	RenderingServer.frame_pre_draw.connect(func():
+		_pre_us = Time.get_ticks_usec()
+		_close_seg(_pre_us))
 	RenderingServer.frame_post_draw.connect(func():
+		var now := Time.get_ticks_usec()
 		if _pre_us > 0:
 			# The Settings frame cap waits in this same signal, just before us.
 			var held: int = Settings.cap_held_us if Settings.cap_frame == Engine.get_process_frames() else 0
-			_draw_us = Time.get_ticks_usec() - _pre_us - held)
+			_draw_us = now - _pre_us - held
+			_fseg[CAP] += held
+		_open_seg(EVENTS, now))
+
+
+func _open_seg(kind: int, now: int) -> void:
+	_seg = kind
+	_seg_t = now
+
+
+func _after_deferred() -> void:
+	if _seg == DEFERRED:
+		var now := Time.get_ticks_usec()
+		_close_seg(now)
+		_open_seg(TAIL, now)
+
+
+func _close_seg(now: int) -> void:
+	if _seg >= 0:
+		_fseg[_seg] += now - _seg_t
+	_seg = -1
 
 
 class _Mark extends Node:
@@ -107,8 +151,11 @@ class _Mark extends Node:
 ## and any wait, then this frame's physics steps.
 func _frame_start() -> void:
 	var now := Time.get_ticks_usec()
+	_close_seg(now)
 	if _f0 > 0:
 		var ms := (now - _f0) / 1000.0
+		for i in _fseg.size():
+			_segs[i] += _fseg[i] / 1000.0
 		_proc += _proc_us / 1000.0
 		_phys += _phys_us / 1000.0
 		_draw += _draw_us / 1000.0
@@ -119,9 +166,10 @@ func _frame_start() -> void:
 			var draw := RenderingServer.viewport_get_measured_render_time_cpu(_vp) + RenderingServer.get_frame_setup_time_cpu()
 			var whole := _draw_us / 1000.0
 			_slowest = {"ms": ms, "proc": _proc_us / 1000.0, "phys": _phys_us / 1000.0, "steps": _phys_n, "draw": draw,
-					"wait": maxf(whole - draw, 0.0), "rest": maxf(ms - (_proc_us + _phys_us + _draw_us) / 1000.0, 0.0),
+					"wait": maxf(whole - draw, 0.0), "segs": Array(_fseg).map(func(us): return us / 1000.0),
 					"top": top[0], "top_ms": top[1], "when": t}
 	_f0 = now
+	_fseg.fill(0)
 	_phys_us = 0
 	_phys_n = 0
 
@@ -175,9 +223,8 @@ func _summarise() -> void:
 			"setup": _setup / n, "proc": _proc / n, "phys": _phys / n, "draw": _draw / n}
 	# Inside draw but not drawing: blocked on the driver, the GPU or the screen.
 	_avg.wait = maxf(_avg.draw - _avg.render - _avg.setup, 0.0)
-	# Outside scripts and draw: the physics engine's step, input and window
-	# events, and the frame-rate cap's sleep.
-	_avg.other = maxf(_avg.frame - _avg.proc - _avg.phys - _avg.draw, 0.0)
+	# Outside scripts and draw, by stretch (see SEG_NAMES).
+	_avg.segs = Array(_segs).map(func(ms): return ms / n)
 	_systems = {}
 	var taken := PerfMeter.take()
 	for k in taken.total:
@@ -201,10 +248,20 @@ func _summarise() -> void:
 	_proc = 0.0
 	_phys = 0.0
 	_draw = 0.0
+	_segs.fill(0.0)
 	var draws := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)
 	summary = "%.1f ms a frame · GPU %.1f ms  ·  %s draws" % [_avg.frame, _avg.gpu, _thousands(draws)]
 	if visible:
 		text = _panel()
+
+
+## "physics engine 0.3 · input & window events 0.1 · ..." (the cap only when on).
+static func _seg_text(segs: Array) -> String:
+	var parts: Array[String] = []
+	for i in segs.size():
+		if i != CAP or segs[i] > 0.05:
+			parts.append("%s %.1f" % [SEG_NAMES[i], segs[i]])
+	return " · ".join(parts)
 
 
 func _panel() -> String:
@@ -253,8 +310,8 @@ func _panel() -> String:
 	lines.append(sync)
 	lines.append("CPU per frame: draw submit %.1f · scene prep %.1f · scripts %.1f · physics scripts %.1f ms" % [
 			_avg.render, _avg.setup, _avg.proc, _avg.phys])
-	lines.append("  where each frame goes (ms): scripts %.1f · drawing %.1f · blocked on GPU or screen %.1f · physics engine, input and cap %.1f" % [
-			_avg.proc + _avg.phys, _avg.render + _avg.setup, _avg.wait, _avg.other])
+	lines.append("  where each frame goes (ms): scripts %.1f · drawing %.1f · blocked on GPU or screen %.1f · %s" % [
+			_avg.proc + _avg.phys, _avg.render + _avg.setup, _avg.wait, _seg_text(_avg.segs)])
 	var names := _systems.keys()
 	names.sort_custom(func(a, b): return _systems[a] > _systems[b])
 	var parts: Array[String] = []
@@ -265,8 +322,8 @@ func _panel() -> String:
 		lines.append("  scripts per frame (ms): " + " · ".join(parts.slice(0, 7)))
 	if hz > 0.0 and _slowest.ms > 1500.0 / hz:
 		var w := _slowest
-		var line := "slowest frame lately %.1f ms: scripts %.1f · physics scripts %.1f (%d step%s) · drawing %.1f · blocked on GPU or screen %.1f · physics engine, input and cap %.1f" % [
-				w.ms, w.proc, w.phys, w.steps, "" if w.steps == 1 else "s", w.draw, w.wait, w.rest]
+		var line := "slowest frame lately %.1f ms: scripts %.1f · physics scripts %.1f (%d step%s) · drawing %.1f · blocked on GPU or screen %.1f · %s" % [
+				w.ms, w.proc, w.phys, w.steps, "" if w.steps == 1 else "s", w.draw, w.wait, _seg_text(w.segs)]
 		if w.top != "":
 			line += " · busiest system %s %.1f" % [w.top, w.top_ms]
 		lines.append(line)
