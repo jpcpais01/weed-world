@@ -87,7 +87,9 @@ func _ready() -> void:
 	RenderingServer.frame_pre_draw.connect(func(): _pre_us = Time.get_ticks_usec())
 	RenderingServer.frame_post_draw.connect(func():
 		if _pre_us > 0:
-			_draw_us = Time.get_ticks_usec() - _pre_us)
+			# The Settings frame cap waits in this same signal, just before us.
+			var held: int = Settings.cap_held_us if Settings.cap_frame == Engine.get_process_frames() else 0
+			_draw_us = Time.get_ticks_usec() - _pre_us - held)
 
 
 class _Mark extends Node:
@@ -111,7 +113,8 @@ func _frame_start() -> void:
 		_phys += _phys_us / 1000.0
 		_draw += _draw_us / 1000.0
 		var t := now / 1000000.0
-		if ms > _slowest.ms or t - _slowest.when > 5.0:
+		# Over a second is a pause (loading, a minimised window), not a hitch.
+		if ms < 1000.0 and (ms > _slowest.ms or t - _slowest.when > 5.0):
 			var top := _top
 			var draw := RenderingServer.viewport_get_measured_render_time_cpu(_vp) + RenderingServer.get_frame_setup_time_cpu()
 			var whole := _draw_us / 1000.0
@@ -213,7 +216,11 @@ func _panel() -> String:
 	var cpu: float = _avg.render + _avg.setup + _avg.proc + _avg.phys
 	# A few frames that miss a vblank pull the average a little under the
 	# refresh rate, so "near it" still counts as capped.
-	if vsync and hz > 0.0 and _avg.frame < 1150.0 / hz:
+	var cap := int(Settings.values.fps_cap)
+	if cap > 0 and _avg.frame < 1080.0 / cap:
+		lines.append("Capped at %d FPS by Settings › Frame rate cap: GPU %.1f ms and CPU about %.1f ms of each %.1f ms (set it to Off to see how fast it could go)" % [
+				cap, _avg.gpu, cpu, 1000.0 / cap])
+	elif vsync and hz > 0.0 and _avg.frame < 1150.0 / hz:
 		lines.append("Capped by vsync at %d Hz: GPU %.1f ms and CPU about %.1f ms of each %.1f ms, so lower settings can't raise the frame rate%s" % [
 				roundi(hz), _avg.gpu, cpu, 1000.0 / hz, "" if OS.has_feature("mobile") else " (8 turns vsync off to see how fast it could go)"])
 	elif _avg.wait >= _avg.frame * 0.3 and _avg.gpu < _avg.frame * 0.6:
@@ -235,8 +242,8 @@ func _panel() -> String:
 	var sync := "vsync %s" % ("on" if vsync else "off")
 	if hz > 0.0:
 		sync += " · %d Hz screen" % roundi(hz)
-	if Engine.max_fps > 0:
-		sync += " · frame rate capped at %d in Settings" % Engine.max_fps
+	if cap > 0:
+		sync += " · frame rate capped at %d in Settings" % cap
 	if not OS.has_feature("mobile"):
 		var mode := DisplayServer.window_get_mode()
 		sync += " · %s" % ("fullscreen" if mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
