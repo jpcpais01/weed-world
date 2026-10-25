@@ -7,6 +7,9 @@
 - **A real splash.** When the dragon dives into the ground it throws up a crown of glassy water with a torn, foamy rim and shoots a column of spray straight up. Mist rolls out low across the ground, a shockwave races out, and a blue flash lights up the trees. The rainbow afterwards is a little brighter, too.
 - **Fixed: friends saw a different dragon.** In co-op your friends' screens could fly your dragon on a different path from yours. Now everyone sees the same one.
 
+## 25 Oct 2026 · 01:27 UTC
+- **Joints look like joints.** Rolling papers are now unbleached hemp, a warm natural tan with fibres and streaks, thin enough that the green bud inside shows through in soft patches, with the glued seam down one side. The orange cigarette-style filter is gone: the mouth end is now a rolled card tip under the paper, with the little card spiral showing at the end.
+
 ## 25 Oct 2026 · 00:40 UTC
 - **Dragon Breath!** Hold the puff on a lit joint (hold R or RT, hold the leaf button on a phone, or just press G) and your Keling takes a long, deep draw: the ember blazes, its chest swells, blue light gathers at its lips and wisps of mist spiral in. Then it rears back and blasts it all out in a roaring jet of glowing blue mist, and out of that mist a water dragon swims free, head first, its whole long body pouring out after it.
 - **A dragon made of water.** It swims off wherever your camera is looking, weaving through the air in great S-curves and skimming over the meadows and paths, glassy and clear with the forest bending through its body, currents and sparkling threads streaming down it, glowing eyes, its mane and fins rippling and its little legs paddling. It lights up the forest around it as it goes.
