@@ -14,6 +14,7 @@ extends Label
 const WINDOW := 0.5          # seconds averaged per update
 const SETTLE := 0.35         # seconds to let a change reach the GPU timings
 const SAMPLE := 0.8          # seconds timed per part
+const AA_SETTLE := 3.0       # ...and for anti-aliasing, whose pipelines build first
 
 ## Main-line text for the FPS counter, refreshed every WINDOW.
 var summary := "CPU -- · GPU -- ms"
@@ -197,7 +198,7 @@ func _panel() -> String:
 	if vsync and hz > 0.0 and _avg.frame < 1150.0 / hz:
 		lines.append("Capped by vsync at %d Hz: GPU %.1f ms and CPU about %.1f ms of each %.1f ms, so lower settings can't raise the frame rate%s" % [
 				roundi(hz), _avg.gpu, cpu, 1000.0 / hz, "" if OS.has_feature("mobile") else " (8 turns vsync off to see how fast it could go)"])
-	elif _avg.gpu >= _avg.frame * 0.85:
+	elif _avg.gpu >= _avg.frame * 0.8:
 		lines.append("GPU-bound: the graphics card is busy %.1f of each %.1f ms" % [_avg.gpu, _avg.frame])
 	elif cpu >= _avg.frame * 0.75:
 		lines.append("CPU-bound: the processor is busy about %.1f of each %.1f ms (the graphics card %.1f)" % [cpu, _avg.frame, _avg.gpu])
@@ -236,7 +237,7 @@ func _panel() -> String:
 		lines.append("GPU by part: measuring %s... (%d of %d)" % [_steps[_step].name if _step < _steps.size() else "baseline",
 				mini(_step + 1, _steps.size()), _steps.size()])
 	elif _results.is_empty():
-		lines.append("GPU by part: press 9 or tap here to measure (things blink ~15 s)")
+		lines.append("GPU by part: press 9 or tap here to measure (things blink ~20 s)")
 	else:
 		lines.append("GPU (and CPU) each part costs, measured by switching it off:")
 		var row: Array[String] = []
@@ -286,11 +287,12 @@ func _probe_tick(delta: float, gpu: float, cpu: float) -> void:
 	_phase_t += delta
 	match _phase:
 		"base", "time":
-			if _phase_t >= SETTLE:
+			var settle := _settle()
+			if _phase_t >= settle:
 				_acc_gpu += gpu
 				_acc_cpu += cpu
 				_acc_n += 1
-			if _phase_t < SETTLE + SAMPLE:
+			if _phase_t < settle + SAMPLE:
 				return
 			var m := Vector2(_acc_gpu, _acc_cpu) / maxf(_acc_n, 1)
 			if _phase == "base":
@@ -305,7 +307,7 @@ func _probe_tick(delta: float, gpu: float, cpu: float) -> void:
 				_steps[_step].on.call()
 				_start_phase("restore")
 		"restore":
-			if _phase_t < SETTLE:
+			if _phase_t < _settle():
 				return
 			_step += 1
 			if _step >= _steps.size():
@@ -313,6 +315,14 @@ func _probe_tick(delta: float, gpu: float, cpu: float) -> void:
 			else:
 				_steps[_step].off.call()
 				_start_phase("time")
+
+
+## How long the current phase waits before timing: a step can ask for
+## longer, when switching it makes the GPU build new pipelines first.
+func _settle() -> float:
+	if _phase == "base" or _step < 0 or _step >= _steps.size():
+		return SETTLE
+	return _steps[_step].get("settle", SETTLE)
 
 
 func _finish_probe() -> void:
@@ -351,11 +361,16 @@ func _make_steps() -> Array:
 					nodes.append(node)
 			if not nodes.is_empty():
 				steps.append({"name": part[0], "off": _show_nodes.bind(nodes, false), "on": _show_nodes.bind(nodes, true)})
-	# Only switches that need no new shaders: fog, the sky and anti-aliasing
-	# make the GPU compile pipeline variants, and it runs on slow stand-in
-	# shaders meanwhile, so they read as costing less than nothing.
+	# Fog and the sky make the GPU compile pipeline variants, and it runs on
+	# slow stand-in shaders meanwhile, so they'd read as costing less than
+	# nothing. Anti-aliasing does too, so it waits for them to be built.
 	if forest and forest.atmosphere and forest.atmosphere.environment:
 		steps.append(_toggle("Glow", forest.atmosphere.environment, "glow_enabled", false))
+	if vp.msaa_3d != Viewport.MSAA_DISABLED or vp.screen_space_aa != Viewport.SCREEN_SPACE_AA_DISABLED:
+		var msaa := vp.msaa_3d
+		var ssaa := vp.screen_space_aa
+		steps.append({"name": "Anti-aliasing", "settle": AA_SETTLE,
+				"off": _set_aa.bind(vp, Viewport.MSAA_DISABLED, Viewport.SCREEN_SPACE_AA_DISABLED), "on": _set_aa.bind(vp, msaa, ssaa)})
 	steps.append(_toggle("75% resolution would save", vp, "scaling_3d_scale", vp.scaling_3d_scale * 0.75))
 	return steps
 
@@ -363,6 +378,11 @@ func _make_steps() -> Array:
 ## A step that sets one property for the measurement and puts it back after.
 static func _toggle(label: String, obj: Object, property: StringName, off_value: Variant) -> Dictionary:
 	return {"name": label, "off": obj.set.bind(property, off_value), "on": obj.set.bind(property, obj.get(property))}
+
+
+static func _set_aa(vp: Viewport, msaa: Viewport.MSAA, ssaa: Viewport.ScreenSpaceAA) -> void:
+	vp.msaa_3d = msaa
+	vp.screen_space_aa = ssaa
 
 
 static func _hide_groups(lod: ForestLod, groups: Array, hidden: bool) -> void:

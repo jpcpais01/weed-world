@@ -288,7 +288,7 @@ func _build_graphics() -> void:
 	_choice("shadows", "Shadows", "Long soft sun shadows cost the most", ["Off", "Low", "Medium", "High", "Ultra"], [0, 1, 2, 3, 4])
 	_choice("trees", "Tree detail", "How far trees keep their full shape", ["Low", "Medium", "High", "Ultra"], [0, 1, 2, 3])
 	_slider("grass", "Grass & flowers", "How thick the meadows grow", 0.25, 1.0, 0.05, _pct)
-	_choice("aa", "Anti-aliasing", "Smooths jagged edges", ["Off", "FXAA", "MSAA 2×", "MSAA 4×"], [0, 1, 2, 3])
+	_choice("aa", "Anti-aliasing", "Smooths jagged edges", ["Off", "FXAA", "SMAA", "MSAA 2×", "MSAA 4×"], [0, 1, 4, 2, 3])
 	_toggle("bloom", "Bloom", "Glow on fireflies, magic and sunlight")
 	_section("Display")
 	if not mobile:
