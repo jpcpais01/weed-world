@@ -40,6 +40,7 @@ func _enter_tree() -> void:
 	_add("weed", [KEY_R], [], [[JOY_AXIS_TRIGGER_RIGHT, 1.0]])
 	_add("weed_cycle", [KEY_Q], [], [])
 	_add("dragon", [KEY_G], [], [])
+	_add("gift", [KEY_V], [JOY_BUTTON_RIGHT_SHOULDER], [])
 	_add("sprint", [KEY_SHIFT], [JOY_BUTTON_LEFT_STICK, JOY_BUTTON_B], [[JOY_AXIS_TRIGGER_LEFT, 1.0]])
 	_add("walk_toggle", [KEY_C, KEY_CTRL], [JOY_BUTTON_RIGHT_STICK], [])
 	_add("emote_dance", [KEY_1], [JOY_BUTTON_DPAD_UP], [])
