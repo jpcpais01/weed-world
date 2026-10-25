@@ -10,6 +10,9 @@ extends Node
 ##  * Press again with the joint: a fairy flame lights it, and each press
 ##    takes one of its three puffs. Every exhale feeds a high (WeedHigh) themed
 ##    by the bench the Keling sits on, or the dreamy Glade Glow anywhere else.
+##  * Hold the press on a lit joint (or press G) and the puff becomes Dragon
+##    Breath: a long deep draw, then a blast of blue mist that turns into a
+##    water dragon (DragonBreath), flown where the camera looks.
 ##
 ## Works standing still or sitting on a bench; walking off cancels (the bud
 ## or the puff is kept). Everything runs per Keling, ready for co-op.
@@ -21,13 +24,18 @@ signal bud_collected(strain: StringName, first: bool)
 signal joint_rolled(strain: StringName)
 signal puffed(element: StringName, puffs_left: int)
 signal note(text: String)
+signal dragon_breathed
 
-enum Act { NONE, ROLL, LIGHT, HIT }
+enum Act { NONE, ROLL, LIGHT, HIT, DRAGON }
 
 const ROLL_TIME := 10.0
 const LIGHT_TIME := 2.6
 const HIT_TIME := 3.8
 const HITS := 3
+const DRAGON_TIME := 4.8
+const DRAGON_HOLD := 0.42       # hold the puff this long and it turns into Dragon Breath
+const DRAGON_WINDOW := 1.3      # ...as long as the draw has only just begun
+const DRAGON_RELEASE := 2.75    # the blast
 const BURN_PER_PUFF := 0.17   # how much of the joint each puff burns away
 const MAX_BUDS := 12
 const SAVE_PATH := "user://weed.cfg"
@@ -107,6 +115,11 @@ var _prompt_tick := 0.0
 var _prompt_bud: WeedBud
 var _joint_hidden := 0.0
 var _remote_element: StringName = &"none"
+var dragon_held := false        ## the touch button is held down (WeedHud)
+var _charge_hold := -1.0        # how long the puff has been held (-1: let go)
+var _dragon_queued := false
+var _dragon: DragonBreath
+var _dragon_yaw := 0.0
 ## Whose body the hands are on. The choreography was authored on the
 ## original Keling; its landmarks and key tracks are fitted to this body.
 var body: KelingBody
@@ -318,6 +331,32 @@ func use() -> void:
 			note.emit("Pick a bud from a wild weed plant first")
 
 
+## Dragon Breath straight away (G): lights the joint if it has to, and the
+## puff that follows becomes the dragon.
+func use_dragon() -> void:
+	if not has_joint():
+		note.emit("Roll a joint first, then hold the puff for Dragon Breath")
+		return
+	if act == Act.HIT and act_t <= DRAGON_WINDOW or act == Act.LIGHT:
+		_dragon_queued = true
+		return
+	if act != Act.NONE:
+		return
+	_dragon_queued = true
+	use()
+	if act == Act.NONE:
+		_dragon_queued = false
+
+
+## 0..1 while a held puff is charging up into Dragon Breath (for the HUD).
+func dragon_charge() -> float:
+	if act == Act.DRAGON:
+		return 1.0
+	if act != Act.HIT or _charge_hold < 0.0 or act_t > DRAGON_WINDOW:
+		return 0.0
+	return clampf(_charge_hold / DRAGON_HOLD, 0.0, 1.0)
+
+
 func busy() -> bool:
 	return act != Act.NONE
 
@@ -333,6 +372,8 @@ func _start(a: int) -> void:
 			_closeup(true)
 	elif joint_strain != &"":
 		_paint_joint(joint_strain)
+	if a == Act.HIT:
+		_charge_hold = 0.0 if _puff_held() else -1.0
 	act_changed.emit(act)
 	if local:
 		match a:
@@ -375,6 +416,17 @@ func play_remote(activity: StringName, data: Dictionary) -> void:
 			if act == Act.HIT and act_t < 0.6:
 				return  # already playing it (light flows straight into the first puff)
 			_start(Act.HIT)
+		&"dragon":
+			joint_strain = strain
+			joint_puffs = maxi(joint_puffs, 1)
+			lit = true
+			_remote_element = StringName(data.get("element", &"none"))
+			if act == Act.DRAGON:
+				return
+			if act != Act.HIT:
+				_start(Act.HIT)
+				act_t = DRAGON_HOLD
+			_begin_dragon(float(data.get("yaw", keling.facing)), int(data.get("seed", 0)))
 		&"hold":
 			if act != Act.NONE:
 				_stop_act()
@@ -391,8 +443,12 @@ func play_remote(activity: StringName, data: Dictionary) -> void:
 ## Walking away, jumping or standing up stops what the hands are doing. The
 ## bud goes back in the pouch, an unfinished puff isn't spent.
 func interrupt() -> void:
+	_dragon_queued = false
 	if act == Act.NONE:
 		return
+	if act == Act.DRAGON and _dragon and _dragon.phase == DragonBreath.Phase.CHARGE:
+		_dragon.fizzle()
+		_dragon = null
 	if act == Act.ROLL:
 		if act_t < ROLL_POINT_OF_NO_RETURN:
 			if local:
@@ -434,6 +490,8 @@ func progress() -> float:
 			return act_t / LIGHT_TIME
 		Act.HIT:
 			return act_t / HIT_TIME
+		Act.DRAGON:
+			return act_t / DRAGON_TIME
 	return 0.0
 
 
@@ -461,9 +519,16 @@ func _physics_process_timed(delta: float) -> void:
 			if act_t >= LIGHT_TIME:
 				lit = true
 				_start(Act.HIT)
-		Act.HIT:
-			if act_t >= HIT_TIME:
+		Act.HIT, Act.DRAGON:
+			if act == Act.HIT:
+				_check_dragon(delta)
+			elif local and act_t < DRAGON_RELEASE and not keling.is_sitting():
+				# Turn to face where the dragon will go.
+				keling.facing = lerp_angle(keling.facing, _dragon_yaw, 1.0 - exp(-7.0 * delta))
+			if act_t >= (HIT_TIME if act == Act.HIT else DRAGON_TIME):
 				act = Act.NONE
+				_dragon = null
+				_dragon_queued = false
 				if joint_puffs <= 0:
 					_clear_joint()
 				act_changed.emit(act)
@@ -476,6 +541,52 @@ func _physics_process_timed(delta: float) -> void:
 	_hold = move_toward(_hold, want_hold, delta * 3.0)
 	_joint_hidden = move_toward(_joint_hidden, 1.0 if keling.mode == KelingController.Mode.GRAB else 0.0, delta * 5.0)
 	_update_prompt(delta)
+
+
+# ---------------------------------------------------------------------------
+# Dragon Breath
+
+func _puff_held() -> bool:
+	if not local:
+		return false
+	return dragon_held or (InputMap.has_action(&"weed") and Input.is_action_pressed(&"weed"))
+
+
+## A held puff (or a queued G) turns into Dragon Breath early in the draw.
+func _check_dragon(delta: float) -> void:
+	if not local or act_t > DRAGON_WINDOW:
+		return
+	if _charge_hold >= 0.0:
+		_charge_hold = _charge_hold + delta if _puff_held() else -1.0
+	if (_charge_hold >= DRAGON_HOLD or _dragon_queued) and act_t >= DRAGON_HOLD:
+		_begin_dragon(_aim_yaw(), randi())
+
+
+## Where the dragon goes: where the camera looks. Seated on a bench the
+## Keling can't turn, so it breathes no further round than over a shoulder.
+func _aim_yaw() -> float:
+	var cam = keling.get("camera_rig")
+	var aim := keling.facing
+	if cam:
+		aim = wrapf(float(cam.yaw) - PI, -PI, PI)
+	if keling.is_sitting():
+		aim = keling.facing + clampf(wrapf(aim - keling.facing, -PI, PI), -0.9, 0.9)
+	return aim
+
+
+func _begin_dragon(p_yaw: float, p_seed: int) -> void:
+	act = Act.DRAGON
+	_dragon_queued = false
+	_charge_hold = -1.0
+	_dragon_yaw = p_yaw
+	_dragon = DragonBreath.new()
+	_dragon.name = "DragonBreath"
+	_dragon.setup(keling, local, p_yaw, p_seed)
+	keling.add_child(_dragon)
+	_dragon.play_charge()
+	act_changed.emit(act)
+	if local:
+		keling.activity_changed.emit(&"dragon", {"strain": joint_strain, "yaw": p_yaw, "seed": p_seed, "element": keling.weed_element()})
 
 
 func _event(key: String, at: float) -> bool:
@@ -1040,6 +1151,8 @@ func _pose_smoke() -> void:
 	if act == Act.LIGHT:
 		m = _e(0.0, 0.45) * (1.0 - _e(1.9, 2.45))
 		forward = m
+	elif act == Act.DRAGON:
+		m = _e(0.0, 0.5) * (1.0 - _e(2.3, 2.65))
 	else:
 		m = _e(0.0, 0.5) * (1.0 - _e(1.55, 1.95))
 
@@ -1096,6 +1209,9 @@ func _pose_smoke() -> void:
 			_exhale_stream(rig, dt, 26.0 * pow(1.0 - k, 0.7), lerpf(0.8, 0.3, k), lerpf(0.22, 0.3, k), 2.8, lerpf(0.6, 0.35, k))
 		if _event("light_exhale", 1.95):
 			_sfx("exhale", 1.25)
+	elif act == Act.DRAGON:
+		_pose_dragon(t, rig, tip, info)
+		return
 	else:
 		_arm("Left", _tray_l, 0.0)
 		# Draw deep (the ember flares and crackles), lower the joint, hold
@@ -1135,6 +1251,58 @@ func _pose_smoke() -> void:
 	_set_ember(ember)
 
 
+## Dragon Breath, beat by beat:
+##   0.0  the joint comes up to the lips, as for any puff
+##   0.5  a long, deep draw: the ember blazes and crackles, the chest swells
+##        and keeps swelling, blue light gathers at the lips and wisps of mist
+##        spiral into them; the Keling turns to face the way it will go
+##   2.3  the joint comes down; the head rears back, holding it in
+##   2.75 the blast: the head thrusts forward and the breath roars out as a
+##        jet of blue mist, out of which the water dragon swims away
+##   3.0  the last wisps trickle out; it settles back, pleased with itself
+func _pose_dragon(t: float, rig: Transform3D, tip: Vector3, info: Dictionary) -> void:
+	_arm("Left", _tray_l, 0.0)
+	var dt := get_process_delta_time()
+	var draw := _e(0.5, 2.3)
+	var drawing := draw * (1.0 - _e(2.3, 2.45))
+	var ember := 0.6 + 5.5 * drawing + 0.8 * sin(t * 37.0) * drawing
+	_ember_smoke = lerpf(1.0, 0.05, drawing)
+	_sparks.position = tip
+	_sparks.emitting = drawing > 0.2
+	var rear := _e(2.3, 2.7) * (1.0 - _e(2.74, 2.84))
+	var blast := _e(2.74, 2.84) * (1.0 - _e(3.3, 4.4))
+	hands.chest_swell = (draw * 1.3 + 0.05 * sin(t * 9.0) * draw) * (1.0 - _e(2.74, 3.1))
+	hands.head_pitch = 0.05 * draw * (1.0 - rear) + 0.34 * rear - 0.24 * blast
+	hands.lean = -0.1 * rear + 0.3 * blast
+	if _event("d_draw", 0.5):
+		_sfx("draw", 0.82)
+	var mx := _mouth_xf()
+	var mouth := Transform3D(rig.basis.orthonormalized() * mx.basis.orthonormalized(), rig * mx.origin)
+	if _dragon:
+		if t < DRAGON_RELEASE:
+			_dragon.charge(mouth, draw * (1.0 - 0.3 * rear) + rear * 0.3)
+		elif _event("d_blast", DRAGON_RELEASE):
+			_dragon.release(mouth, _dragon_yaw)
+			_count_puff()
+			dragon_breathed.emit()
+			if local:
+				var cam = keling.get("camera_rig")
+				if cam:
+					cam.shake(0.28)
+				Input.vibrate_handheld(60)
+	# What's left of the breath trickles out after the blast.
+	if t > 3.05 and t < 3.9:
+		var k := (t - 3.05) / 0.85
+		_exhale_stream(rig, dt, 14.0 * (1.0 - k), 0.5, 0.25, 2.4, 0.3 * (1.0 - k))
+	if joint_puffs <= 0 and t > 3.9:
+		var gone := _e(3.9, 4.35)
+		(_joint.root as Node3D).scale = Vector3.ONE * maxf(1.0 - gone, 0.001)
+		_ember_smoke = 0.0
+		if _event("roach", 4.0):
+			_burst(hands.grip_point("Right"), info.glow, 14)
+	_set_ember(ember)
+
+
 ## Breath out of the mouth: a stream of puffs leaving the lips.
 func _exhale_stream(rig: Transform3D, dt: float, rate: float, speed: float, size: float, life: float, alpha: float, drag := 2.0) -> void:
 	var mx := _mouth_xf()
@@ -1164,6 +1332,8 @@ func _burn() -> float:
 		k -= 0.03
 		if act == Act.HIT and not _hit_counted:
 			k -= BURN_PER_PUFF * _e(0.5, 1.5)
+		elif act == Act.DRAGON and not _hit_counted:
+			k -= BURN_PER_PUFF * _e(0.5, 2.3)
 	return clampf(k, 0.3, 1.0)
 
 
@@ -1224,7 +1394,7 @@ func _place_props() -> void:
 	_ember_smoke = 1.0
 	if act == Act.ROLL:
 		_pose_roll()
-	elif act == Act.LIGHT or act == Act.HIT:
+	elif act == Act.LIGHT or act == Act.HIT or act == Act.DRAGON:
 		_pose_smoke()
 	else:
 		_pose_rest()
@@ -1240,7 +1410,7 @@ func _place_props() -> void:
 	(_joint.ember as Node3D).visible = lit or (act == Act.LIGHT and act_t > 0.9)
 	if lit or act == Act.LIGHT:
 		(_joint.twist as Node3D).visible = false
-	if act != Act.LIGHT and act != Act.HIT:
+	if act != Act.LIGHT and act != Act.HIT and act != Act.DRAGON:
 		_sparks.emitting = false
 	# The ember's own thin stream of smoke.
 	var smoking := has_joint() and jroot.visible and _joint_hidden < 0.5 and (lit or act == Act.LIGHT)

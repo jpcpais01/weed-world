@@ -421,6 +421,8 @@ func _physics_process_timed(delta: float) -> void:
 			weed.use()
 		if Input.is_action_just_pressed("weed_cycle"):
 			weed.cycle_strain()
+		if Input.is_action_just_pressed("dragon"):
+			weed.use_dragon()
 	_jump_held = Input.is_action_pressed("jump") and not GameInput.ui_locked
 
 	var on_floor := is_on_floor()

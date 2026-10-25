@@ -1,5 +1,12 @@
 # Patch notes
 
+## 25 Oct 2026 · 00:40 UTC
+- **Dragon Breath!** Hold the puff on a lit joint (hold R or RT, hold the leaf button on a phone, or just press G) and your Keling takes a long, deep draw: the ember blazes, its chest swells, blue light gathers at its lips and wisps of mist spiral in. Then it rears back and blasts it all out in a roaring jet of glowing blue mist, and out of that mist a water dragon swims free, head first, its whole long body pouring out after it.
+- **A dragon made of water.** It swims off wherever your camera is looking, weaving through the air in great S-curves and skimming over the meadows and paths, glassy and clear with the forest bending through its body, currents and sparkling threads streaming down it, glowing eyes, its mane and fins rippling and its little legs paddling. It lights up the forest around it as it goes.
+- **Rain wherever it goes.** Water drips from its belly the whole way, ringing the ground where the drops land. At the end it rears up and plunges into the earth (or into the first tree in its way) in a burst of spray, a short shower, a rainbow and a puddle that slowly dries.
+- **Real rain for your plants.** Every wild weed plant the dragon rains on, or splashes, bursts back into bud, and any Keling it rains on shakes itself off like a wet puppy. Each Dragon Breath uses one puff of your joint and gives you the high as usual, with a new sound for the draw, the roar, the rush of water and the splash.
+- **Breathe it together.** In co-op your friends see your dragon fly the very same path on their screens, and its rain ripens the plants for everyone.
+
 ## 24 Oct 2026 · 23:24 UTC
 - **A calmer loading screen.** The little Kelings waking up along the loading vine are gone. The vine grows on its own again under the picture of the whole gang, with the loading steps and tips below it.
 
