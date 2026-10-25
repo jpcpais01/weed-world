@@ -91,8 +91,17 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("walk_toggle"):
 		walk_toggled = not walk_toggled
 	if event.is_action_pressed("fullscreen"):
-		var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		var mode := DisplayServer.window_get_mode()
+		var full := mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else FULLSCREEN)
+
+
+## F11's fullscreen. Exclusive on Windows: the plain kind is a window one
+## pixel bigger than the screen, so the desktop compositor copies every frame
+## and paces it to the refresh rate (vsync off or not). On laptops whose screen
+## hangs off the processor's built-in graphics that copy crosses cards and
+## caps the frame rate well under what the GPU can do.
+const FULLSCREEN := DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
 
 
 ## Camera-independent move input, 0..1 length (analog aware).

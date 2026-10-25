@@ -1,5 +1,10 @@
 # Patch notes
 
+## 25 Oct 2026 · 01:48 UTC
+- **Much higher frame rates on Windows.** The game now draws with Direct3D 12 instead of Vulkan. On gaming laptops the screen is wired to the processor's built-in graphics, and Vulkan frames had to queue behind an extra copy across cards, so even with the GPU nearly idle the frame rate stalled around 90 to 100. Direct3D 12 hands frames to Windows the fast way. If it ever fails to start, the game falls back to Vulkan by itself.
+- **F11 is real fullscreen.** It now takes the screen for itself instead of being a screen-sized window, so Windows stops copying and pacing every frame through the desktop.
+- **The frame readout shows where the time really goes:** a new line splits each frame into scripts, drawing, time blocked waiting on the GPU or the screen, and the physics engine. It also says when a frame-rate cap from Settings is on and whether you are windowed or fullscreen.
+
 ## 25 Oct 2026 · 01:27 UTC
 - **Joints look like joints.** Rolling papers are now unbleached hemp, a warm natural tan with fibres and streaks, thin enough that the green bud inside shows through in soft patches, with the glued seam down one side. The orange cigarette-style filter is gone: the mouth end is now a rolled card tip under the paper, with the little card spiral showing at the end.
 
