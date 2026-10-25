@@ -104,10 +104,10 @@ func _process(delta: float) -> bool:
 		_armed = true
 		return false
 	var img := root.get_texture().get_image()
-	img.save_png("%s/%05.2f_%s.png" % [_out, t, ["game", "side", "close"][_view]])
+	img.save_png("%s/%05.2f_%s.png" % [_out, t, ["game", "side", "close", "joint"][_view]])
 	_armed = false
 	_view += 1
-	if _view > 2:
+	if _view > 3:
 		_view = 0
 		_shot += 1
 	return false
@@ -128,9 +128,15 @@ func _aim() -> void:
 	if _view == 1:
 		_cam.fov = 40
 		_cam.look_at_from_position(base + fwd * 2.3 + right * 1.2 + Vector3.UP * 1.25, _mouth() + Vector3(0, 0.3, 0))
-	else:
+	elif _view == 2:
 		_cam.fov = 30
 		_cam.look_at_from_position(_mouth() + fwd * 0.9 + right * 0.55 + Vector3.UP * 0.1, _mouth() + fwd * 0.1 + Vector3(0, 0.05, 0))
+	else:
+		# Right up to the joint, to see the paper and the crutch.
+		var j: Node3D = weed._joint.root
+		var mid := j.global_transform * Vector3(0.07, 0, 0)
+		_cam.fov = 30
+		_cam.look_at_from_position(mid + fwd * 0.3 + right * 0.12 + Vector3.UP * 0.08, mid)
 
 
 func _mouth() -> Vector3:

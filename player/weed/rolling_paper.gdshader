@@ -16,8 +16,8 @@ uniform float wet : hint_range(0.0, 1.0) = 0.0;
 uniform float width = 0.085;
 uniform float radius = 0.0095;
 uniform vec3 fill_color : source_color = vec3(0.45, 0.7, 0.3);
-uniform vec3 paper_color : source_color = vec3(0.98, 0.95, 0.88);
-uniform vec3 gum_color : source_color = vec3(0.93, 0.86, 0.66);
+uniform vec3 paper_color : source_color = vec3(0.74, 0.6, 0.4);
+uniform vec3 gum_color : source_color = vec3(0.68, 0.54, 0.34);
 
 varying float v_across;
 
