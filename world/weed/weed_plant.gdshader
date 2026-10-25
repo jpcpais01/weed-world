@@ -1,7 +1,7 @@
 // Wild weed plants. They ride the forest's shared gust fronts, lean away from
 // Kelings brushing past, give a springy shudder when a bud is plucked, and can
 // shine with an inner light (ripe buds under Spirit Sight, a Bloom Trail
-// ripening them).
+// ripening them, or the ghostly aura of a rare strain).
 shader_type spatial;
 render_mode world_vertex_coords, cull_disabled, diffuse_lambert_wrap;
 
@@ -11,6 +11,7 @@ uniform sampler2D albedo_tex : source_color, filter_linear_mipmap, repeat_enable
 uniform float height = 1.0;           // plant height in metres, for the bend
 uniform vec3 glow_color : source_color = vec3(0.6, 1.0, 0.4);
 uniform float translucency : hint_range(0.0, 2.0) = 0.6;
+uniform float aura = 0.0;             // a faint inner light some rare strains always have
 uniform vec4 interactor_0 = vec4(0.0, -1000.0, 0.0, 0.9);
 uniform vec4 interactor_1 = vec4(0.0, -1000.0, 0.0, 0.9);
 uniform vec4 interactor_2 = vec4(0.0, -1000.0, 0.0, 0.9);
@@ -68,5 +69,6 @@ void fragment() {
 	AO = mix(0.45, 1.0, smoothstep(0.0, 0.5, v_h));
 	AO_LIGHT_AFFECT = 0.4;
 	float pulse = 0.75 + 0.25 * sin(TIME * 2.4 + phase * 9.0);
-	EMISSION = glow_color * glow * pulse * (0.25 + 0.75 * smoothstep(0.3, 0.9, v_h)) * (0.4 + dot(col, vec3(0.6)));
+	float light = glow + aura * (0.7 + 0.3 * sin(TIME * 0.9 + phase * 5.0 + v_h * 4.0));
+	EMISSION = glow_color * light * pulse * (0.25 + 0.75 * smoothstep(0.3, 0.9, v_h)) * (0.4 + dot(col, vec3(0.6)));
 }

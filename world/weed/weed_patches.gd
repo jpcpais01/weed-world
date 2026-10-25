@@ -3,6 +3,10 @@ extends RefCounted
 ## Where the wild weed grows in the Whispering Glade: little patches of one
 ## strain each, tucked beside the paths near the places worth exploring. The
 ## first one grows right by the spawn so new players find it straight away.
+## Rarer strains grow in fewer, smaller patches in special places: Moonfeather
+## weeps over the pond's far shore, Lantern Light glows in the shroom hollow,
+## Cloud Bonsai clings to the sunset ridge, and the one Moonlit Lotus hides by
+## the silver snag on the ridge shoulder.
 ##
 ## plan() runs after the trees are placed and before the undergrowth, so each
 ## plant gets a bed of soft soil (a ground stamp) that ferns and flowers keep
@@ -19,8 +23,30 @@ const ANCHORS := [
 	{"id": &"pond", "strain": &"verdant", "pos": Vector2(2.5, -19.5), "n": 4},
 	{"id": &"grove", "strain": &"verdant", "pos": Vector2(-23.0, 21.0), "n": 4},
 	{"id": &"crossing", "strain": &"verdant", "pos": Vector2(14.5, -0.5), "n": 3},
+	# Forged strains. Commons in two patches, uncommons off the beaten track,
+	# rares and the legendary each in one special spot.
+	{"id": &"glade_west", "strain": &"corkscrew", "pos": Vector2(-10.5, 12.5), "n": 3},
+	{"id": &"streamside", "strain": &"corkscrew", "pos": Vector2(21.0, -13.5), "n": 3},
+	{"id": &"south_path", "strain": &"mossy_mound", "pos": Vector2(-13.0, 31.0), "n": 3},
+	{"id": &"elder_west", "strain": &"mossy_mound", "pos": Vector2(-27.0, -16.0), "n": 3},
+	{"id": &"crossing_east", "strain": &"starfish", "pos": Vector2(24.5, 8.5), "n": 3},
+	{"id": &"ridge_path", "strain": &"starfish", "pos": Vector2(-9.5, -21.5), "n": 3},
+	{"id": &"west_woods", "strain": &"sky_spire", "pos": Vector2(-35.0, 8.0), "n": 3},
+	{"id": &"east_woods", "strain": &"sky_spire", "pos": Vector2(37.0, 19.0), "n": 2},
+	{"id": &"blossom_edge", "strain": &"bubblegum", "pos": Vector2(-33.0, 31.0), "n": 3},
+	{"id": &"south_meadow", "strain": &"bubblegum", "pos": Vector2(7.0, 35.0), "n": 2},
+	{"id": &"far_shore", "strain": &"moonfeather", "pos": Vector2(18.5, -20.5), "n": 2},
+	{"id": &"lantern_hollow", "strain": &"lantern", "pos": Vector2(35.5, -3.5), "n": 3},
+	{"id": &"sunset_ridge", "strain": &"cloud_bonsai", "pos": Vector2(-16.5, -40.0), "n": 2},
+	{"id": &"falls_path", "strain": &"sunset_braid", "pos": Vector2(4.5, -31.5), "n": 2},
+	{"id": &"silver_snag", "strain": &"moonlit_lotus", "pos": Vector2(-33.5, -24.0), "n": 1},
 ]
 const SPACING := 0.75
+## Highest a bud may grow (metres above the root) so a Keling can reach it.
+const BUD_REACH := 1.1
+## How much plants of each rarity vary in size.
+const SIZE_SPREAD := {&"common": Vector2(0.88, 1.1), &"uncommon": Vector2(0.94, 1.06),
+	&"rare": Vector2(0.96, 1.04), &"legendary": Vector2(1.0, 1.0)}
 const SEARCH := 9.0
 
 var terrain: ForestTerrain
@@ -46,29 +72,45 @@ func plan() -> void:
 		var centre := _settle(a.pos)
 		if centre == Vector2.INF:
 			continue
-		patches.append({"id": a.id, "strain": a.strain, "pos": centre})
-		scatter.keep_clear.append(Vector3(centre.x, centre.y, 2.2))
+		var info := WeedStrains.info(a.strain)
+		# Wide plants (Starfish, Mossy Mound...) need more elbow room.
+		var spread := WeedKit.plant_spread(a.strain)
+		var spacing := maxf(SPACING, spread * 1.7)
+		patches.append({"id": a.id, "strain": a.strain, "pos": centre, "rarity": info.get("rarity", &"common")})
+		scatter.keep_clear.append(Vector3(centre.x, centre.y, 2.2 + spread))
+		var sizes: Vector2 = SIZE_SPREAD[info.get("rarity", &"common")]
+		var top_bud := 0.0
+		for b in WeedKit.bud_anchors(a.strain):
+			top_bud = maxf(top_bud, b.y)
+		var model_h := WeedKit.plant_model_height(a.strain)
 		var placed: Array[Vector2] = []
 		var tries := 0
 		while placed.size() < a.n and tries < 60:
 			tries += 1
-			var r := 0.0 if placed.is_empty() else rng.randf_range(0.6, 1.5)
+			var r := 0.0 if placed.is_empty() else rng.randf_range(spacing * 0.85, spacing * 2.0)
 			var ang := rng.randf() * TAU
 			var p: Vector2 = centre + Vector2(cos(ang), sin(ang)) * r
-			if not _good(p, 0.35):
+			if not _good(p, 0.35 + spread * 0.5):
 				continue
 			var ok := true
 			for q in placed:
-				if p.distance_to(q) < SPACING:
+				if p.distance_to(q) < spacing:
 					ok = false
 					break
 			if not ok:
 				continue
 			placed.append(p)
-			var h: float = WeedStrains.info(a.strain).height * rng.randf_range(0.85, 1.12)
+			var h: float = info.height * rng.randf_range(sizes.x, sizes.y)
+			# Never grow the buds out of reach.
+			h = minf(h, BUD_REACH / maxf(top_bud / maxf(model_h, 0.01), 0.01))
 			plants.append({"pos": p, "strain": a.strain, "height": h, "yaw": rng.randf() * TAU, "patch": a.id})
 			# A bed of dark soil and moss at its foot that the undergrowth leaves clear.
-			scatter.ground.stamp(ForestGround.Foot.ROCK, p, 0.32)
+			# Low, sprawling strains get a wide bed without the lush collar of tall
+			# grass a rock stamp grows, so the grass never swallows them.
+			if model_h < 0.9:
+				scatter.ground.stamp(ForestGround.Foot.STONE, p, spread * 0.8 + 0.2)
+			else:
+				scatter.ground.stamp(ForestGround.Foot.ROCK, p, 0.32 + spread * 0.35)
 
 
 func build(parent: Node3D) -> Node3D:

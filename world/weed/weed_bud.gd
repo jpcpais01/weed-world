@@ -43,7 +43,7 @@ func on_grabbed() -> void:
 	if not ripe:
 		return
 	ripe = false
-	_timer = WeedPlant.REGROW_TIME * randf_range(0.85, 1.2)
+	_timer = (plant.regrow_time() if plant else WeedPlant.REGROW_TIME) * randf_range(0.85, 1.2)
 	_flash = 1.0
 	set_process(true)
 	if plant:

@@ -92,7 +92,12 @@ func _invisible_button() -> Button:
 func _on_bud(strain: StringName, first: bool) -> void:
 	var info := WeedStrains.info(strain)
 	if first:
-		_banner = {"title": "New strain: %s" % info.name, "text": info.blurb, "color": info.glow, "t": 0.0, "life": 4.2}
+		var r := WeedStrains.rarity(strain)
+		var found: int = weed.discovered.size() if weed else 1
+		var kicker: String = "%s  %s strain  ·  %d of %d found" % ["★".repeat(r.stars), r.name, found, WeedStrains.ORDER.size()]
+		var life: float = 4.2 + 0.6 * (r.stars - 1)
+		_banner = {"title": "New strain: %s" % info.name, "text": info.blurb, "color": info.glow, "t": 0.0, "life": life,
+			"kicker": kicker, "kicker_color": r.color}
 	_toast("+1 %s bud" % info.name, info.glow.lerp(Color.WHITE, 0.35))
 
 
@@ -425,6 +430,13 @@ func _draw_banner() -> void:
 		_draw.draw_string_outline(_title_font, Vector2(s.x * 0.5 - tw * 0.5, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 10 + k * 8, Color(col, 0.08 * a))
 	_draw.draw_string_outline(_title_font, Vector2(s.x * 0.5 - tw * 0.5, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 8, Color(HudTheme.INK, 0.55 * a))
 	_draw.draw_string(_title_font, Vector2(s.x * 0.5 - tw * 0.5, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(col.lerp(Color.WHITE, 0.55), a))
+	if _banner.has("kicker"):
+		var kick: String = _banner.kicker
+		var kc: Color = _banner.kicker_color
+		var kw := _body_font.get_string_size(kick, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+		var kp := Vector2(s.x * 0.5 - kw * 0.5, y - size * 0.95)
+		_draw.draw_string_outline(_body_font, kp, kick, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, 6, Color(HudTheme.INK, 0.55 * a))
+		_draw.draw_string(_body_font, kp, kick, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(kc.lerp(Color.WHITE, 0.25), a))
 	var sub: String = _banner.text
 	var sw := _body_font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 	_draw.draw_string_outline(_body_font, Vector2(s.x * 0.5 - sw * 0.5, y + 34.0), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 6, Color(HudTheme.INK, 0.5 * a))

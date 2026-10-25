@@ -297,6 +297,7 @@ func net_event(kind: StringName, id: Variant, data := {}) -> void:
 ## A bud for the controller to show in the closed fist after a pick. Built
 ## so the controller's sprig placement (stem down through the fist) works.
 func fist_bud(strain: StringName) -> Node3D:
+	_fist_mesh.mesh = WeedKit.bud_mesh(strain)
 	_fist_mesh.material_override = WeedKit.bud_material(strain)
 	return _fist_bud
 
@@ -712,7 +713,11 @@ var _paper_home := W0       # where the paper is this frame (skeleton space)
 
 func _prepare_roll(strain: StringName) -> void:
 	var info := WeedStrains.info(strain)
+	# Each strain's bud has its own shape: size the crumble to this one.
+	_float_bud.mesh = WeedKit.bud_mesh(strain)
 	_float_bud.material_override = WeedKit.bud_material(strain)
+	var aabb := _float_bud.mesh.get_aabb()
+	_bud_radius = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * 0.5
 	_float_bud_strain = strain
 	var crumb: Color = info.bud_tint.lerp(Color(0.42, 0.66, 0.28), 0.55)
 	_paper_mat.set_shader_parameter("fill_color", crumb)
