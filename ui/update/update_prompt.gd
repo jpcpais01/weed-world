@@ -679,7 +679,7 @@ func _sync() -> void:
 			else:
 				_title.text = "Ready to update"
 				_sub.text = "v%s is downloaded and checked." % ver
-				_message.text = "Weed World closes for a moment, swaps in the new version and opens again by itself."
+				_message.text = "Weed World closes for a moment, unpacks the new version into Downloads › WeedWorld and opens it from there by itself."
 				_primary.text = "Restart and update"
 			_message.visible = true
 			_secondary.text = "Later"

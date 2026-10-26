@@ -1,5 +1,9 @@
 # Patch notes
 
+## 26 Oct 2026 · 02:15 UTC
+- **Weed World has a banner and a cover.** Fresh store art, rendered in the game itself: the whole Keling gang cheering on the meadow path under the Weed World title, as a wide banner and a tall cover, plus the game's logo. All three now come in every Windows download, right next to WeedWorld.exe.
+- **Windows updates land in your Downloads.** When the game updates itself on PC, it now unpacks the new version (game, banner, cover and logo) into a WeedWorld folder in Downloads and starts it from there, so you always know where the latest Weed World lives. Your Kelings, saves and settings carry over as always. Android updates work exactly as before.
+
 ## 25 Oct 2026 · 05:13 UTC
 - **No more hitch when a big banner pops up.** The banners for a new strain, a smoke power, a gift or Dragon Breath grew their title by changing its font size every frame, so the game had to draw every letter and its glow from scratch, frame after frame. That froze the game for tens of milliseconds each time. The title now keeps one size and simply scales up as it pops, so it looks the same and costs almost nothing.
 - **Rarity stars without the stall.** The ★ stars on a new-strain banner weren't in the game's fonts, so the system went searching for a font that had them. They're now drawn shapes.

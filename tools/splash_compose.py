@@ -51,11 +51,14 @@ def grade(img: Image.Image) -> Image.Image:
     return Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8), "RGB").convert("RGBA")
 
 
-def title(img: Image.Image) -> Image.Image:
+def title(img: Image.Image, at=TITLE_AT, unit: float = 0.0, tagline: str = TAGLINE) -> Image.Image:
+    """Draws the title (and tagline) centred at `at` (fractions of the picture).
+    Sizes scale with `unit` px, the picture height unless given."""
     w, h = img.size
-    big = font(int(h * 0.15), 650)
-    small = font(int(h * 0.036), 500)
-    cx, cy = TITLE_AT[0] * w, TITLE_AT[1] * h
+    u = unit or h
+    big = font(int(u * 0.15), 650)
+    small = font(int(u * 0.036), 500)
+    cx, cy = at[0] * w, at[1] * h
 
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
@@ -63,28 +66,29 @@ def title(img: Image.Image) -> Image.Image:
     alpha = layer.getchannel("A")
 
     # Deep forest shadow + warm glow behind the letters.
-    shadow = alpha.filter(ImageFilter.GaussianBlur(h * 0.012))
+    shadow = alpha.filter(ImageFilter.GaussianBlur(u * 0.012))
     out = img.copy()
-    out.alpha_composite(Image.merge("RGBA", [Image.new("L", img.size, v) for v in (10, 32, 18)] + [shadow.point(lambda p: int(p * 0.9))]), (0, int(h * 0.006)))
-    glow = alpha.filter(ImageFilter.GaussianBlur(h * 0.03))
+    out.alpha_composite(Image.merge("RGBA", [Image.new("L", img.size, v) for v in (10, 32, 18)] + [shadow.point(lambda p: int(p * 0.9))]), (0, int(u * 0.006)))
+    glow = alpha.filter(ImageFilter.GaussianBlur(u * 0.03))
     out.alpha_composite(Image.merge("RGBA", [Image.new("L", img.size, v) for v in (255, 214, 120)] + [glow.point(lambda p: int(p * 0.55))]))
 
     # Letters: a fat dark-green outline, then a cream-to-lime gradient fill.
     outline = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(outline).text((cx, cy), TITLE, font=big, anchor="mm", fill=(20, 58, 28, 255), stroke_width=int(h * 0.009), stroke_fill=(20, 58, 28, 255))
+    ImageDraw.Draw(outline).text((cx, cy), TITLE, font=big, anchor="mm", fill=(20, 58, 28, 255), stroke_width=int(u * 0.009), stroke_fill=(20, 58, 28, 255))
     out.alpha_composite(outline)
-    ys = np.linspace(0, 1, h, dtype=np.float32)[:, None]
-    t = np.clip((ys - (cy / h - 0.07)) / 0.14, 0, 1)
+    ys = np.arange(h, dtype=np.float32)[:, None]
+    t = np.clip((ys - (cy - u * 0.07)) / (u * 0.14), 0, 1)
     top_c, bot_c = np.array([255, 250, 222]), np.array([190, 236, 110])
     grad = (top_c * (1 - t[..., None]) + bot_c * t[..., None]).repeat(w, axis=1).astype(np.uint8)
     fill = Image.fromarray(grad, "RGB").convert("RGBA")
     fill.putalpha(alpha)
     out.alpha_composite(fill)
 
-    tag = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ty = cy + h * 0.105
-    ImageDraw.Draw(tag).text((cx, ty), TAGLINE, font=small, anchor="mm", fill=(255, 246, 214, 235), stroke_width=int(h * 0.004), stroke_fill=(16, 44, 22, 200))
-    out.alpha_composite(tag)
+    if tagline:
+        tag = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ty = cy + u * 0.105
+        ImageDraw.Draw(tag).text((cx, ty), tagline, font=small, anchor="mm", fill=(255, 246, 214, 235), stroke_width=int(u * 0.004), stroke_fill=(16, 44, 22, 200))
+        out.alpha_composite(tag)
     return out
 
 
