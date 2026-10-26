@@ -1,5 +1,8 @@
 # Patch notes
 
+## 26 Oct 2026 · 02:25 UTC
+- **A cleaner banner.** The Weed World banner that comes with the Windows download is now just the view: the Keling gang on the sunlit meadow path, no text on top.
+
 ## 26 Oct 2026 · 02:15 UTC
 - **Weed World has a banner and a cover.** Fresh store art, rendered in the game itself: the whole Keling gang cheering on the meadow path under the Weed World title, as a wide banner and a tall cover, plus the game's logo. All three now come in every Windows download, right next to WeedWorld.exe.
 - **Windows updates land in your Downloads.** When the game updates itself on PC, it now unpacks the new version (game, banner, cover and logo) into a WeedWorld folder in Downloads and starts it from there, so you always know where the latest Weed World lives. Your Kelings, saves and settings carry over as always. Android updates work exactly as before.

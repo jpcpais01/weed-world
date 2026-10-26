@@ -4,7 +4,7 @@
     python3 tools/store_art_compose.py
 
 - store/weed_world_banner.png (3840x1240, Steam library hero size): the gang
-  on the meadow path with the title over the treetops.
+  on the meadow path, no text.
 - store/weed_world_cover.png (1200x1800, Steam library capsule 2x): the gang
   huddled up, title in the sky, tagline on the path.
 - store/weed_world_logo.png: the game icon (branding/icon.png).
@@ -25,7 +25,7 @@ from splash_compose import ROOT, font, title
 OUT = ROOT / "store"
 
 
-def grade(img: Image.Image, title_y: float, foot: float) -> Image.Image:
+def grade(img: Image.Image, title_y: float, foot: float, halo: float = 0.22) -> Image.Image:
     """Soft vignette, a gentle darkening behind the title so it reads, and a
     warm lift through the middle where the gang stands."""
     a = np.asarray(img.convert("RGB")).astype(np.float32) / 255.0
@@ -37,8 +37,8 @@ def grade(img: Image.Image, title_y: float, foot: float) -> Image.Image:
     v = np.sqrt(((x - 0.5) * min(aspect, 1.6)) ** 2 + (y - 0.52) ** 2)
     shade = 1.0 - np.clip((v - 0.4) / 0.6, 0, 1) ** 1.6 * 0.5
     a = a * shade[..., None]
-    halo = np.exp(-(((y - title_y) / 0.16) ** 2)) * np.exp(-(((x - 0.5) * aspect / 0.9) ** 2))
-    a = a * (1 - halo[..., None] * 0.22)
+    dim = np.exp(-(((y - title_y) / 0.16) ** 2)) * np.exp(-(((x - 0.5) * aspect / 0.9) ** 2))
+    a = a * (1 - dim[..., None] * halo)
     if foot > 0:
         band = np.clip((y - (1 - foot)) / foot, 0, 1) ** 1.3
         a = a * (1 - band[..., None] * 0.6) + np.array([0.02, 0.07, 0.04]) * band[..., None] * 0.6
@@ -62,8 +62,8 @@ def main() -> None:
     art = ROOT / "art_source"
 
     banner = Image.open(art / "banner_art.png")
-    b = grade(banner, 0.17, 0.0)
-    b = title(b, at=(0.5, 0.17), unit=banner.height * 1.15)
+    # No text on the banner: just the view (Steam lays its own logo over it).
+    b = grade(banner, 0.17, 0.0, halo=0.0)
     b.convert("RGB").save(OUT / "weed_world_banner.png", optimize=True)
 
     cover = Image.open(art / "cover_art.png")
