@@ -119,6 +119,17 @@ func _swap() -> void:
 	_check(FileAccess.get_file_as_string(dir.path_join("MyGame.exe.old")) == "old game", "old exe kept aside")
 	_check(leftovers.size() == 2, "both replaced files queued for cleanup (%s)" % [leftovers])
 	_check(not FileAccess.file_exists(dir.path_join("WeedWorld.exe")), "no stray exe")
+	# Updates land in Downloads/WeedWorld; a game already there keeps its name.
+	var dl := dir.path_join("Downloads")
+	var fresh := UpdateFeed.windows_target_exe(dl, dir.path_join("MyGame.exe"))
+	_check(fresh == dl.path_join("WeedWorld/WeedWorld.exe"), "update targets Downloads/WeedWorld (%s)" % fresh)
+	_check(UpdateFeed.windows_target_exe(dl, dl.path_join("WeedWorld/Renamed.exe")) == dl.path_join("WeedWorld/Renamed.exe"), "a game in Downloads/WeedWorld updates in place")
+	_check(UpdateFeed.windows_target_exe("", dir.path_join("MyGame.exe")) == dir.path_join("MyGame.exe"), "no Downloads folder: update in place")
+	for n in ["WeedWorld.exe", "README.md", "extra/data.txt"]:
+		DirAccess.remove_absolute(dl.path_join("WeedWorld").path_join(n))
+	var err2 := UpdateFeed.swap_in_zip(zip_path, fresh, [])
+	_check(err2 == "" and FileAccess.get_file_as_string(fresh) == "new game", "zip unpacks into a fresh Downloads/WeedWorld (%s)" % err2)
+	_check(FileAccess.get_file_as_string(dl.path_join("WeedWorld/README.md")) == "new readme", "art and docs unpack beside the exe")
 	var bad := UpdateFeed.swap_in_zip(dir.path_join("missing.zip"), dir.path_join("MyGame.exe"), [])
 	_check(bad != "", "a missing zip fails cleanly")
 

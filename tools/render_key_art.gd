@@ -4,6 +4,11 @@ extends SceneTree
 ## Needs a real renderer (not --headless):
 ##   xvfb-run godot --path . --rendering-driver vulkan --resolution 1920x864 -s res://tools/render_key_art.gd -- <out.png> [--empty]
 ## --empty renders the same shot without the Kelings (for parallax layers).
+## Store art (tools/store_art_compose.py) reframes the same shot:
+##   --fov=<deg>   vertical field of view (default 52)
+##   --back=<m>    pulls the camera back along the path, the gang stays put
+##   --lift=<m>    raises the camera; --look-lift=<m> raises where it looks
+##   --squeeze=<f> scales how far apart the gang stands (narrow covers)
 ## tools/splash_compose.py turns the render into branding/splash.png.
 
 const MODEL := "res://assets/characters/%s/%s.glb"
@@ -37,6 +42,23 @@ func _initialize() -> void:
 	if a.size() > 0:
 		_out = a[0]
 	var empty := "--empty" in a
+	var fov := 52.0
+	var back := 0.0
+	var lift := 0.0
+	var look_lift := 0.0
+	var squeeze := 1.0
+	for arg in a:
+		var v := arg.get_slice("=", 1).to_float()
+		if arg.begins_with("--fov="):
+			fov = v
+		elif arg.begins_with("--back="):
+			back = v
+		elif arg.begins_with("--lift="):
+			lift = v
+		elif arg.begins_with("--look-lift="):
+			look_lift = v
+		elif arg.begins_with("--squeeze="):
+			squeeze = v
 
 	root.msaa_3d = Viewport.MSAA_4X
 	_forest = load("res://world/forest/forest.tscn").instantiate()
@@ -44,11 +66,12 @@ func _initialize() -> void:
 	root.add_child(_forest)
 
 	var cam := Camera3D.new()
-	cam.fov = 52.0
+	cam.fov = fov
 	root.add_child(cam)
-	var cy := _forest.ground_height(CAM.x, CAM.y) + CAM_HEIGHT
-	var ly := _forest.ground_height(LOOK.x, LOOK.y) + LOOK_HEIGHT
-	cam.look_at_from_position(Vector3(CAM.x, cy, CAM.y), Vector3(LOOK.x, ly, LOOK.y))
+	var eye := CAM - (LOOK - CAM).normalized() * back
+	var cy := _forest.ground_height(eye.x, eye.y) + CAM_HEIGHT + lift
+	var ly := _forest.ground_height(LOOK.x, LOOK.y) + LOOK_HEIGHT + look_lift
+	cam.look_at_from_position(Vector3(eye.x, cy, eye.y), Vector3(LOOK.x, ly, LOOK.y))
 	cam.make_current()
 	# Part the grass around the lens too, so no blade sweeps across the shot.
 	var lens := Node3D.new()
@@ -62,7 +85,7 @@ func _initialize() -> void:
 	var right := Vector2(-fwd.y, fwd.x)
 	for c in CAST:
 		var at: Vector2 = c.at
-		var p: Vector2 = CAM + right * at.x + fwd * at.y
+		var p: Vector2 = CAM + right * at.x * squeeze + fwd * at.y
 		var model: Node3D = load(MODEL % [c.id, c.id]).instantiate()
 		root.add_child(model)
 		model.position = Vector3(p.x, _forest.ground_height(p.x, p.y), p.y)

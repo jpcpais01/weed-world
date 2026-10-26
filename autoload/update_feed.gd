@@ -11,6 +11,9 @@ const FEED_URL := "https://api.github.com/repos/%s/releases?per_page=20" % REPO
 const RELEASES_URL := "https://github.com/%s/releases/latest" % REPO
 ## How many hour groups of patch notes the update card shows at most.
 const MAX_NOTE_GROUPS := 6
+## Windows updates unpack into Downloads/<WINDOWS_FOLDER>/<WINDOWS_EXE>.
+const WINDOWS_FOLDER := "WeedWorld"
+const WINDOWS_EXE := "WeedWorld.exe"
 
 
 ## "v0.1.24" or "0.1.24" -> [0, 1, 24]. Anything that is not a number counts
@@ -160,7 +163,22 @@ static func file_sha256(path: String) -> String:
 	return ctx.finish().hex_encode()
 
 
-## Installs a Windows release zip next to the running game. Every file is
+## Where a Windows update unpacks to: a "WeedWorld" folder in the player's
+## Downloads, so the new build (with its banner, cover and logo) is always
+## easy to find. Returns the .exe the zip's game should land on. A game that
+## already runs from that folder keeps its own file name; with no Downloads
+## folder known it updates in place.
+static func windows_target_exe(downloads: String, exe_path: String) -> String:
+	if downloads.strip_edges() == "":
+		return exe_path
+	var dir := downloads.path_join(WINDOWS_FOLDER)
+	var norm := func(p: String) -> String: return p.replace("\\", "/").simplify_path().to_lower()
+	if norm.call(exe_path.get_base_dir()) == norm.call(dir):
+		return exe_path
+	return dir.path_join(WINDOWS_EXE)
+
+
+## Installs a Windows release zip beside `exe_path`. Every file is
 ## first written beside its target as "<name>.new", then the old file is
 ## renamed to "<name>.old" (Windows lets a running .exe be renamed, just not
 ## overwritten) and the new one takes its place. The zip's .exe always lands

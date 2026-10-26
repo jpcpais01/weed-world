@@ -7,8 +7,10 @@ extends Node
 ## - Android: hands the APK to the system installer through Godot's built-in
 ##   FileProvider (OS.shell_open), after walking the player through the
 ##   one-time "allow installs from this app" switch.
-## - Windows: swaps the new WeedWorld.exe in beside the running one and
-##   relaunches (UpdateFeed.swap_in_zip).
+## - Windows: unzips the release (game, banner, cover, logo) into
+##   Downloads/WeedWorld, swapping files in place if that is where the game
+##   already runs, then starts the new WeedWorld.exe there and quits
+##   (UpdateFeed.windows_target_exe + swap_in_zip).
 ## Anything else, or anything that fails, falls back to the download page.
 ## Only exported builds check; the editor and headless runs never do.
 
@@ -50,6 +52,7 @@ var _quiet_verify := false
 var _before_check: int = State.IDLE
 var _apply_task := -1
 var _apply_result := ""
+var _apply_exe := ""
 var _apply_leftovers: Array = []
 var _cleanup_tries := 0
 var _cleanup_clock := 3.0
@@ -210,6 +213,7 @@ func install() -> void:
 			_set_state(State.APPLYING)
 			_apply_result = ""
 			_apply_leftovers = []
+			_apply_exe = UpdateFeed.windows_target_exe(OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS), OS.get_executable_path())
 			_apply_task = WorkerThreadPool.add_task(_apply_windows, true, "Install update")
 
 
@@ -374,7 +378,7 @@ func _file_size(path: String) -> int:
 
 
 func _apply_windows() -> void:
-	_apply_result = UpdateFeed.swap_in_zip(_file_path(), OS.get_executable_path(), _apply_leftovers)
+	_apply_result = UpdateFeed.swap_in_zip(_file_path(), _apply_exe, _apply_leftovers)
 
 
 func _on_applied() -> void:
@@ -385,9 +389,9 @@ func _on_applied() -> void:
 	cfg.set_value("updater", "leftovers", _apply_leftovers)
 	cfg.save(SETTINGS)
 	DirAccess.remove_absolute(_file_path())
-	var pid := OS.create_process(OS.get_executable_path(), OS.get_cmdline_args())
+	var pid := OS.create_process(_apply_exe, OS.get_cmdline_args())
 	if pid <= 0:
-		_fail("Updated! Weed World couldn't reopen itself, so start it again to play the new version.")
+		_fail("Updated! Weed World couldn't reopen itself, so start %s to play the new version." % _apply_exe)
 		return
 	get_tree().quit()
 

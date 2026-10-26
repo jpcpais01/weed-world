@@ -210,8 +210,11 @@ jobs:
           mkdir -p build/windows
           timeout 900 ~/godot/godot --headless --path . --export-release "Windows Desktop" build/windows/WeedWorld.exe
           test -s build/windows/WeedWorld.exe
-          cp README.md PATCH_NOTES.md build/windows/
-          (cd build/windows && zip -9 -q "../WeedWorld-${{ steps.version.outputs.name }}-windows.zip" WeedWorld.exe README.md PATCH_NOTES.md)
+          cp README.md PATCH_NOTES.md store/weed_world_banner.png store/weed_world_cover.png store/weed_world_logo.png build/windows/
+          # Asset name and WeedWorld.exe at the zip root are what the in-game updater looks for.
+          (cd build/windows && zip -9 -q "../WeedWorld-${{ steps.version.outputs.name }}-windows.zip" \
+            WeedWorld.exe weed_world_banner.png weed_world_cover.png weed_world_logo.png README.md PATCH_NOTES.md)
+          unzip -l "build/WeedWorld-${{ steps.version.outputs.name }}-windows.zip"
           ls -la build
 
       - name: Upload build artifacts
@@ -230,7 +233,7 @@ jobs:
           awk '/^## /{n++} n==1' PATCH_NOTES.md > "$RUNNER_TEMP/notes.md"
           {
             echo
-            echo "**Downloads:** \`WeedWorld-${{ steps.version.outputs.name }}.apk\` for Android, \`WeedWorld-${{ steps.version.outputs.name }}-windows.zip\` for Windows (unzip and run WeedWorld.exe)."
+            echo "**Downloads:** \`WeedWorld-${{ steps.version.outputs.name }}.apk\` for Android, \`WeedWorld-${{ steps.version.outputs.name }}-windows.zip\` for Windows (unzip and run WeedWorld.exe; the banner, cover and logo art come in the zip too)."
           } >> "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
 
